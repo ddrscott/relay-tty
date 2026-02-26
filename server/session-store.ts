@@ -20,9 +20,14 @@ export class SessionStore {
   }
 
   list(): Session[] {
-    return Array.from(this.sessions.values()).sort(
-      (a, b) => b.createdAt - a.createdAt
-    );
+    return Array.from(this.sessions.values()).sort((a, b) => {
+      // Active sessions first, exited sessions last
+      if (a.status !== b.status) {
+        return a.status === "running" ? -1 : 1;
+      }
+      // Within same status: newest first
+      return b.createdAt - a.createdAt;
+    });
   }
 
   delete(id: string): boolean {

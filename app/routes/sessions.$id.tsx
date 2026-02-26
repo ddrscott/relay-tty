@@ -42,11 +42,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [shiftOn, setShiftOn] = useState(false);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
-  const prevSession = currentIndex > 0 ? allSessions[currentIndex - 1] : null;
-  const nextSession =
-    currentIndex < allSessions.length - 1
-      ? allSessions[currentIndex + 1]
-      : null;
+  const prevSession = allSessions.length > 1
+    ? allSessions[(currentIndex - 1 + allSessions.length) % allSessions.length]
+    : null;
+  const nextSession = allSessions.length > 1
+    ? allSessions[(currentIndex + 1) % allSessions.length]
+    : null;
 
   // Close picker on outside click
   useEffect(() => {
@@ -89,7 +90,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     micStoppedByUser.current = false;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
-    recognition.interimResults = true;
     recognitionRef.current = recognition;
 
     let lastResultIndex = 0;
@@ -131,30 +131,42 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     recognition.start();
   }, [listening]);
 
-  // Send a key, applying sticky modifiers then clearing them
-  const sendKey = useCallback((key: string) => {
-    if (!terminalRef.current) return;
+  // Apply sticky modifiers to a key string, then clear them
+  const applyModifiers = useCallback((key: string): string => {
     let out = key;
     if (ctrlOn && key.length === 1) {
-      // Ctrl+letter = ASCII control code (A=1, B=2, ... Z=26)
       const upper = key.toUpperCase();
       if (upper >= "A" && upper <= "Z") {
         out = String.fromCharCode(upper.charCodeAt(0) - 64);
       }
     }
     if (altOn) {
-      // Alt/Option sends ESC prefix
       out = "\x1b" + out;
     }
     if (shiftOn && key.length === 1) {
       out = key.toUpperCase();
     }
-    terminalRef.current.sendText(out);
-    // Clear sticky modifiers after use
     setCtrlOn(false);
     setAltOn(false);
     setShiftOn(false);
+    return out;
   }, [ctrlOn, altOn, shiftOn]);
+
+  // Send a key from on-screen buttons, applying sticky modifiers
+  const sendKey = useCallback((key: string) => {
+    if (!terminalRef.current) return;
+    terminalRef.current.sendText(applyModifiers(key));
+  }, [applyModifiers]);
+
+  // Set input transform on terminal so keyboard input also gets modifiers
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    if (ctrlOn || altOn || shiftOn) {
+      terminalRef.current.setInputTransform((data: string) => applyModifiers(data));
+    } else {
+      terminalRef.current.setInputTransform(null);
+    }
+  }, [ctrlOn, altOn, shiftOn, applyModifiers]);
 
   return (
     <main className="h-dvh flex flex-col relative">
@@ -180,32 +192,37 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           {pickerOpen && allSessions.length > 1 && (
             <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-64 overflow-y-auto">
               {allSessions.map((s, i) => (
-                <button
-                  key={s.id}
-                  className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-base-100 transition-colors ${
-                    s.id === session.id ? "bg-base-100" : ""
-                  }`}
-                  onClick={() => goTo(s.id)}
-                >
-                  <span className="text-xs text-base-content/40 w-4 text-right shrink-0">
-                    {i + 1}
-                  </span>
-                  <code className="text-sm font-mono truncate flex-1">
-                    {s.command} {s.args.join(" ")}
-                  </code>
-                  <span className="text-xs text-base-content/30 font-mono shrink-0">
-                    {s.id}
-                  </span>
-                  {s.status === "exited" && (
-                    <span
-                      className={`text-xs shrink-0 ${
-                        s.exitCode === 0 ? "text-success" : "text-error"
-                      }`}
-                    >
-                      {s.exitCode}
-                    </span>
+                <div key={s.id}>
+                  {/* Divider between active and exited */}
+                  {i > 0 && s.status === "exited" && allSessions[i - 1].status !== "exited" && (
+                    <div className="border-t border-base-content/10 mx-3 my-1" />
                   )}
-                </button>
+                  <button
+                    className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-base-100 transition-colors ${
+                      s.id === session.id ? "bg-base-100" : ""
+                    } ${s.status === "exited" ? "opacity-50" : ""}`}
+                    onClick={() => goTo(s.id)}
+                  >
+                    <span className="text-xs text-base-content/40 w-4 text-right shrink-0">
+                      {i + 1}
+                    </span>
+                    <code className="text-sm font-mono truncate flex-1">
+                      {s.command} {s.args.join(" ")}
+                    </code>
+                    <span className="text-xs text-base-content/30 font-mono shrink-0">
+                      {s.id}
+                    </span>
+                    {s.status === "exited" && (
+                      <span
+                        className={`text-xs shrink-0 ${
+                          s.exitCode === 0 ? "text-success" : "text-error"
+                        }`}
+                      >
+                        {s.exitCode}
+                      </span>
+                    )}
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -244,22 +261,24 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Left edge turner */}
         {prevSession && (
           <button
-            className="absolute left-0 top-0 bottom-0 w-8 z-10 flex items-center justify-center opacity-0 hover:opacity-100 active:opacity-100 transition-opacity bg-gradient-to-r from-base-100/60 to-transparent"
+            className="absolute left-0 top-0 bottom-0 w-10 z-10 flex items-center justify-center bg-gradient-to-r from-base-100/80 to-transparent opacity-60 hover:opacity-100 active:opacity-100 transition-opacity"
             onClick={() => goTo(prevSession.id)}
+            onMouseDown={(e) => e.preventDefault()}
             aria-label="Previous session"
           >
-            <span className="text-base-content/70 text-lg">&lsaquo;</span>
+            <span className="text-base-content text-xl font-bold">&lsaquo;</span>
           </button>
         )}
 
         {/* Right edge turner */}
         {nextSession && (
           <button
-            className="absolute right-0 top-0 bottom-0 w-8 z-10 flex items-center justify-center opacity-0 hover:opacity-100 active:opacity-100 transition-opacity bg-gradient-to-l from-base-100/60 to-transparent"
+            className="absolute right-0 top-0 bottom-0 w-10 z-10 flex items-center justify-center bg-gradient-to-l from-base-100/80 to-transparent opacity-60 hover:opacity-100 active:opacity-100 transition-opacity"
             onClick={() => goTo(nextSession.id)}
+            onMouseDown={(e) => e.preventDefault()}
             aria-label="Next session"
           >
-            <span className="text-base-content/70 text-lg">&rsaquo;</span>
+            <span className="text-base-content text-xl font-bold">&rsaquo;</span>
           </button>
         )}
 

@@ -4,6 +4,8 @@ import { WS_MSG } from "../../shared/types";
 export interface TerminalHandle {
   sendText: (text: string) => void;
   scrollToBottom: () => void;
+  /** Set a transform applied to all keyboard input before sending. Return null to suppress. */
+  setInputTransform: (fn: ((data: string) => string | null) | null) => void;
 }
 
 interface TerminalProps {
@@ -19,6 +21,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<any>(null);
+  const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
   const fit = useCallback(() => {
@@ -52,7 +55,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     termRef.current?.scrollToBottom();
   }, []);
 
-  useImperativeHandle(ref, () => ({ sendText, scrollToBottom }), [sendText, scrollToBottom]);
+  const setInputTransform = useCallback((fn: ((data: string) => string | null) | null) => {
+    inputTransformRef.current = fn;
+  }, []);
+
+  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform }), [sendText, scrollToBottom, setInputTransform]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -182,11 +189,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         viewport.addEventListener("scroll", checkScroll, { passive: true });
       }
 
-      // Terminal input → WebSocket
+      // Terminal input → WebSocket (with optional input transform for sticky modifiers)
       term.onData((data: string) => {
+        const transform = inputTransformRef.current;
+        const out = transform ? transform(data) : data;
+        if (out === null) return; // suppressed
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          const encoded = new TextEncoder().encode(data);
+          const encoded = new TextEncoder().encode(out);
           const msg = new Uint8Array(1 + encoded.length);
           msg[0] = WS_MSG.DATA;
           msg.set(encoded, 1);
