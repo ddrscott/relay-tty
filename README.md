@@ -7,12 +7,22 @@ Run `relay htop` on your Mac/Linux box, then pick it up from your phone. Session
 ## Quick Start
 
 ```bash
-npm install
-npm run dev        # starts server on http://localhost:7680
+npx relay-tty bash           # creates a session and attaches locally
+                              # Ctrl+] to detach (session keeps running)
+```
 
-# In another terminal:
-npx relay bash     # creates a session and attaches locally
-                   # Ctrl+] to detach (session keeps running)
+Or install globally:
+
+```bash
+npm i -g relay-tty
+relay bash
+```
+
+### Start the web server
+
+```bash
+relay server start           # http://localhost:7680
+relay server install         # install as system service (launchd/systemd)
 ```
 
 ## CLI
