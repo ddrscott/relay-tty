@@ -28,6 +28,9 @@ export function SessionCard({ session }: { session: Session }) {
               {isRunning ? "running" : `exited (${session.exitCode})`}
             </span>
           </div>
+          <div className="text-xs text-base-content/50 font-mono truncate">
+            {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
+          </div>
           <div className="flex items-center justify-between text-xs text-base-content/50">
             <span>{session.id}</span>
             <span>{timeAgo(session.createdAt)}</span>

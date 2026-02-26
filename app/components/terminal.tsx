@@ -1,5 +1,9 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useImperativeHandle, forwardRef } from "react";
 import { WS_MSG } from "../../shared/types";
+
+export interface TerminalHandle {
+  sendText: (text: string) => void;
+}
 
 interface TerminalProps {
   sessionId: string;
@@ -7,7 +11,7 @@ interface TerminalProps {
   onExit?: (exitCode: number) => void;
 }
 
-export function Terminal({ sessionId, fontSize = 14, onExit }: TerminalProps) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -23,6 +27,19 @@ export function Terminal({ sessionId, fontSize = 14, onExit }: TerminalProps) {
       }
     }
   }, []);
+
+  const sendText = useCallback((text: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const encoded = new TextEncoder().encode(text);
+      const msg = new Uint8Array(1 + encoded.length);
+      msg[0] = WS_MSG.DATA;
+      msg.set(encoded, 1);
+      ws.send(msg);
+    }
+  }, []);
+
+  useImperativeHandle(ref, () => ({ sendText }), [sendText]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -176,4 +193,4 @@ export function Terminal({ sessionId, fontSize = 14, onExit }: TerminalProps) {
       <div ref={containerRef} className="w-full h-full overflow-hidden touch-action-none" style={{ touchAction: "none" }} />
     </div>
   );
-}
+});

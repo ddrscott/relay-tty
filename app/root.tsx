@@ -14,6 +14,8 @@ export const links: Route.LinksFunction = () => [
     rel: "icon",
     href: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>",
   },
+  { rel: "manifest", href: "/manifest.webmanifest" },
+  { rel: "apple-touch-icon", href: "/icon-192.svg" },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -22,6 +24,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+        <meta name="theme-color" content="#1d232a" />
         <Meta />
         <Links />
       </head>
@@ -29,6 +32,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
         <ScrollRestoration />
         <Scripts />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`,
+          }}
+        />
       </body>
     </html>
   );
