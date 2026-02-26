@@ -1,10 +1,17 @@
 import type { Session } from "../shared/types.js";
 
+const EXITED_TTL_MS = 5 * 60 * 1000; // Remove exited sessions after 5 minutes
+
 export class SessionStore {
   private sessions = new Map<string, Session>();
+  private cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   create(session: Session): Session {
     this.sessions.set(session.id, session);
+    // Schedule cleanup if already exited (e.g. discovered on startup)
+    if (session.status === "exited") {
+      this.scheduleCleanup(session.id, session.exitedAt);
+    }
     return session;
   }
 
@@ -19,6 +26,11 @@ export class SessionStore {
   }
 
   delete(id: string): boolean {
+    const timer = this.cleanupTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.cleanupTimers.delete(id);
+    }
     return this.sessions.delete(id);
   }
 
@@ -35,6 +47,19 @@ export class SessionStore {
       session.status = "exited";
       session.exitCode = exitCode;
       session.exitedAt = Date.now();
+      this.scheduleCleanup(id, session.exitedAt);
     }
+  }
+
+  private scheduleCleanup(id: string, exitedAt?: number): void {
+    // Don't double-schedule
+    if (this.cleanupTimers.has(id)) return;
+    const age = Date.now() - (exitedAt || Date.now());
+    const delay = Math.max(0, EXITED_TTL_MS - age);
+    const timer = setTimeout(() => {
+      this.cleanupTimers.delete(id);
+      this.sessions.delete(id);
+    }, delay);
+    this.cleanupTimers.set(id, timer);
   }
 }

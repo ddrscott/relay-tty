@@ -148,7 +148,8 @@ async function start() {
     }
     const token = generateToken ? generateToken() : null;
     if (token) {
-      console.log(`Auth token URL: ${localUrl}/api/auth/callback?token=${token}`);
+      const authBase = APP_URL || localUrl;
+      console.log(`Auth: ${authBase}/api/auth/callback?token=${token}`);
     }
     if (DISCORD_WEBHOOK && APP_URL) {
       const authUrl = token
