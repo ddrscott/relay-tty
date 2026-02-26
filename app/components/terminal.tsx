@@ -3,6 +3,7 @@ import { WS_MSG } from "../../shared/types";
 
 export interface TerminalHandle {
   sendText: (text: string) => void;
+  scrollToBottom: () => void;
 }
 
 interface TerminalProps {
@@ -10,9 +11,10 @@ interface TerminalProps {
   fontSize?: number;
   onExit?: (exitCode: number) => void;
   onTitleChange?: (title: string) => void;
+  onScrollChange?: (atBottom: boolean) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -40,7 +42,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     }
   }, []);
 
-  useImperativeHandle(ref, () => ({ sendText }), [sendText]);
+  const scrollToBottom = useCallback(() => {
+    termRef.current?.scrollToBottom();
+  }, []);
+
+  useImperativeHandle(ref, () => ({ sendText, scrollToBottom }), [sendText, scrollToBottom]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -81,6 +87,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       fitAddonRef.current = fitAddon;
 
       requestAnimationFrame(() => fitAddon.fit());
+
+      // Mobile virtual keyboard: Enter key fix
+      // On mobile (especially iOS Safari), the Enter key on the virtual keyboard
+      // may not fire a usable keydown event. Instead, the textarea receives an
+      // input event with inputType === 'insertLineBreak'. xterm.js only handles
+      // 'insertText' in _inputEvent, so Enter is silently swallowed.
+      // Fix: catch 'insertLineBreak' on the hidden textarea and send \r manually.
+      const textarea = containerRef.current!.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.addEventListener("beforeinput", (e) => {
+          if (e.inputType === "insertLineBreak") {
+            e.preventDefault();
+            term.input("\r");
+          }
+        });
+      }
 
       // Mobile touch inertia
       // xterm.js already handles touchstart/touchmove on .xterm element, driving
@@ -142,6 +164,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         const style = document.createElement("style");
         style.textContent = ".xterm-rows span { pointer-events: none; }";
         containerRef.current!.appendChild(style);
+      }
+
+      // Track scroll position to show/hide "jump to bottom" indicator
+      const checkScroll = () => {
+        const buf = term.buffer.active;
+        onScrollChange?.(buf.viewportY >= buf.baseY);
+      };
+      term.onScroll(checkScroll);
+      if (viewport) {
+        viewport.addEventListener("scroll", checkScroll, { passive: true });
       }
 
       // Terminal input → WebSocket

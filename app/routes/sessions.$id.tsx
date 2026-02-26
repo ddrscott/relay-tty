@@ -34,6 +34,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const pickerRef = useRef<HTMLDivElement>(null);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const [atBottom, setAtBottom] = useState(true);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
   const prevSession = currentIndex > 0 ? allSessions[currentIndex - 1] : null;
@@ -178,6 +179,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             fontSize={fontSize}
             onExit={(code: number) => setExitCode(code)}
             onTitleChange={setTermTitle}
+            onScrollChange={setAtBottom}
           />
         )}
 
@@ -203,6 +205,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
 
+        {/* Jump to bottom */}
+        {!atBottom && (
+          <button
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 btn btn-sm btn-neutral gap-1 opacity-80 hover:opacity-100 transition-opacity shadow-lg"
+            onClick={() => terminalRef.current?.scrollToBottom()}
+            aria-label="Jump to bottom"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <polyline points="7 13 12 18 17 13" />
+              <polyline points="7 6 12 11 17 6" />
+            </svg>
+            Bottom
+          </button>
+        )}
+
         {/* Input FAB */}
         <div className="fab fab-br z-10">
           <div tabIndex={0} role="button" className={`btn btn-circle btn-md ${listening ? "btn-error" : "btn-neutral"}`}>
@@ -217,7 +234,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           {/* Return / Enter */}
           <button
             className="btn btn-circle btn-md btn-neutral"
-            onClick={() => terminalRef.current?.sendText("\n")}
+            onClick={() => terminalRef.current?.sendText("\r")}
             aria-label="Send return"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
