@@ -24,7 +24,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const fit = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
       try {
+        const term = termRef.current;
+        const buf = term.buffer.active;
+        const wasAtBottom = buf.viewportY >= buf.baseY;
         fitAddonRef.current.fit();
+        if (wasAtBottom) {
+          term.scrollToBottom();
+        }
       } catch {
         // ignore fit errors during init
       }
@@ -285,17 +291,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     init();
 
-    // ResizeObserver for container resize
+    // ResizeObserver for container resize — debounced to avoid thrashing
+    // during keyboard open/close animation (fires many times per second)
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const observer = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        if (fitAddonRef.current && termRef.current) {
-          try {
-            fitAddonRef.current.fit();
-          } catch {
-            // ignore
-          }
-        }
-      });
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        fit();
+      }, 100);
     });
     if (containerRef.current) {
       observer.observe(containerRef.current);
@@ -304,6 +308,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
       wsRef.current?.close();
       termRef.current?.dispose();

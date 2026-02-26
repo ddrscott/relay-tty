@@ -1,15 +1,41 @@
 {
   "name": "relay-tty",
   "version": "1.0.0",
+  "description": "Terminal relay — run commands locally, access them from anywhere via browser",
   "type": "module",
-  "bin": {
-    "relay": "./dist/cli/index.js"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddrscott/relay-tty.git"
   },
+  "homepage": "https://github.com/ddrscott/relay-tty",
+  "keywords": [
+    "terminal",
+    "tty",
+    "pty",
+    "relay",
+    "xterm",
+    "websocket",
+    "remote-terminal"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "relay": "dist/cli/index.js",
+    "relay-tty": "dist/cli/index.js"
+  },
+  "files": [
+    "dist/",
+    "build/",
+    "server.js"
+  ],
   "scripts": {
     "dev": "tsc -p tsconfig.node.json && node server.js",
     "build": "react-router build && tsc -p tsconfig.node.json",
     "start": "NODE_ENV=production node server.js",
     "build:cli": "tsc -p tsconfig.node.json",
+    "prepack": "npm run build",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null; true"
   },
   "dependencies": {
