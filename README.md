@@ -44,24 +44,24 @@ The CLI prints session URLs to stdout and status info to stderr (POSIX conventio
 
 ```
 Phone Browser                Mac/Linux Host
-┌──────────────┐            ┌──────────────────────────────────┐
-│  Session List │──loader──▶│ Express + React Router SSR       │
-│  (DaisyUI)   │            │   └─ SessionStore (in-memory)    │
-├──────────────┤            ├──────────────────────────────────┤
-│  xterm.js    │◀──WS────▶│ ws-handler ◀──Unix socket──▶     │
-│  Terminal    │            │   (per-client connection)         │
-└──────────────┘            └──────────┬───────────────────────┘
-                                       │
-CLI: relay htop ──POST /api/sessions──▶│
-     │                                 │
-     └── attaches locally via WS ──────┘
+┌────────────────┐            ┌──────────────────────────────────┐
+│  Session List  │───loader──▶│ Express + React Router SSR       │
+│  (DaisyUI)     │            │   └─ SessionStore (in-memory)    │
+├────────────────┤            ├──────────────────────────────────┤
+│    xterm.js    │◀────WS────▶│ ws-handler ◀──Unix socket──▶     │
+│    Terminal    │            │   (per-client connection)        │
+└────────────────┘            └──────────┬───────────────────────┘
+                                         │
+CLI: relay htop ────POST /api/sessions──▶│
+     │                                   │
+     └──── attaches locally via WS ──────┘
 
                             ┌──────────────────────────────────┐
-                            │ pty-host (detached process)       │
+                            │ pty-host (detached process)      │
                             │   ├─ node-pty (owns the PTY)     │
-                            │   ├─ OutputBuffer (50KB ring)     │
-                            │   └─ Unix socket server           │
-                            │       ~/.relay-tty/sockets/<id>   │
+                            │   ├─ OutputBuffer (50KB ring)    │
+                            │   └─ Unix socket server          │
+                            │       ~/.relay-tty/sockets/<id>  │
                             └──────────────────────────────────┘
                             Survives server restarts. Each session
                             runs in its own pty-host process.
