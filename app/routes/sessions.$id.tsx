@@ -29,7 +29,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }
 
   return (
-    <main className="h-screen flex flex-col">
+    <main className="h-dvh flex flex-col">
       {/* Header bar */}
       <div className="flex items-center gap-2 px-3 py-2 bg-base-200 border-b border-base-300">
         <Link to="/" className="btn btn-ghost btn-xs">
@@ -59,7 +59,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       </div>
 
       {/* Terminal */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-h-0">
         {TerminalComponent && (
           <TerminalComponent
             sessionId={session.id}

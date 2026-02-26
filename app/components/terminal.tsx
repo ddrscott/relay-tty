@@ -173,7 +173,7 @@ export function Terminal({ sessionId, fontSize = 14, onExit }: TerminalProps) {
           <span className="text-error">Disconnected</span>
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full" />
+      <div ref={containerRef} className="w-full h-full overflow-hidden touch-action-none" style={{ touchAction: "none" }} />
     </div>
   );
 }

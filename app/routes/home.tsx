@@ -26,7 +26,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   }, [revalidate]);
 
   return (
-    <main className="container mx-auto p-4 max-w-2xl">
+    <main className="container mx-auto p-4 max-w-2xl h-screen overflow-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold font-mono">relay-tty</h1>
         <span className="text-sm text-base-content/50">

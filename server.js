@@ -9,6 +9,8 @@ import morgan from "morgan";
 const PORT = parseInt(process.env.PORT || "7680", 10);
 const HOST = "0.0.0.0";
 const isDev = process.env.NODE_ENV !== "production";
+const APP_URL = process.env.APP_URL;
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const CONFIG_DIR = join(homedir(), ".config", "relay-tty");
 const SERVER_FILE = join(CONFIG_DIR, "server.json");
@@ -137,13 +139,29 @@ async function start() {
     });
   }
 
-  httpServer.listen(PORT, HOST, () => {
+  httpServer.listen(PORT, HOST, async () => {
     writeServerInfo();
-    console.log(`relay-tty listening on http://${HOST}:${PORT}`);
-    if (generateToken) {
-      const token = generateToken();
-      if (token) {
-        console.log(`Auth token URL: http://localhost:${PORT}/api/auth/callback?token=${token}`);
+    const localUrl = `http://localhost:${PORT}`;
+    console.log(`relay-tty listening on ${localUrl}`);
+    if (APP_URL) {
+      console.log(`Public URL: ${APP_URL}`);
+    }
+    const token = generateToken ? generateToken() : null;
+    if (token) {
+      console.log(`Auth token URL: ${localUrl}/api/auth/callback?token=${token}`);
+    }
+    if (DISCORD_WEBHOOK && APP_URL) {
+      const authUrl = token
+        ? `${APP_URL}/api/auth/callback?token=${token}`
+        : APP_URL;
+      try {
+        await fetch(DISCORD_WEBHOOK, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: authUrl }),
+        });
+      } catch (err) {
+        console.error("Discord webhook failed:", err.message);
       }
     }
   });
