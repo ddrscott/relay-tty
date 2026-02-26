@@ -26,6 +26,7 @@ function listFromDisk(): Session[] {
     if (!file.endsWith(".json")) continue;
     try {
       const meta = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8")) as Session;
+      if (!meta.cwd) meta.cwd = os.homedir();
       // Check if socket still exists for "running" sessions
       if (meta.status === "running") {
         const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);

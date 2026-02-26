@@ -9,6 +9,7 @@ import { WS_MSG } from "../shared/types.js";
  */
 
 interface AttachOpts {
+  sessionId?: string;
   onExit?: (code: number) => void;
   onDetach?: () => void;
 }
@@ -20,6 +21,7 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
   return new Promise((resolve) => {
     const ws = new WebSocket(wsUrl);
     let rawMode = false;
+    let cleanExit = false; // Track whether we got an EXIT frame
 
     function cleanup() {
       if (rawMode && process.stdin.isTTY) {
@@ -28,9 +30,18 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
       }
       process.stdin.removeListener("data", onStdinData);
       process.removeListener("SIGWINCH", onResize);
+      process.removeListener("exit", onProcessExit);
+    }
+
+    // Safety net: restore terminal on ANY exit (crash, unhandled exception, etc.)
+    function onProcessExit() {
+      if (rawMode && process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
     }
 
     function detach() {
+      cleanExit = true;
       cleanup();
       ws.close();
       process.stderr.write("\r\nDetached.\r\n");
@@ -72,6 +83,7 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
       process.stdin.resume();
       process.stdin.on("data", onStdinData);
       process.on("SIGWINCH", onResize);
+      process.on("exit", onProcessExit);
       onResize();
     });
 
@@ -87,6 +99,7 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
           break;
         case WS_MSG.EXIT: {
           const exitCode = payload.readInt32BE(0);
+          cleanExit = true;
           cleanup();
           ws.close();
           opts.onExit?.(exitCode);
@@ -99,11 +112,18 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
     ws.on("error", (err) => {
       cleanup();
       process.stderr.write(`WebSocket error: ${err.message}\n`);
+      if (!cleanExit && opts.sessionId) {
+        process.stderr.write(`Session may still be running. Reattach: relay attach ${opts.sessionId}\n`);
+      }
       resolve();
     });
 
     ws.on("close", () => {
       cleanup();
+      if (!cleanExit && opts.sessionId) {
+        process.stderr.write(`Connection lost. Session may still be running.\n`);
+        process.stderr.write(`Reattach: relay attach ${opts.sessionId}\n`);
+      }
       resolve();
     });
   });
@@ -117,6 +137,7 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
   return new Promise((resolve) => {
     const socket = net.createConnection(socketPath);
     let rawMode = false;
+    let cleanExit = false; // Track whether we got an EXIT frame
     let pending = Buffer.alloc(0);
 
     function cleanup() {
@@ -126,9 +147,18 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
       }
       process.stdin.removeListener("data", onStdinData);
       process.removeListener("SIGWINCH", onResize);
+      process.removeListener("exit", onProcessExit);
+    }
+
+    // Safety net: restore terminal on ANY exit (crash, unhandled exception, etc.)
+    function onProcessExit() {
+      if (rawMode && process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
     }
 
     function detach() {
+      cleanExit = true;
       cleanup();
       socket.destroy();
       process.stderr.write("\r\nDetached.\r\n");
@@ -177,6 +207,7 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
       process.stdin.resume();
       process.stdin.on("data", onStdinData);
       process.on("SIGWINCH", onResize);
+      process.on("exit", onProcessExit);
       onResize();
     });
 
@@ -201,6 +232,7 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
             break;
           case WS_MSG.EXIT: {
             const exitCode = data.readInt32BE(0);
+            cleanExit = true;
             cleanup();
             socket.destroy();
             opts.onExit?.(exitCode);
@@ -214,11 +246,18 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
     socket.on("error", (err) => {
       cleanup();
       process.stderr.write(`Socket error: ${err.message}\n`);
+      if (!cleanExit && opts.sessionId) {
+        process.stderr.write(`Session may still be running. Reattach: relay attach ${opts.sessionId}\n`);
+      }
       resolve();
     });
 
     socket.on("close", () => {
       cleanup();
+      if (!cleanExit && opts.sessionId) {
+        process.stderr.write(`Connection lost. Session may still be running.\n`);
+        process.stderr.write(`Reattach: relay attach ${opts.sessionId}\n`);
+      }
       resolve();
     });
   });

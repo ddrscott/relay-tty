@@ -16,12 +16,14 @@ export function spawnDirect(
   command: string,
   args: string[],
   cols: number,
-  rows: number
+  rows: number,
+  cwd?: string
 ): { id: string; socketPath: string } {
   const id = randomBytes(4).toString("hex");
   const ptyHostPath = resolvePtyHostPath();
+  const effectiveCwd = cwd || process.cwd();
 
-  const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), command, ...args], {
+  const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args], {
     detached: true,
     stdio: "ignore",
     env: process.env,

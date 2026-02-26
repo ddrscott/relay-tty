@@ -31,6 +31,7 @@ export function registerAttachCommand(program: Command) {
         process.stderr.write(`Attaching to ${id}. Ctrl+] to detach.\n`);
 
         await attach(wsUrl, {
+          sessionId: id,
           onExit: (code) => {
             process.stderr.write(`Process exited with code ${code}\n`);
             process.exit(code);
@@ -53,6 +54,7 @@ export function registerAttachCommand(program: Command) {
       process.stderr.write(`Attaching to ${id} (direct). Ctrl+] to detach.\n`);
 
       await attachSocket(socketPath, {
+        sessionId: id,
         onExit: (code) => {
           process.stderr.write(`Process exited with code ${code}\n`);
           process.exit(code);

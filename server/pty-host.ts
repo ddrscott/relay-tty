@@ -4,7 +4,7 @@
  * Standalone process that owns a PTY and accepts connections via Unix socket.
  * Spawned by pty-manager as a detached child — survives server restarts.
  *
- * Usage: node pty-host.js <id> <cols> <rows> <command> [args...]
+ * Usage: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
  *
  * Socket protocol: length-prefixed frames
  *   [4 bytes uint32 BE: message length][payload]
@@ -24,11 +24,11 @@ const DATA_DIR = path.join(os.homedir(), ".relay-tty");
 const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 
-// Parse args: node pty-host.js <id> <cols> <rows> <command> [args...]
-const [, , id, colsStr, rowsStr, command, ...args] = process.argv;
+// Parse args: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
+const [, , id, colsStr, rowsStr, cwdArg, command, ...args] = process.argv;
 
 if (!id || !command) {
-  process.stderr.write("Usage: pty-host <id> <cols> <rows> <command> [args...]\n");
+  process.stderr.write("Usage: pty-host <id> <cols> <rows> <cwd> <command> [args...]\n");
   process.exit(1);
 }
 
@@ -50,11 +50,12 @@ try {
 }
 
 // Spawn PTY
+const cwd = cwdArg || process.env.HOME || "/";
 const ptyProcess = pty.spawn(command, args, {
   name: "xterm-256color",
   cols,
   rows,
-  cwd: process.env.HOME || "/",
+  cwd,
   env: process.env as Record<string, string>,
 });
 
@@ -67,6 +68,7 @@ const sessionMeta = {
   id,
   command,
   args,
+  cwd,
   createdAt: Date.now(),
   lastActivity: Date.now(),
   status: "running" as const,
@@ -104,13 +106,14 @@ ptyProcess.onData((data: string) => {
 });
 
 // PTY exit
-ptyProcess.onExit(({ exitCode: code }: { exitCode: number }) => {
-  exitCode = code;
+ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: number }) => {
+  // POSIX convention: signal deaths reported as 128 + signal number
+  exitCode = signal ? 128 + signal : code;
 
   // Broadcast exit to all clients
   const msg = Buffer.alloc(5);
   msg[0] = WS_MSG.EXIT;
-  msg.writeInt32BE(code, 1);
+  msg.writeInt32BE(exitCode, 1);
 
   for (const client of clients) {
     try {
@@ -122,7 +125,7 @@ ptyProcess.onExit(({ exitCode: code }: { exitCode: number }) => {
 
   // Update session metadata on disk
   (sessionMeta as any).status = "exited";
-  (sessionMeta as any).exitCode = code;
+  (sessionMeta as any).exitCode = exitCode;
   (sessionMeta as any).exitedAt = Date.now();
   fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
 

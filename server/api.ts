@@ -14,8 +14,8 @@ export function createApiRouter(
   const router = Router();
 
   // POST /api/sessions — create a new session
-  router.post("/sessions", (req, res) => {
-    const { command, args = [], cols = 80, rows = 24 } =
+  router.post("/sessions", async (req, res) => {
+    const { command, args = [], cwd, cols = 80, rows = 24 } =
       req.body as CreateSessionRequest;
 
     if (!command) {
@@ -23,7 +23,7 @@ export function createApiRouter(
       return;
     }
 
-    const session = ptyManager.spawn(command, args, cols, rows);
+    const session = await ptyManager.spawn(command, args, cols, rows, cwd);
 
     const proto = req.headers["x-forwarded-proto"] || req.protocol;
     const host = req.headers["x-forwarded-host"] || req.headers.host;

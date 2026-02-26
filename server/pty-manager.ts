@@ -48,6 +48,8 @@ export class PtyManager extends EventEmitter {
       try {
         const raw = fs.readFileSync(sessionPath, "utf-8");
         const meta = JSON.parse(raw) as Session & { pid?: number };
+        // Backfill cwd for sessions created before cwd was tracked
+        if (!meta.cwd) meta.cwd = process.env.HOME || "/";
 
         if (meta.status === "exited") {
           // Load exited sessions for display (cleanup old ones)
@@ -97,13 +99,15 @@ export class PtyManager extends EventEmitter {
 
   /**
    * Spawn a new pty-host process for the given command.
+   * Awaits socket readiness before returning — no race conditions.
    */
-  spawn(command: string, args: string[] = [], cols = 80, rows = 24): Session {
+  async spawn(command: string, args: string[] = [], cols = 80, rows = 24, cwd?: string): Promise<Session> {
     const id = randomBytes(4).toString("hex");
     const ptyHostPath = this.resolvePtyHostPath();
+    const effectiveCwd = cwd || process.env.HOME || "/";
 
     // Spawn pty-host as detached process — survives server death
-    const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), command, ...args], {
+    const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args], {
       detached: true,
       stdio: "ignore",
       env: process.env,
@@ -114,6 +118,7 @@ export class PtyManager extends EventEmitter {
       id,
       command,
       args,
+      cwd: effectiveCwd,
       createdAt: Date.now(),
       lastActivity: Date.now(),
       status: "running",
@@ -123,9 +128,9 @@ export class PtyManager extends EventEmitter {
 
     this.sessionStore.create(session);
 
-    // Wait for socket to appear, then start monitoring
+    // Await socket readiness before returning — caller gets a session that's ready to connect
     const socketPath = path.join(SOCKETS_DIR, `${id}.sock`);
-    this.waitForSocket(id, socketPath);
+    await this.waitForSocket(id, socketPath);
 
     return session;
   }

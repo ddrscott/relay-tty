@@ -2,6 +2,7 @@ export interface Session {
   id: string;
   command: string;
   args: string[];
+  cwd: string;
   createdAt: number;
   lastActivity: number;
   status: "running" | "exited";
@@ -21,6 +22,7 @@ export const WS_MSG = {
 export interface CreateSessionRequest {
   command: string;
   args?: string[];
+  cwd?: string;
   cols?: number;
   rows?: number;
 }

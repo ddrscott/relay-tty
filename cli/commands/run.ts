@@ -16,7 +16,8 @@ export function registerRunCommand(program: Command) {
 
       // Try server first, fall back to direct spawn
       const host = resolveHost(opts.host);
-      const result = await createSession(host, command, args, cols, rows);
+      const cwd = process.cwd();
+      const result = await createSession(host, command, args, cols, rows, cwd);
 
       process.stderr.write(`Session ${result.id} created\n`);
 
@@ -48,11 +49,13 @@ export function registerRunCommand(program: Command) {
         const wsProto = host.startsWith("https") ? "wss" : "ws";
         const wsHost = host.replace(/^https?/, wsProto);
         await attach(`${wsHost}/ws/sessions/${result.id}`, {
+          sessionId: result.id,
           onExit: exitHandler,
           onDetach: detachHandler,
         });
       } else {
         await attachSocket(result.socketPath, {
+          sessionId: result.id,
           onExit: exitHandler,
           onDetach: detachHandler,
         });
@@ -69,14 +72,15 @@ async function createSession(
   command: string,
   args: string[],
   cols: number,
-  rows: number
+  rows: number,
+  cwd: string
 ): Promise<CreateResult> {
   // Try server API first
   try {
     const res = await fetch(`${host}/api/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command, args, cols, rows }),
+      body: JSON.stringify({ command, args, cols, rows, cwd }),
     });
 
     if (res.ok) {
@@ -89,7 +93,7 @@ async function createSession(
 
   // Direct spawn (no server)
   process.stderr.write("Server not available, spawning directly.\n");
-  const { id, socketPath } = spawnDirect(command, args, cols, rows);
+  const { id, socketPath } = spawnDirect(command, args, cols, rows, cwd);
 
   const ready = await waitForSocket(socketPath);
   if (!ready) {
