@@ -1,14 +1,13 @@
 import type { Command } from "commander";
-
-const DEFAULT_HOST = "http://localhost:7680";
+import { resolveHost } from "../config.js";
 
 export function registerStopCommand(program: Command) {
   program
     .command("stop <id>")
     .description("stop and remove a session")
-    .option("-H, --host <url>", "server URL", DEFAULT_HOST)
+    .option("-H, --host <url>", "server URL")
     .action(async (id: string, opts) => {
-      const host = opts.host;
+      const host = resolveHost(opts.host);
 
       try {
         const res = await fetch(`${host}/api/sessions/${id}`, {

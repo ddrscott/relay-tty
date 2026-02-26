@@ -6,7 +6,7 @@
     "relay": "./dist/cli/index.js"
   },
   "scripts": {
-    "dev": "node server.js",
+    "dev": "tsc -p tsconfig.node.json && node server.js",
     "build": "react-router build && tsc -p tsconfig.node.json",
     "start": "NODE_ENV=production node server.js",
     "build:cli": "tsc -p tsconfig.node.json",

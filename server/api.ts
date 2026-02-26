@@ -58,6 +58,7 @@ export function createApiRouter(
       return;
     }
     ptyManager.kill(req.params.id);
+    ptyManager.cleanup(req.params.id);
     sessionStore.delete(req.params.id);
     res.json({ ok: true });
   });

@@ -3,8 +3,6 @@ import { createHmac } from "node:crypto";
 import * as cookie from "cookie";
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
-const AUTH_LOGIN_URL = "https://auth.ljs.app/login";
-const RELAY_CALLBACK_URL = "https://relay.ljs.app/api/auth/callback";
 
 function isLocalhost(req: Request): boolean {
   const ip = req.ip || req.socket.remoteAddress || "";
@@ -17,10 +15,18 @@ function isLocalhost(req: Request): boolean {
 }
 
 interface JwtPayload {
-  sub?: string;
   iss?: string;
-  exp?: number;
+  iat?: number;
   [key: string]: unknown;
+}
+
+function signJwt(payload: JwtPayload, secret: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", secret)
+    .update(`${header}.${body}`)
+    .digest("base64url");
+  return `${header}.${body}.${signature}`;
 }
 
 function verifyJwt(token: string): JwtPayload | null {
@@ -41,11 +47,7 @@ function verifyJwt(token: string): JwtPayload | null {
       Buffer.from(parts[1], "base64url").toString()
     ) as JwtPayload;
 
-    // Check expiration
-    if (payload.exp && payload.exp * 1000 < Date.now()) return null;
-
-    // Check issuer
-    if (payload.iss && payload.iss !== "auth.ljs.app") return null;
+    if (payload.iss !== "relay-tty") return null;
 
     return payload;
   } catch {
@@ -54,46 +56,59 @@ function verifyJwt(token: string): JwtPayload | null {
 }
 
 /**
- * Express middleware: skip auth for localhost, require valid JWT for remote.
+ * Generate an access token for remote browser auth.
+ * Returns null if JWT_SECRET is not configured.
+ */
+export function generateToken(): string | null {
+  if (!JWT_SECRET) return null;
+  return signJwt({ iss: "relay-tty", iat: Math.floor(Date.now() / 1000) }, JWT_SECRET);
+}
+
+/**
+ * Express middleware: skip auth for localhost, require valid JWT cookie for remote.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Localhost bypass — CLI on the same machine is trusted
   if (isLocalhost(req)) {
     next();
     return;
   }
 
-  // No JWT_SECRET configured — auth disabled
   if (!JWT_SECRET) {
     next();
     return;
   }
 
-  // Check session cookie
+  // Allow the callback route through (it sets the cookie)
+  if (req.path === "/api/auth/callback") {
+    next();
+    return;
+  }
+
   const cookies = cookie.parse(req.headers.cookie || "");
   const token = cookies.session;
 
-  if (token) {
-    const payload = verifyJwt(token);
-    if (payload) {
-      next();
-      return;
-    }
+  if (token && verifyJwt(token)) {
+    next();
+    return;
   }
 
-  // API requests get 401, browser requests get redirected
   if (req.path.startsWith("/api/") || req.path.startsWith("/ws/")) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const returnTo = encodeURIComponent(RELAY_CALLBACK_URL);
-  res.redirect(`${AUTH_LOGIN_URL}?returnTo=${returnTo}`);
+  res.status(401).send(
+    `<!DOCTYPE html>
+<html><head><title>relay-tty — unauthorized</title></head>
+<body style="font-family:monospace;max-width:480px;margin:80px auto;text-align:center">
+<h2>relay-tty</h2>
+<p>Access denied. Use the token URL printed by the server.</p>
+</body></html>`
+  );
 }
 
 /**
  * Verify JWT from WebSocket upgrade request cookies.
- * Returns true if authorized (localhost or valid JWT).
  */
 export function verifyWsAuth(req: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): boolean {
   const ip = req.socket.remoteAddress || "";

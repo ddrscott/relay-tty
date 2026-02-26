@@ -12,7 +12,9 @@ const program = new Command();
 program
   .name("relay")
   .description("Terminal relay — run commands and access them from anywhere")
-  .version("1.0.0");
+  .version("1.0.0")
+  .enablePositionalOptions()
+  .passThroughOptions();
 
 // Default command: relay <command> [args...]
 registerRunCommand(program);

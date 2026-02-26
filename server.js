@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import express from "express";
 import compression from "compression";
 import morgan from "morgan";
@@ -6,6 +9,9 @@ import morgan from "morgan";
 const PORT = parseInt(process.env.PORT || "7680", 10);
 const HOST = "0.0.0.0";
 const isDev = process.env.NODE_ENV !== "production";
+
+const CONFIG_DIR = join(homedir(), ".config", "relay-tty");
+const SERVER_FILE = join(CONFIG_DIR, "server.json");
 
 const app = express();
 app.use(compression());
@@ -17,6 +23,20 @@ let sessionStore;
 let ptyManager;
 let wsHandler;
 let verifyWsAuth;
+let generateToken;
+
+function writeServerInfo() {
+  mkdirSync(CONFIG_DIR, { recursive: true });
+  writeFileSync(SERVER_FILE, JSON.stringify({
+    url: `http://localhost:${PORT}`,
+    pid: process.pid,
+    startedAt: Date.now(),
+  }, null, 2) + "\n");
+}
+
+function clearServerInfo() {
+  try { unlinkSync(SERVER_FILE); } catch {}
+}
 
 async function start() {
   if (isDev) {
@@ -32,11 +52,13 @@ async function start() {
 
     const ptyModule = await viteServer.ssrLoadModule("./server/pty-manager.ts");
     ptyManager = new ptyModule.PtyManager(sessionStore);
+    await ptyManager.discover();
 
     // Auth middleware (before API routes)
     const authModule = await viteServer.ssrLoadModule("./server/auth.ts");
     app.use(authModule.authMiddleware);
     verifyWsAuth = authModule.verifyWsAuth;
+    generateToken = authModule.generateToken;
 
     const apiModule = await viteServer.ssrLoadModule("./server/api.ts");
     app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager));
@@ -66,11 +88,13 @@ async function start() {
 
     const { PtyManager } = await import("./dist/server/pty-manager.js");
     ptyManager = new PtyManager(sessionStore);
+    await ptyManager.discover();
 
     // Auth middleware
-    const { authMiddleware, verifyWsAuth: vwa } = await import("./dist/server/auth.js");
+    const { authMiddleware, verifyWsAuth: vwa, generateToken: gt } = await import("./dist/server/auth.js");
     app.use(authMiddleware);
     verifyWsAuth = vwa;
+    generateToken = gt;
 
     const { createApiRouter } = await import("./dist/server/api.js");
     app.use("/api", createApiRouter(sessionStore, ptyManager));
@@ -114,11 +138,27 @@ async function start() {
   }
 
   httpServer.listen(PORT, HOST, () => {
+    writeServerInfo();
     console.log(`relay-tty listening on http://${HOST}:${PORT}`);
+    if (generateToken) {
+      const token = generateToken();
+      if (token) {
+        console.log(`Auth token URL: http://localhost:${PORT}/api/auth/callback?token=${token}`);
+      }
+    }
   });
+
+  // Clean up server info on shutdown
+  for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+      clearServerInfo();
+      process.exit(0);
+    });
+  }
 }
 
 start().catch((err) => {
   console.error("Failed to start:", err);
+  clearServerInfo();
   process.exit(1);
 });
