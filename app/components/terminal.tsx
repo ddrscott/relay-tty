@@ -9,9 +9,10 @@ interface TerminalProps {
   sessionId: string;
   fontSize?: number;
   onExit?: (exitCode: number) => void;
+  onTitleChange?: (title: string) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -141,6 +142,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           new DataView(msg.buffer).setUint16(3, rows, false);
           ws.send(msg);
         }
+      });
+
+      // Terminal title change (OSC 0/2)
+      term.onTitleChange((title: string) => {
+        onTitleChange?.(title);
       });
     }
 

@@ -29,6 +29,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [exitCode, setExitCode] = useState<number | null>(
     session.status === "exited" ? (session.exitCode ?? 0) : null
   );
+  const [termTitle, setTermTitle] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const [listening, setListening] = useState(false);
@@ -66,6 +67,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   function goTo(id: string) {
     setPickerOpen(false);
     setExitCode(null);
+    setTermTitle(null);
     navigate(`/sessions/${id}`);
   }
 
@@ -110,7 +112,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onClick={() => setPickerOpen(!pickerOpen)}
           >
             <code className="text-sm font-mono truncate block">
-              {session.command} {session.args.join(" ")}
+              {termTitle || `${session.command} ${session.args.join(" ")}`}
               <span className="text-base-content/30 ml-2">{session.id}</span>
             </code>
           </button>
@@ -175,6 +177,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             sessionId={session.id}
             fontSize={fontSize}
             onExit={(code: number) => setExitCode(code)}
+            onTitleChange={setTermTitle}
           />
         )}
 

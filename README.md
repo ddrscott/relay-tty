@@ -78,22 +78,43 @@ Binary frames, first byte = message type:
 - **Localhost auth bypass** — CLI on the same machine skips authentication.
 - **8-char hex session IDs** — short enough for CLI ergonomics.
 
-## Auth
+## Environment Variables
 
-Set `JWT_SECRET` in `.env` to enable bearer token auth for remote access (e.g., via Cloudflare Tunnel):
+Configure via `.env` in the project root:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes (for remote) | Secret for signing auth JWTs. Generate with `openssl rand -base64 32` |
+| `PORT` | No | Server port (default: `7680`) |
+| `APP_URL` | No | Public URL for remote access (e.g., `https://relay.example.com`). Shown on startup and used for Discord notifications |
+| `DISCORD_WEBHOOK` | No | Discord webhook URL. When set, posts a clickable auth link on startup for quick mobile access |
+
+Example `.env`:
 
 ```bash
-echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+JWT_SECRET='your-secret-here'
+PORT=18701
+APP_URL='https://relay.example.com'
+DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
 ```
 
-On startup, the server prints a token URL:
+## Auth
+
+Set `JWT_SECRET` to enable bearer token auth for remote access (e.g., via Cloudflare Tunnel). Localhost connections always skip auth.
+
+On startup, the server prints both local and public URLs:
 
 ```
-relay-tty listening on http://0.0.0.0:7680
-Auth token URL: http://localhost:7680/api/auth/callback?token=eyJ...
+relay-tty listening on http://localhost:18701
+Public URL: https://relay.example.com
+Auth token URL: http://localhost:18701/api/auth/callback?token=eyJ...
 ```
 
-Visit that URL in a browser to set the session cookie (30-day expiry). Replace `localhost` with your tunnel hostname when sharing. Localhost connections always skip auth.
+Visit the auth token URL in a browser to set the session cookie (30-day expiry). The token does not expire — rotate `JWT_SECRET` to revoke all tokens.
+
+### Discord Notifications
+
+When both `APP_URL` and `DISCORD_WEBHOOK` are set, the server posts a clickable auth link to Discord on startup. Tap it on your phone to authenticate instantly — the callback sets a cookie and redirects to a clean URL. Useful for accessing relay-tty from mobile without copy/pasting tokens.
 
 ## Service Management
 
@@ -118,3 +139,4 @@ npm start            # production server
 - **Backend**: Express 5 + node-pty + ws
 - **CLI**: Commander
 - **Service**: launchd (macOS) / systemd (Linux)
+- **Mobile**: PWA (standalone, no browser chrome) + Web Speech API for voice input
