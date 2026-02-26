@@ -151,28 +151,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
 
         <div className="flex items-center gap-1">
-          {SpeechRecognition && (
-            <button
-              className={`btn btn-ghost btn-xs ${listening ? "text-error" : ""}`}
-              onClick={toggleMic}
-              aria-label="Speech to text"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="w-4 h-4"
-              >
-                <rect x="9" y="2" width="6" height="11" rx="3" />
-                <path d="M5 10a7 7 0 0 0 14 0" />
-                <line x1="12" y1="19" x2="12" y2="22" />
-              </svg>
-            </button>
-          )}
           <button
             className="btn btn-ghost btn-xs"
             onClick={() => setFontSize((s) => Math.max(8, s - 2))}
@@ -221,6 +199,45 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <span className="text-base-content/70 text-lg">&rsaquo;</span>
           </button>
         )}
+
+        {/* Input FAB */}
+        <div className="fab fab-br z-10">
+          <div tabIndex={0} role="button" className={`btn btn-circle btn-md ${listening ? "btn-error" : "btn-neutral"}`}>
+            {/* Keyboard icon */}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01" />
+              <path d="M8 16h8" />
+            </svg>
+          </div>
+
+          {/* Return / Enter */}
+          <button
+            className="btn btn-circle btn-md btn-neutral"
+            onClick={() => terminalRef.current?.sendText("\n")}
+            aria-label="Send return"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <polyline points="9 10 4 15 9 20" />
+              <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+            </svg>
+          </button>
+
+          {/* Mic */}
+          {SpeechRecognition && (
+            <button
+              className={`btn btn-circle btn-md ${listening ? "btn-error" : "btn-neutral"}`}
+              onClick={toggleMic}
+              aria-label="Speech to text"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <rect x="9" y="2" width="6" height="11" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+              </svg>
+            </button>
+          )}
+        </div>
 
         {/* Exit overlay */}
         {exitCode !== null && (
