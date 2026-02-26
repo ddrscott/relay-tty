@@ -7,7 +7,7 @@ export class OutputBuffer {
   private writePos = 0;
   private filled = false;
 
-  constructor(private maxSize: number = 50 * 1024) {
+  constructor(private maxSize: number = 10 * 1024 * 1024) {
     this.buffer = Buffer.alloc(maxSize);
   }
 
@@ -43,13 +43,34 @@ export class OutputBuffer {
       return this.buffer.subarray(0, this.writePos);
     }
     // Buffer has wrapped — return from writePos to end, then start to writePos
-    return Buffer.concat([
+    const raw = Buffer.concat([
       this.buffer.subarray(this.writePos),
       this.buffer.subarray(0, this.writePos),
     ]);
+    return sanitizeStart(raw);
   }
 
   get size(): number {
     return this.filled ? this.maxSize : this.writePos;
   }
+}
+
+/**
+ * When a circular buffer wraps, the read boundary can land in the middle of:
+ *   - A multi-byte UTF-8 character
+ *   - An ANSI/CSI escape sequence (\x1b[...m, \x1b]...ST, etc.)
+ *
+ * Feeding these partial sequences to xterm.js causes it to miscount lines
+ * (wrong buffer.lines.length → wrong scroll area height → broken scrolling).
+ *
+ * Fix: skip forward to the first newline (\n), which guarantees we start on
+ * a clean line boundary with no partial escape sequences. We lose at most one
+ * line of scrollback from the oldest end — an acceptable tradeoff.
+ */
+function sanitizeStart(buf: Buffer): Buffer {
+  // Find first newline
+  const idx = buf.indexOf(0x0a); // \n
+  if (idx === -1 || idx === 0) return buf;
+  // Start right after the newline
+  return buf.subarray(idx + 1);
 }

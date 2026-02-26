@@ -170,7 +170,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       </div>
 
       {/* Terminal area with edge turners */}
-      <div className="flex-1 relative min-h-0">
+      <div className="flex-1 relative min-h-0 overflow-hidden">
         {TerminalComponent && (
           <TerminalComponent
             ref={terminalRef}
