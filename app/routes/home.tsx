@@ -156,6 +156,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           })}
         </div>
       )}
+
+      <footer className="mt-8 pb-4 text-center">
+        <a
+          href="https://relaytty.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-[#64748b] hover:text-[#94a3b8] font-mono transition-colors"
+        >
+          relaytty.com
+        </a>
+      </footer>
     </main>
   );
 }

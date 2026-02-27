@@ -133,14 +133,21 @@ async function start() {
   httpServer.listen(PORT, HOST, async () => {
     writeServerInfo();
     const localUrl = `http://localhost:${PORT}`;
-    console.log(`relay-tty listening on ${localUrl}`);
+
+    // ANSI helpers (inline — server.js is plain JS, not TS)
+    const esc = (code) => (s) => `\x1b[${code}m${s}\x1b[0m`;
+    const _bold = esc("1");
+    const _cyan = esc("36");
+    const _dim = esc("2");
+
+    console.log(`${_bold("relay-tty")} listening on ${_cyan(localUrl)}`);
     if (APP_URL) {
-      console.log(`Public URL: ${APP_URL}`);
+      console.log(`Public URL: ${_cyan(APP_URL)}`);
     }
     const token = generateToken ? generateToken() : null;
     if (token) {
       const authBase = APP_URL || localUrl;
-      console.log(`Auth: ${authBase}/api/auth/callback?token=${token}`);
+      console.log(_dim(`Auth: ${authBase}/api/auth/callback?token=${token}`));
     }
     if (DISCORD_WEBHOOK && APP_URL) {
       const authUrl = token

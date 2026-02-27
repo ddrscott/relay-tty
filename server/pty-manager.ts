@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { SessionStore } from "./session-store.js";
 import type { Session } from "../shared/types.js";
 import { WS_MSG } from "../shared/types.js";
+import { dim } from "./log.js";
 
 const DATA_DIR = path.join(os.homedir(), ".relay-tty");
 const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
@@ -42,6 +43,7 @@ export class PtyManager extends EventEmitter {
     if (!fs.existsSync(SESSIONS_DIR)) return;
 
     const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json"));
+    const reconnected: string[] = [];
 
     for (const file of files) {
       const sessionPath = path.join(SESSIONS_DIR, file);
@@ -80,7 +82,7 @@ export class PtyManager extends EventEmitter {
         if (alive) {
           this.sessionStore.create(meta);
           this.startMonitor(meta.id, socketPath);
-          console.log(`Reconnected to session ${meta.id} (${meta.command})`);
+          reconnected.push(meta.command);
         } else {
           // Stale socket file
           try { fs.unlinkSync(socketPath); } catch {}
@@ -94,6 +96,14 @@ export class PtyManager extends EventEmitter {
         // Corrupted file — remove it
         try { fs.unlinkSync(sessionPath); } catch {}
       }
+    }
+
+    if (reconnected.length > 0) {
+      // Summarize: "zsh, claude ×3, bash"
+      const counts = new Map<string, number>();
+      for (const cmd of reconnected) counts.set(cmd, (counts.get(cmd) || 0) + 1);
+      const parts = [...counts.entries()].map(([cmd, n]) => n > 1 ? `${cmd} ×${n}` : cmd);
+      console.log(dim(`Reconnected to ${reconnected.length} session${reconnected.length > 1 ? "s" : ""} (${parts.join(", ")})`));
     }
   }
 
