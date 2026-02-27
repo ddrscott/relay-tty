@@ -162,9 +162,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </Link>
 
         {/* Session title -- tap to open picker */}
-        <div className="relative min-w-0" ref={pickerRef}>
+        <div className="relative flex-1 min-w-0" ref={pickerRef}>
           <button
-            className="text-left truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
+            className="text-left w-full truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
             onClick={() => setPickerOpen(!pickerOpen)}
           >
             <code className="text-sm font-mono truncate block text-[#e2e8f0]">
@@ -221,11 +221,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
-        <div className="flex-1" />
-
         {/* Session navigation: < index > */}
         {allSessions.length > 1 && (
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
               onClick={() => prevSession && goTo(prevSession.id)}
@@ -248,7 +246,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        <div className="dropdown dropdown-end">
+        <div className="dropdown dropdown-end shrink-0">
           <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" aria-label="Font size">
             <Type className="w-4 h-4" />
           </button>
