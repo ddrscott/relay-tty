@@ -230,6 +230,19 @@ export class PtyManager extends EventEmitter {
   private startMonitor(id: string, socketPath: string): void {
     const socket = net.createConnection(socketPath, () => {
       this.monitors.set(id, socket);
+
+      // Sync title from disk — handles pty-host processes running old code
+      // that don't send TITLE after buffer replay, and race conditions where
+      // the shell sets the title before the monitor connects.
+      const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
+      try {
+        const meta = JSON.parse(fs.readFileSync(sessionPath, "utf-8"));
+        if (meta.title) {
+          this.sessionStore.setTitle(id, meta.title);
+        }
+      } catch {
+        // Ignore — file may not exist yet or be corrupted
+      }
     });
 
     let pending = Buffer.alloc(0);
