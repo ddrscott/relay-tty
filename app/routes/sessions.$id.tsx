@@ -132,7 +132,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onClick={() => setPickerOpen(!pickerOpen)}
           >
             <code className="text-sm font-mono truncate block">
-              {termTitle || `${session.command} ${session.args.join(" ")}`}
+              {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
               <span className="text-base-content/30 ml-2">{session.id}</span>
             </code>
           </button>

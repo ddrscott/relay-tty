@@ -174,7 +174,7 @@ ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: numb
   }, 1000);
 });
 
-/** Send BUFFER_REPLAY + SYNC to a socket. */
+/** Send BUFFER_REPLAY + SYNC + TITLE to a socket. */
 function sendReplay(socket: net.Socket, bufData: Buffer): void {
   if (bufData.length > 0) {
     const msg = Buffer.alloc(1 + bufData.length);
@@ -183,6 +183,17 @@ function sendReplay(socket: net.Socket, bufData: Buffer): void {
     writeFrame(socket, msg);
   }
   sendSync(socket);
+
+  // Send current title so clients get it even if the OSC sequence
+  // has been overwritten in the ring buffer
+  const currentTitle = (sessionMeta as any).title;
+  if (currentTitle) {
+    const titleBuf = Buffer.from(currentTitle, "utf8");
+    const msg = Buffer.alloc(1 + titleBuf.length);
+    msg[0] = WS_MSG.TITLE;
+    titleBuf.copy(msg, 1);
+    writeFrame(socket, msg);
+  }
 }
 
 /** Send SYNC (current byte offset) to a socket. */

@@ -427,6 +427,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             onExit?.(exitCode);
             break;
           }
+          case WS_MSG.TITLE: {
+            const title = new TextDecoder().decode(payload);
+            onTitleChange?.(title);
+            break;
+          }
         }
       };
 
