@@ -32,15 +32,14 @@ export class WsHandler {
     const sessionMatch = url.pathname.match(/^\/ws\/sessions\/([a-f0-9]+)$/);
     if (sessionMatch) {
       const sessionId = sessionMatch[1];
-      const session = this.sessionStore.get(sessionId);
-
-      if (!session) {
-        socket.destroy();
-        return;
-      }
-
-      this.wss.handleUpgrade(req, socket, head, (ws) => {
-        this.handleConnection(ws, sessionId);
+      this.resolveSession(sessionId).then((session) => {
+        if (!session) {
+          socket.destroy();
+          return;
+        }
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
+          this.handleConnection(ws, sessionId);
+        });
       });
       return;
     }
@@ -61,19 +60,27 @@ export class WsHandler {
         return;
       }
 
-      const session = this.sessionStore.get(sessionId);
-      if (!session) {
-        socket.destroy();
-        return;
-      }
-
-      this.wss.handleUpgrade(req, socket, head, (ws) => {
-        this.handleReadOnlyConnection(ws, sessionId);
+      this.resolveSession(sessionId).then((session) => {
+        if (!session) {
+          socket.destroy();
+          return;
+        }
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
+          this.handleReadOnlyConnection(ws, sessionId);
+        });
       });
       return;
     }
 
     socket.destroy();
+  }
+
+  /**
+   * Look up a session, auto-discovering from disk if not in the in-memory store.
+   * Sessions spawned directly by the CLI won't be in the store until discovered.
+   */
+  private async resolveSession(id: string) {
+    return this.sessionStore.get(id) || await this.ptyManager.discoverOne(id);
   }
 
   /**
@@ -178,17 +185,21 @@ export class WsHandler {
       }
     });
 
-    ptySocket.on("error", () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+    const sendExitAndClose = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      // If pty socket died, check if session exited and send EXIT before closing
+      const session = this.sessionStore.get(sessionId);
+      if (session && session.status === "exited" && session.exitCode !== undefined) {
+        const msg = Buffer.alloc(5);
+        msg[0] = WS_MSG.EXIT;
+        msg.writeInt32BE(session.exitCode, 1);
+        ws.send(msg);
       }
-    });
+      ws.close();
+    };
 
-    ptySocket.on("close", () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-    });
+    ptySocket.on("error", sendExitAndClose);
+    ptySocket.on("close", sendExitAndClose);
 
     // WS client → pty-host: wrap WS messages in length-prefixed frames
     ws.on("message", (data: Buffer) => {

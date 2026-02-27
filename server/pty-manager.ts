@@ -174,6 +174,60 @@ export class PtyManager extends EventEmitter {
   }
 
   /**
+   * Discover a single session from disk by ID.
+   * Used for lazy discovery when a client connects to a session
+   * that was spawned directly by the CLI (not through the server).
+   * Returns the session if found and alive, null otherwise.
+   */
+  async discoverOne(id: string): Promise<Session | null> {
+    // Already known
+    const existing = this.sessionStore.get(id);
+    if (existing) return existing;
+
+    const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
+    if (!fs.existsSync(sessionPath)) return null;
+
+    try {
+      const raw = fs.readFileSync(sessionPath, "utf-8");
+      const meta = JSON.parse(raw) as Session & { pid?: number };
+      if (!meta.cwd) meta.cwd = process.env.HOME || "/";
+
+      if (meta.status === "exited") {
+        this.sessionStore.create(meta);
+        return meta;
+      }
+
+      const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
+      if (!fs.existsSync(socketPath)) {
+        meta.status = "exited";
+        (meta as any).exitCode = -1;
+        (meta as any).exitedAt = Date.now();
+        fs.writeFileSync(sessionPath, JSON.stringify(meta));
+        this.sessionStore.create(meta);
+        return meta;
+      }
+
+      const alive = await this.probeSocket(socketPath);
+      if (alive) {
+        this.sessionStore.create(meta);
+        this.startMonitor(meta.id, socketPath);
+        return meta;
+      }
+
+      // Stale socket
+      try { fs.unlinkSync(socketPath); } catch {}
+      meta.status = "exited";
+      (meta as any).exitCode = -1;
+      (meta as any).exitedAt = Date.now();
+      fs.writeFileSync(sessionPath, JSON.stringify(meta));
+      this.sessionStore.create(meta);
+      return meta;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Remove session artifacts from disk.
    */
   cleanup(id: string): void {

@@ -172,16 +172,26 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
 
     function onResize() { sendResize(s); }
 
-    function sessionSocketExists(): boolean {
+    function sessionStillRunning(): boolean {
       if (!opts.sessionId) return false;
-      return fs.existsSync(path.join(SOCKETS_DIR, `${opts.sessionId}.sock`));
+      // Check socket file exists
+      if (!fs.existsSync(path.join(SOCKETS_DIR, `${opts.sessionId}.sock`))) return false;
+      // Check session metadata — pty-host writes status to disk on exit
+      const metaPath = path.join(os.homedir(), ".relay-tty", "sessions", `${opts.sessionId}.json`);
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+        if (meta.status === "exited") return false;
+      } catch {
+        // Can't read metadata — assume still running if socket exists
+      }
+      return true;
     }
 
     function scheduleReconnect() {
       if (s.cleanExit || s.userDetached) return;
       if (s.reconnectTimer) return;
 
-      if (!sessionSocketExists()) {
+      if (!sessionStillRunning()) {
         process.stderr.write("\r\nSession ended.\r\n");
         finish();
         return;
@@ -322,11 +332,26 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
 
     function onResize() { sendResize(s); }
 
+    function socketStillAlive(): boolean {
+      if (!fs.existsSync(socketPath)) return false;
+      // Check session metadata on disk — pty-host writes status on exit
+      if (opts.sessionId) {
+        const metaPath = path.join(os.homedir(), ".relay-tty", "sessions", `${opts.sessionId}.json`);
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+          if (meta.status === "exited") return false;
+        } catch {
+          // Can't read — assume alive if socket exists
+        }
+      }
+      return true;
+    }
+
     function scheduleReconnect() {
       if (s.cleanExit || s.userDetached) return;
       if (s.reconnectTimer) return;
 
-      if (!fs.existsSync(socketPath)) {
+      if (!socketStillAlive()) {
         process.stderr.write("\r\nSession ended.\r\n");
         finish();
         return;
@@ -348,7 +373,7 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
     function connect() {
       if (s.cleanExit || s.userDetached) return;
 
-      if (!fs.existsSync(socketPath)) {
+      if (!socketStillAlive()) {
         process.stderr.write("\r\nSession ended.\r\n");
         finish();
         return;

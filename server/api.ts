@@ -8,9 +8,14 @@ import type {
   SessionListResponse,
 } from "../shared/types.js";
 
+interface ApiOptions {
+  appUrl?: string;
+}
+
 export function createApiRouter(
   sessionStore: SessionStore,
-  ptyManager: PtyManager
+  ptyManager: PtyManager,
+  options: ApiOptions = {}
 ): Router {
   const router = Router();
 
@@ -47,8 +52,10 @@ export function createApiRouter(
   });
 
   // GET /api/sessions/:id — get single session
-  router.get("/sessions/:id", (req, res) => {
-    const session = sessionStore.get(req.params.id);
+  router.get("/sessions/:id", async (req, res) => {
+    // Try in-memory store first, then discover from disk (CLI-spawned sessions)
+    const session = sessionStore.get(req.params.id)
+      || await ptyManager.discoverOne(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -71,9 +78,11 @@ export function createApiRouter(
       return;
     }
 
-    const proto = req.headers["x-forwarded-proto"] || req.protocol;
-    const host = req.headers["x-forwarded-host"] || req.headers.host;
-    const url = `${proto}://${host}/share/${token}`;
+    // Prefer APP_URL for share links — the CLI hits localhost directly,
+    // and localhost URLs are useless for sharing with others.
+    const baseUrl = options.appUrl
+      || `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.headers.host}`;
+    const url = `${baseUrl}/share/${token}`;
 
     res.json({ token, url, expiresIn: ttl });
   });
