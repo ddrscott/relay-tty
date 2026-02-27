@@ -138,67 +138,123 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         });
       }
 
-      // Mobile touch inertia
-      // xterm.js already handles touchstart/touchmove on .xterm element, driving
-      // viewport.scrollTop. But it has NO touchend/momentum — scroll stops dead
-      // on finger lift. We add momentum only, using the viewport scroll events
-      // to track velocity (avoiding double-scroll from duplicate touch handlers).
+      // Pixel-smooth touch scrolling with momentum
+      // xterm.js renders at line boundaries and snaps scrollTop to line heights.
+      // To get smooth scrolling like a native view, we:
+      // 1. Intercept touch events before xterm sees them
+      // 2. Track a floating-point pixel scroll position
+      // 3. Set xterm's line-based scroll for content rendering
+      // 4. Apply CSS transform on .xterm-screen for sub-line pixel offset
+      // This gives smooth pixel-level visual scrolling with native-feeling momentum.
       const viewport = containerRef.current!.querySelector(".xterm-viewport") as HTMLElement;
+      const screen = containerRef.current!.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = containerRef.current!.querySelector(".xterm") as HTMLElement;
-      if (viewport && xtermEl) {
-        let lastScrollTop = viewport.scrollTop;
-        let lastScrollTime = performance.now();
+
+      if (viewport && screen && xtermEl) {
+        const getRowHeight = () => {
+          const core = (term as any)._core;
+          return core?._renderService?.dimensions?.css?.cell?.height || fontSize * 1.2;
+        };
+        const getMaxScroll = () => {
+          const buf = term.buffer.active;
+          return buf.baseY * getRowHeight();
+        };
+
+        let scrollPos = 0;     // floating-point pixel position
+        let lastTouchY = 0;
+        let lastTouchTime = 0;
         let velocity = 0;
         let momentumRaf = 0;
         let touching = false;
+
+        const applyScroll = () => {
+          const rowHeight = getRowHeight();
+          const maxScroll = getMaxScroll();
+          scrollPos = Math.max(0, Math.min(scrollPos, maxScroll));
+
+          // Set xterm's line-based scroll position
+          const targetLine = Math.round(scrollPos / rowHeight);
+          const currentLine = term.buffer.active.viewportY;
+          if (targetLine !== currentLine) {
+            term.scrollLines(targetLine - currentLine);
+          }
+
+          // Sub-line pixel offset via CSS transform for smooth visual
+          const lineAligned = term.buffer.active.viewportY * rowHeight;
+          const subPixel = scrollPos - lineAligned;
+          screen.style.transform = subPixel !== 0 ? `translateY(${-subPixel}px)` : '';
+        };
 
         const cancelMomentum = () => {
           if (momentumRaf) {
             cancelAnimationFrame(momentumRaf);
             momentumRaf = 0;
           }
+          screen.style.transform = '';
         };
 
-        // Track scroll velocity from xterm's own touch scroll handling
-        viewport.addEventListener("scroll", () => {
-          if (!touching) return;
-          const now = performance.now();
-          const dt = now - lastScrollTime;
-          if (dt > 0 && dt < 100) {
-            const delta = viewport.scrollTop - lastScrollTop;
-            const instantV = delta / (dt / 16); // px per frame
-            velocity = velocity * 0.8 + instantV * 0.2;
-          }
-          lastScrollTop = viewport.scrollTop;
-          lastScrollTime = now;
-        }, { passive: true });
-
-        xtermEl.addEventListener("touchstart", () => {
+        // Intercept touch on the xterm container BEFORE xterm's handlers
+        xtermEl.addEventListener("touchstart", (e) => {
+          if (e.touches.length !== 1) return;
+          e.stopPropagation();
           cancelMomentum();
           touching = true;
+          lastTouchY = e.touches[0].clientY;
+          lastTouchTime = performance.now();
           velocity = 0;
-          lastScrollTop = viewport.scrollTop;
-          lastScrollTime = performance.now();
-        }, { passive: true });
+          // Sync our position with xterm's current state
+          scrollPos = term.buffer.active.viewportY * getRowHeight();
+        }, { capture: true, passive: true });
 
-        xtermEl.addEventListener("touchend", () => {
+        xtermEl.addEventListener("touchmove", (e) => {
+          if (!touching || e.touches.length !== 1) return;
+          e.stopPropagation();
+          e.preventDefault();
+
+          const touchY = e.touches[0].clientY;
+          const deltaY = lastTouchY - touchY;
+          const now = performance.now();
+          const dt = now - lastTouchTime;
+
+          // Track velocity for momentum
+          if (dt > 0 && dt < 100) {
+            const instantV = (deltaY / dt) * 16; // px per frame at 60fps
+            velocity = velocity * 0.7 + instantV * 0.3;
+          }
+
+          scrollPos += deltaY;
+          applyScroll();
+
+          lastTouchY = touchY;
+          lastTouchTime = now;
+        }, { capture: true, passive: false });
+
+        xtermEl.addEventListener("touchend", (e) => {
+          if (!touching) return;
+          e.stopPropagation();
           touching = false;
-          // Start momentum
-          const friction = 0.95;
+
+          // Momentum animation
+          const friction = 0.96;
           const step = () => {
-            if (Math.abs(velocity) < 0.5) return;
-            viewport.scrollTop += velocity;
+            if (Math.abs(velocity) < 0.3) {
+              // Snap to line and clear transform
+              screen.style.transform = '';
+              return;
+            }
+            scrollPos += velocity;
+            applyScroll();
             velocity *= friction;
             momentumRaf = requestAnimationFrame(step);
           };
           momentumRaf = requestAnimationFrame(step);
-        }, { passive: true });
-
-        // Prevent iOS text-span touch issues (xterm.js #3613)
-        const style = document.createElement("style");
-        style.textContent = ".xterm-rows span { pointer-events: none; }";
-        containerRef.current!.appendChild(style);
+        }, { capture: true, passive: true });
       }
+
+      // Prevent iOS text-span touch issues (xterm.js #3613)
+      const style = document.createElement("style");
+      style.textContent = ".xterm-rows span { pointer-events: none; }";
+      containerRef.current!.appendChild(style);
 
       // Track scroll position to show/hide "jump to bottom" indicator
       const checkScroll = () => {
@@ -206,9 +262,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         onScrollChange?.(buf.viewportY >= buf.baseY);
       };
       term.onScroll(checkScroll);
-      if (viewport) {
-        viewport.addEventListener("scroll", checkScroll, { passive: true });
-      }
 
       // Terminal input → WebSocket (with optional input transform for sticky modifiers)
       term.onData((data: string) => {
