@@ -22,7 +22,7 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 ## Mobile Considerations
 - `onMouseDown={e => e.preventDefault()}` on buttons prevents focus steal from terminal
 - For buttons that must not open virtual keyboard on mobile, also add `tabIndex={-1}` and `onTouchEnd` with `preventDefault()`
-- Android swipe/autocomplete: intercept `insertReplacementText` and `insertCompositionText` beforeinput events
+- Android/mobile: disable autocomplete/autocorrect/autocapitalize/spellcheck on xterm's textarea to prevent composition events. Without these, keystrokes go through xterm's normal handler instead of `insertCompositionText` (which sends the full accumulated buffer each time, causing duplicates). Scratchpad available for longer input.
 - iOS: `.xterm-rows span { pointer-events: none }` fixes touch-on-text-span issue
 
 ## Process Architecture

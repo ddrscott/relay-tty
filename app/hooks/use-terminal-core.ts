@@ -42,17 +42,18 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const webglRef = useRef<any>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
+  // After a resize, apps like Claude Code redraw their TUI. That output
+  // arrives over WS and can scroll xterm away from the bottom. This ref
+  // tells the DATA handler to keep snapping to bottom for a brief window.
+  const snapBottomUntilRef = useRef(0);
+
   const fit = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
       try {
-        const term = termRef.current;
-        const buf = term.buffer.active;
-        const wasAtBottom = buf.viewportY >= buf.baseY;
         fitAddonRef.current.fit();
-        if (wasAtBottom) term.scrollToBottom();
-      } catch {
-        // ignore fit errors during init
-      }
+        // Snap to bottom for 500ms after resize to catch app redraws
+        snapBottomUntilRef.current = Date.now() + 500;
+      } catch {}
     }
   }, []);
 
@@ -78,12 +79,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const { FitAddon } = await import("@xterm/addon-fit");
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
       const { WebglAddon } = await import("@xterm/addon-webgl");
+      const { Unicode11Addon } = await import("@xterm/addon-unicode11");
 
       if (disposed || !containerRef.current) return;
 
       const term = new XTerm({
         fontSize: opts.fontSize ?? 14,
-        fontFamily: "ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace",
+        fontFamily: "ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Noto Sans Mono', monospace",
         theme: {
           background: "#19191f",
           foreground: "#e2e8f0",
@@ -116,6 +118,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.loadAddon(new WebLinksAddon());
+      const unicode11 = new Unicode11Addon();
+      term.loadAddon(unicode11);
+      term.unicode.activeVersion = "11";
       term.open(containerRef.current!);
 
       // WebGL renderer — must be loaded after term.open()
@@ -133,7 +138,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       requestAnimationFrame(() => fitAddon.fit());
 
       if (!opts.readOnly) {
-        setupMobileKeyboard(term, containerRef.current!);
+        setupMobileInput(term, containerRef.current!);
         setupTouchScrolling(term, containerRef.current!, opts.fontSize ?? 14);
       }
 
@@ -158,26 +163,25 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       connect(term);
     }
 
-    // ── Mobile keyboard fixes ───────────────────────────────────────
+    // ── Mobile keyboard: disable autocomplete, keep raw typing ─────
 
-    function setupMobileKeyboard(term: any, container: HTMLElement) {
+    function setupMobileInput(term: any, container: HTMLElement) {
       const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement;
       if (!textarea) return;
 
+      // Suppress all smart keyboard features to prevent composition events.
+      // With these off, Android keyboards send plain keystrokes instead of
+      // routing everything through insertCompositionText.
       textarea.setAttribute("autocomplete", "off");
+      textarea.setAttribute("autocorrect", "off");
+      textarea.setAttribute("autocapitalize", "off");
+      textarea.setAttribute("spellcheck", "false");
+      textarea.setAttribute("data-gramm", "false"); // Grammarly
+
       textarea.addEventListener("beforeinput", (e) => {
         if (e.inputType === "insertLineBreak") {
           e.preventDefault();
           term.input("\r");
-          return;
-        }
-        if (
-          (e.inputType === "insertReplacementText" ||
-           e.inputType === "insertCompositionText") &&
-          e.data
-        ) {
-          e.preventDefault();
-          term.input(e.data);
         }
       });
     }
@@ -334,7 +338,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           }
           break;
         case WS_MSG.DATA:
-          term.write(payload);
+          if (Date.now() < snapBottomUntilRef.current) {
+            term.write(payload, () => term.scrollToBottom());
+          } else {
+            term.write(payload);
+          }
           byteOffset += payload.length;
           break;
         case WS_MSG.EXIT: {
@@ -412,20 +420,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     initTerminal();
 
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const observer = new ResizeObserver(() => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        resizeTimer = null;
-        fit();
-      }, 100);
-    });
+    const observer = new ResizeObserver(() => fit());
     if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
-      if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
       wsRef.current?.close();
       try { webglRef.current?.dispose(); } catch {}

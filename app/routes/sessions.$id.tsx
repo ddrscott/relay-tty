@@ -144,18 +144,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     if (listening) stopMic();
   }, [padText, listening, stopMic]);
 
-  // Open scratchpad, preserving scroll position
+  // Open scratchpad — xterm handles scroll preservation on resize
   const openPad = useCallback((startMic?: boolean) => {
-    // If terminal is at bottom, schedule a scroll-to-bottom after layout shift
-    if (atBottom) {
-      requestAnimationFrame(() => terminalRef.current?.scrollToBottom());
-    }
     setPadOpen(true);
     setPadCopied(false);
     if (startMic && micSupported && !listening) {
       toggleMic();
     }
-  }, [atBottom, micSupported, listening, toggleMic]);
+  }, [micSupported, listening, toggleMic]);
 
   return (
     <main className="h-dvh flex flex-col relative bg-[#0a0a0f]">
