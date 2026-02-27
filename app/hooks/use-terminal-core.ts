@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WS_MSG } from "../../shared/types";
+import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 
 /** Size of chunks fed to xterm.js during buffer replay (bytes) */
 const REPLAY_CHUNK_SIZE = 64 * 1024;
@@ -70,6 +71,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
     let byteOffset = 0;
+
+    // Extract session ID from wsPath for buffer caching (only for /ws/sessions/<id>)
+    const sessionIdMatch = opts.wsPath.match(/^\/ws\/sessions\/([^/?]+)/);
+    const cacheSessionId = sessionIdMatch?.[1] ?? null;
+    let cacheWriter: BufferCacheWriter | null = null;
 
     // ── xterm.js setup ──────────────────────────────────────────────
 
@@ -160,7 +166,57 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         term.onTitleChange((title: string) => opts.onTitleChange!(title));
       }
 
-      connect(term);
+      // ── Load cached buffer from IndexedDB for instant display ─────
+      if (cacheSessionId) {
+        try {
+          const cached = await loadCache(cacheSessionId);
+          if (cached && cached.buffer.length > 0 && !disposed) {
+            byteOffset = cached.byteOffset;
+            cacheWriter = new BufferCacheWriter(cacheSessionId, cached);
+
+            // Write cached buffer into xterm before WS connect.
+            // This gives near-instant display; the WS RESUME will
+            // fetch only the delta since the cached offset.
+            const syncAndScroll = () => {
+              const core = (term as any)._core;
+              if (core?.viewport) core.viewport.syncScrollArea(true);
+              term.scrollToBottom();
+            };
+
+            if (cached.buffer.length <= REPLAY_CHUNK_SIZE) {
+              term.write(cached.buffer, syncAndScroll);
+            } else {
+              // Chunked write for large cached buffers
+              opts.onReplayProgress?.(0);
+              let chunkOff = 0;
+              const total = cached.buffer.length;
+              const writeNextCacheChunk = () => {
+                const end = Math.min(chunkOff + REPLAY_CHUNK_SIZE, total);
+                const chunk = cached.buffer.subarray(chunkOff, end);
+                const isLast = end >= total;
+                term.write(chunk, () => {
+                  if (isLast) {
+                    syncAndScroll();
+                    opts.onReplayProgress?.(null);
+                  } else {
+                    chunkOff = end;
+                    opts.onReplayProgress?.(chunkOff / total);
+                    setTimeout(writeNextCacheChunk, 0);
+                  }
+                });
+              };
+              writeNextCacheChunk();
+            }
+          } else if (cacheSessionId) {
+            cacheWriter = new BufferCacheWriter(cacheSessionId);
+          }
+        } catch {
+          // Cache load failed — graceful degradation, connect without cache
+          cacheWriter = new BufferCacheWriter(cacheSessionId);
+        }
+      }
+
+      if (!disposed) connect(term);
     }
 
     // ── Mobile keyboard: disable autocomplete, keep raw typing ─────
@@ -335,6 +391,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           if (payload.length >= 8) {
             const view = new DataView(payload.buffer, payload.byteOffset);
             byteOffset = view.getFloat64(0, false);
+            cacheWriter?.setOffset(byteOffset);
           }
           break;
         case WS_MSG.DATA:
@@ -344,11 +401,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             term.write(payload);
           }
           byteOffset += payload.length;
+          cacheWriter?.append(payload);
           break;
         case WS_MSG.EXIT: {
           const view = new DataView(payload.buffer, payload.byteOffset);
           const exitCode = view.getInt32(0, false);
           opts.onExit?.(exitCode);
+          // Clean up cache for exited sessions
+          if (cacheSessionId) deleteCache(cacheSessionId);
+          cacheWriter?.dispose();
+          cacheWriter = null;
           break;
         }
         case WS_MSG.TITLE: {
@@ -362,6 +424,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     function handleBufferReplay(term: any, payload: Uint8Array) {
       const isReconnect = byteOffset > 0;
       if (isReconnect && payload.length === 0) return;
+
+      // Feed replayed/delta data into cache writer
+      if (payload.length > 0) {
+        cacheWriter?.append(payload);
+      }
 
       const syncAndScroll = () => {
         const core = (term as any)._core;
@@ -431,6 +498,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       try { webglRef.current?.dispose(); } catch {}
       webglRef.current = null;
       termRef.current?.dispose();
+      cacheWriter?.dispose();
     };
   }, [opts.wsPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
