@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Type,
   ChevronsDown,
+  Info,
   Mic,
   MicOff,
   SendHorizontal,
@@ -26,13 +27,14 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     throw new Response("Session not found", { status: 404 });
   }
   const allSessions = context.sessionStore.list();
-  return { session, allSessions };
+  return { session, allSessions, version: context.version };
 }
 
 export default function SessionView({ loaderData }: Route.ComponentProps) {
-  const { session, allSessions } = loaderData as {
+  const { session, allSessions, version } = loaderData as {
     session: Session;
     allSessions: Session[];
+    version: string;
   };
   const navigate = useNavigate();
   const { revalidate } = useRevalidator();
@@ -53,6 +55,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [micOpened, setMicOpened] = useState(false);
   const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -91,6 +95,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [pickerOpen, revalidate]);
+
+  // Close info popover on outside click
+  useEffect(() => {
+    if (!infoOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
+        setInfoOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [infoOpen]);
 
   // Dynamic import of Terminal component (xterm.js is client-only)
   const [TerminalComponent, setTerminalComponent] =
@@ -283,6 +299,58 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               A+
             </button>
           </div>
+        </div>
+
+        {/* Info button */}
+        <div className="relative shrink-0" ref={infoRef}>
+          <button
+            className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
+            onClick={() => setInfoOpen(!infoOpen)}
+            aria-label="Session info"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+          {infoOpen && (
+            <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
+              <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
+                <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">Session</span>
+                  <span className="text-[#e2e8f0]">{session.id}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">Status</span>
+                  <span className={session.status === "running" ? "text-[#22c55e]" : "text-[#64748b]"}>
+                    {session.status}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">Command</span>
+                  <span className="text-[#e2e8f0] truncate max-w-40">{session.command}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">Size</span>
+                  <span className="text-[#e2e8f0]">{session.cols}x{session.rows}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">CWD</span>
+                  <span className="text-[#e2e8f0] truncate max-w-40" title={session.cwd}>{session.cwd}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-[#64748b]">Created</span>
+                  <span className="text-[#e2e8f0]">{new Date(session.createdAt).toLocaleString()}</span>
+                </div>
+                {session.exitCode !== undefined && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-[#64748b]">Exit code</span>
+                    <span className={session.exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>
+                      {session.exitCode}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
