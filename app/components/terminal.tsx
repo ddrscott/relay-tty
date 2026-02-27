@@ -130,10 +130,28 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       // Fix: catch 'insertLineBreak' on the hidden textarea and send \r manually.
       const textarea = containerRef.current!.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement;
       if (textarea) {
+        // Suppress Android/iOS keyboard autocomplete, swipe suggestions,
+        // and predictive text — they produce composition events that
+        // garble terminal input. xterm.js sets autocorrect/autocapitalize
+        // but misses autocomplete.
+        textarea.setAttribute("autocomplete", "off");
+
         textarea.addEventListener("beforeinput", (e) => {
           if (e.inputType === "insertLineBreak") {
             e.preventDefault();
             term.input("\r");
+            return;
+          }
+          // Android swipe/autocomplete produces insertReplacementText or
+          // insertCompositionText which xterm.js's CompositionHelper mishandles,
+          // causing duplicated or garbled output. Intercept and send directly.
+          if (
+            (e.inputType === "insertReplacementText" ||
+             e.inputType === "insertCompositionText") &&
+            e.data
+          ) {
+            e.preventDefault();
+            term.input(e.data);
           }
         });
       }
