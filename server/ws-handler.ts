@@ -8,6 +8,9 @@ import type { PtyManager } from "./pty-manager.js";
 import { verifyShareToken } from "./auth.js";
 import { WS_MSG } from "../shared/types.js";
 
+/** Ping interval to keep connections alive through proxies (e.g. Cloudflare Tunnel ~100s idle timeout) */
+const PING_INTERVAL_MS = 30_000;
+
 /**
  * Bridges WebSocket clients to pty-host Unix sockets.
  *
@@ -17,12 +20,41 @@ import { WS_MSG } from "../shared/types.js";
  */
 export class WsHandler {
   private wss: WebSocketServer;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private sessionStore: SessionStore,
     private ptyManager: PtyManager
   ) {
     this.wss = new WebSocketServer({ noServer: true });
+    this.startPingInterval();
+  }
+
+  /**
+   * Ping all connected WebSocket clients every 30s. If a client didn't
+   * respond to the previous ping (isAlive still false), terminate it.
+   * This keeps connections alive through intermediate proxies and detects
+   * dead clients.
+   */
+  private startPingInterval(): void {
+    this.pingTimer = setInterval(() => {
+      this.wss.clients.forEach((ws: WebSocket & { isAlive?: boolean }) => {
+        if (ws.isAlive === false) {
+          ws.terminate();
+          return;
+        }
+        ws.isAlive = false;
+        ws.ping();
+      });
+    }, PING_INTERVAL_MS);
+  }
+
+  destroy(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.wss.close();
   }
 
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -83,11 +115,19 @@ export class WsHandler {
     return this.sessionStore.get(id) || await this.ptyManager.discoverOne(id);
   }
 
+  private initKeepAlive(ws: WebSocket): void {
+    (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
+    ws.on("pong", () => {
+      (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
+    });
+  }
+
   /**
    * Read-only connection: receives output but cannot send input or resize.
    * Only RESUME messages are forwarded so the client can do delta replay.
    */
   private handleReadOnlyConnection(ws: WebSocket, sessionId: string): void {
+    this.initKeepAlive(ws);
     const socketPath = this.ptyManager.getSocketPath(sessionId);
 
     if (!fs.existsSync(socketPath)) {
@@ -142,6 +182,7 @@ export class WsHandler {
   }
 
   private handleConnection(ws: WebSocket, sessionId: string): void {
+    this.initKeepAlive(ws);
     const socketPath = this.ptyManager.getSocketPath(sessionId);
 
     // Check socket exists before connecting
