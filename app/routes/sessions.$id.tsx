@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
@@ -21,6 +21,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     allSessions: Session[];
   };
   const navigate = useNavigate();
+  const { revalidate } = useRevalidator();
   const terminalRef = useRef<TerminalHandle>(null);
   const [fontSize, setFontSize] = useState(14);
   const [exitCode, setExitCode] = useState<number | null>(
@@ -48,9 +49,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     ? allSessions[(currentIndex + 1) % allSessions.length]
     : null;
 
-  // Close picker on outside click
+  // Close picker on outside click; revalidate to get fresh titles when opening
   useEffect(() => {
     if (!pickerOpen) return;
+    revalidate();
     function onClickOutside(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
         setPickerOpen(false);
@@ -58,7 +60,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [pickerOpen]);
+  }, [pickerOpen, revalidate]);
 
   // Dynamic import of Terminal component (xterm.js is client-only)
   const [TerminalComponent, setTerminalComponent] =
