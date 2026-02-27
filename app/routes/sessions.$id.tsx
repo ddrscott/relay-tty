@@ -135,7 +135,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // Send scratchpad text to terminal and close
   const sendPad = useCallback(() => {
     if (!terminalRef.current || !padText.trim()) return;
-    terminalRef.current.sendText(padText + "\r");
+    // Send text first, then \r separately — if sent together, bracketed
+    // paste mode wraps everything and \r won't trigger command execution.
+    terminalRef.current.sendText(padText);
+    setTimeout(() => terminalRef.current?.sendText("\r"), 50);
     setPadText("");
     setPadOpen(false);
     if (listening) stopMic();
@@ -156,45 +159,31 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   return (
     <main className="h-dvh flex flex-col relative">
-      {/* Header bar */}
+      {/* Header bar: back, title, gap, <, index, >, font */}
       <div className="flex items-center gap-1 px-2 py-2 bg-base-200 border-b border-base-300">
         <Link to="/" className="btn btn-ghost btn-xs">
           <ArrowLeft className="w-4 h-4" />
         </Link>
 
-        {/* Previous session arrow */}
-        {prevSession && (
-          <button
-            className="btn btn-ghost btn-xs"
-            onClick={() => goTo(prevSession.id)}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Previous session"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-        )}
-
         {/* Session title -- tap to open picker */}
-        <div className="relative flex-1 min-w-0" ref={pickerRef}>
+        <div className="relative min-w-0" ref={pickerRef}>
           <button
-            className="w-full text-left truncate cursor-pointer hover:bg-base-300 rounded px-1 -mx-1 transition-colors"
+            className="text-left truncate cursor-pointer hover:bg-base-300 rounded px-1 -mx-1 transition-colors"
             onClick={() => setPickerOpen(!pickerOpen)}
           >
             <code className="text-sm font-mono truncate block">
               {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
-              <span className="text-base-content/30 ml-2">{session.id}</span>
             </code>
           </button>
 
           {/* Session picker dropdown — grouped by cwd */}
           {pickerOpen && allSessions.length > 1 && (
-            <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+            <div className="absolute top-full left-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64">
               {groups.map((group, gi) => (
                 <div key={group.cwd}>
                   {gi > 0 && (
                     <div className="border-t border-base-content/10 mx-2 my-1" />
                   )}
-                  {/* Group header — only show when multiple groups */}
                   {groups.length > 1 && (
                     <div className="px-3 pt-2 pb-1">
                       <code className="text-xs text-base-content/40 font-mono">
@@ -236,16 +225,31 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
-        {/* Next session arrow */}
-        {nextSession && (
-          <button
-            className="btn btn-ghost btn-xs"
-            onClick={() => goTo(nextSession.id)}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Next session"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
+        <div className="flex-1" />
+
+        {/* Session navigation: < index > */}
+        {allSessions.length > 1 && (
+          <div className="flex items-center gap-0.5">
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={() => prevSession && goTo(prevSession.id)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="Previous session"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-mono text-base-content/50 w-8 text-center">
+              {currentIndex + 1}/{allSessions.length}
+            </span>
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={() => nextSession && goTo(nextSession.id)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="Next session"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         )}
 
         <div className="dropdown dropdown-end">
