@@ -108,6 +108,10 @@ function writeFrame(socket: net.Socket, payload: Buffer): void {
 // Format: ESC ] 0|2 ; <title> BEL  or  ESC ] 0|2 ; <title> ESC \
 const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*?)(?:\x07|\x1b\\)/;
 
+// Parse OSC 9 notification sequences (used by iTerm2/Claude Code)
+// Format: ESC ] 9 ; <message> BEL  or  ESC ] 9 ; <message> ESC \
+const OSC_NOTIFY_RE = /\x1b\]9;([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
+
 function broadcastTitle(title: string): void {
   const titleBuf = Buffer.from(title, "utf8");
   const msg = Buffer.alloc(1 + titleBuf.length);
@@ -123,10 +127,23 @@ function broadcastTitle(title: string): void {
   }
 }
 
+function broadcastNotification(message: string): void {
+  const msgBuf = Buffer.from(message, "utf8");
+  const frame = Buffer.alloc(1 + msgBuf.length);
+  frame[0] = WS_MSG.NOTIFICATION;
+  msgBuf.copy(frame, 1);
+
+  for (const client of clients) {
+    try {
+      writeFrame(client, frame);
+    } catch {
+      // client disconnected, will be cleaned up on 'close'
+    }
+  }
+}
+
 // PTY data → broadcast to all connected sockets
 ptyProcess.onData((data: string) => {
-  const buf = Buffer.from(data, "utf8");
-  outputBuffer.write(buf);
   sessionMeta.lastActivity = Date.now();
 
   // Check for OSC title change
@@ -140,15 +157,32 @@ ptyProcess.onData((data: string) => {
     }
   }
 
-  const msg = Buffer.alloc(1 + buf.length);
-  msg[0] = WS_MSG.DATA;
-  buf.copy(msg, 1);
+  // Extract and broadcast OSC 9 notifications, strip them from the data
+  // so they don't appear in the terminal output or buffer replay
+  let cleaned = data;
+  let notifyMatch: RegExpExecArray | null;
+  OSC_NOTIFY_RE.lastIndex = 0;
+  while ((notifyMatch = OSC_NOTIFY_RE.exec(data)) !== null) {
+    broadcastNotification(notifyMatch[1]);
+  }
+  if (OSC_NOTIFY_RE.lastIndex > 0) {
+    cleaned = data.replace(OSC_NOTIFY_RE, "");
+  }
 
-  for (const client of clients) {
-    try {
-      writeFrame(client, msg);
-    } catch {
-      // client disconnected, will be cleaned up on 'close'
+  const buf = Buffer.from(cleaned, "utf8");
+  if (buf.length > 0) {
+    outputBuffer.write(buf);
+
+    const msg = Buffer.alloc(1 + buf.length);
+    msg[0] = WS_MSG.DATA;
+    buf.copy(msg, 1);
+
+    for (const client of clients) {
+      try {
+        writeFrame(client, msg);
+      } catch {
+        // client disconnected, will be cleaned up on 'close'
+      }
     }
   }
 });

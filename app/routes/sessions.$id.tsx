@@ -54,6 +54,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
 
+  // Request notification permission on mount (no-op if already granted/denied)
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const handleNotification = useCallback((message: string) => {
+    // Only notify when the tab is hidden — user is already looking if visible
+    if (document.visibilityState !== "hidden") return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const title = termTitle || session.command;
+    new Notification(title, { body: message, tag: `relay-${session.id}` });
+  }, [termTitle, session.command, session.id]);
+
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
@@ -282,6 +297,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onTitleChange={setTermTitle}
             onScrollChange={setAtBottom}
             onReplayProgress={setReplayProgress}
+            onNotification={handleNotification}
           />
         )}
 

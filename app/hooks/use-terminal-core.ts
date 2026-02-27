@@ -28,6 +28,8 @@ export interface TerminalCoreOpts {
   onReplayProgress?: (progress: number | null) => void;
   /** Called on WS auth error (close code 4001/1008) */
   onAuthError?: () => void;
+  /** Called when an OSC 9 notification arrives from the PTY */
+  onNotification?: (message: string) => void;
 }
 
 export interface TerminalCoreRef {
@@ -416,6 +418,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         case WS_MSG.TITLE: {
           const title = new TextDecoder().decode(payload);
           opts.onTitleChange?.(title);
+          break;
+        }
+        case WS_MSG.NOTIFICATION: {
+          const message = new TextDecoder().decode(payload);
+          opts.onNotification?.(message);
           break;
         }
       }

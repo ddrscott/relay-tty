@@ -19,6 +19,8 @@ export const WS_MSG = {
   EXIT: 0x02,
   BUFFER_REPLAY: 0x03,
   TITLE: 0x04,
+  /** Server→client: OSC 9 notification text [UTF-8]. */
+  NOTIFICATION: 0x05,
   /** Client→server: resume from byte offset [8B float64]. */
   RESUME: 0x10,
   /** Server→client: current total byte offset [8B float64]. */
