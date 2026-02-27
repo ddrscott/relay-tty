@@ -65,6 +65,52 @@ export function generateToken(): string | null {
 }
 
 /**
+ * Generate a short-lived, read-only share token for a session.
+ */
+export function generateShareToken(sessionId: string, ttlSeconds = 3600): string | null {
+  if (!JWT_SECRET) return null;
+  return signJwt({
+    iss: "relay-tty",
+    sub: sessionId,
+    scope: "share:read",
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+  }, JWT_SECRET);
+}
+
+/**
+ * Verify a share token. Returns the session ID if valid, null otherwise.
+ */
+export function verifyShareToken(token: string): string | null {
+  if (!JWT_SECRET) return null;
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  try {
+    const headerPayload = `${parts[0]}.${parts[1]}`;
+    const signature = createHmac("sha256", JWT_SECRET)
+      .update(headerPayload)
+      .digest("base64url");
+
+    if (signature !== parts[2]) return null;
+
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString()
+    ) as JwtPayload;
+
+    if (payload.iss !== "relay-tty") return null;
+    if (payload.scope !== "share:read") return null;
+    if (typeof payload.exp === "number" && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (typeof payload.sub !== "string") return null;
+
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Express middleware: skip auth for localhost, require valid JWT cookie for remote.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
@@ -80,6 +126,12 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 
   // Allow the callback route through (it sets the cookie)
   if (req.path === "/api/auth/callback") {
+    next();
+    return;
+  }
+
+  // Allow share routes through (they validate their own token)
+  if (req.path.startsWith("/share/")) {
     next();
     return;
   }

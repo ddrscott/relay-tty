@@ -142,7 +142,9 @@ async function start() {
   // WS upgrade routing with auth check
   if (wsHandler) {
     httpServer.on("upgrade", (req, socket, head) => {
-      if (verifyWsAuth && !verifyWsAuth(req)) {
+      // Share WS connections validate their own token inside handleUpgrade
+      const isShareWs = req.url?.startsWith("/ws/share");
+      if (!isShareWs && verifyWsAuth && !verifyWsAuth(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;

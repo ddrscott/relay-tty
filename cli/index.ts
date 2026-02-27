@@ -6,6 +6,7 @@ import { registerAttachCommand } from "./commands/attach.js";
 import { registerListCommand } from "./commands/list.js";
 import { registerStopCommand } from "./commands/stop.js";
 import { registerServerCommand } from "./commands/server.js";
+import { registerShareCommand } from "./commands/share.js";
 
 const program = new Command();
 
@@ -23,6 +24,7 @@ registerRunCommand(program);
 registerAttachCommand(program);
 registerListCommand(program);
 registerStopCommand(program);
+registerShareCommand(program);
 registerServerCommand(program);
 
 program.parse();
