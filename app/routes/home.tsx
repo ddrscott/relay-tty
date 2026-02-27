@@ -3,6 +3,7 @@ import { useRevalidator, useNavigate } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
+import { groupByCwd } from "../lib/session-groups";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -21,38 +22,6 @@ const SHELL_OPTIONS = [
   { label: "bash", command: "bash" },
   { label: "zsh", command: "zsh" },
 ];
-
-/** Shorten home dir and return display-friendly path */
-function displayPath(cwd: string): string {
-  return cwd.replace(/^\/Users\/[^/]+/, "~");
-}
-
-/** Group sessions by cwd, sorted: groups with running sessions first, then by most recent activity */
-function groupByCwd(sessions: Session[]): { cwd: string; label: string; sessions: Session[] }[] {
-  const groups = new Map<string, Session[]>();
-  for (const s of sessions) {
-    const list = groups.get(s.cwd) || [];
-    list.push(s);
-    groups.set(s.cwd, list);
-  }
-
-  return Array.from(groups.entries())
-    .map(([cwd, sessions]) => ({
-      cwd,
-      label: displayPath(cwd),
-      sessions,
-    }))
-    .sort((a, b) => {
-      // Groups with running sessions first
-      const aRunning = a.sessions.some((s) => s.status === "running");
-      const bRunning = b.sessions.some((s) => s.status === "running");
-      if (aRunning !== bRunning) return aRunning ? -1 : 1;
-      // Then by most recent activity
-      const aLatest = Math.max(...a.sessions.map((s) => s.lastActivity));
-      const bLatest = Math.max(...b.sessions.map((s) => s.lastActivity));
-      return bLatest - aLatest;
-    });
-}
 
 export default function Home({ loaderData }: Route.ComponentProps) {
   const { sessions } = loaderData as { sessions: Session[] };

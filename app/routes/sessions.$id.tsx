@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
 import { useSpeechRecognition } from "../hooks/use-speech-recognition";
+import { groupByCwd } from "../lib/session-groups";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id);
@@ -36,6 +37,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [padCopied, setPadCopied] = useState(false);
   const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
+
+  const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
   const prevSession = allSessions.length > 1
@@ -132,40 +135,50 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             </code>
           </button>
 
-          {/* Session picker dropdown */}
+          {/* Session picker dropdown — grouped by cwd */}
           {pickerOpen && allSessions.length > 1 && (
-            <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-64 overflow-y-auto">
-              {allSessions.map((s, i) => (
-                <div key={s.id}>
-                  {/* Divider between active and exited */}
-                  {i > 0 && s.status === "exited" && allSessions[i - 1].status !== "exited" && (
-                    <div className="border-t border-base-content/10 mx-3 my-1" />
+            <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+              {groups.map((group, gi) => (
+                <div key={group.cwd}>
+                  {gi > 0 && (
+                    <div className="border-t border-base-content/10 mx-2 my-1" />
                   )}
-                  <button
-                    className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-base-100 transition-colors ${
-                      s.id === session.id ? "bg-base-100" : ""
-                    } ${s.status === "exited" ? "opacity-50" : ""}`}
-                    onClick={() => goTo(s.id)}
-                  >
-                    <span className="text-xs text-base-content/40 w-4 text-right shrink-0">
-                      {i + 1}
-                    </span>
-                    <code className="text-sm font-mono truncate flex-1">
-                      {s.title || `${s.command} ${s.args.join(" ")}`}
-                    </code>
-                    <span className="text-xs text-base-content/30 font-mono shrink-0">
-                      {s.id}
-                    </span>
-                    {s.status === "exited" && (
-                      <span
-                        className={`text-xs shrink-0 ${
-                          s.exitCode === 0 ? "text-success" : "text-error"
-                        }`}
-                      >
-                        {s.exitCode}
+                  {/* Group header — only show when multiple groups */}
+                  {groups.length > 1 && (
+                    <div className="px-3 pt-2 pb-1">
+                      <code className="text-xs text-base-content/40 font-mono">
+                        {group.label}
+                      </code>
+                    </div>
+                  )}
+                  {group.sessions.map((s) => (
+                    <button
+                      key={s.id}
+                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-base-100 transition-colors ${
+                        s.id === session.id ? "bg-base-100" : ""
+                      } ${s.status === "exited" ? "opacity-50" : ""}`}
+                      onClick={() => goTo(s.id)}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        s.status === "running" ? "bg-success" : "bg-base-content/20"
+                      }`} />
+                      <code className="text-sm font-mono truncate flex-1">
+                        {s.title || `${s.command} ${s.args.join(" ")}`}
+                      </code>
+                      <span className="text-xs text-base-content/30 font-mono shrink-0">
+                        {s.id}
                       </span>
-                    )}
-                  </button>
+                      {s.status === "exited" && (
+                        <span
+                          className={`text-xs shrink-0 ${
+                            s.exitCode === 0 ? "text-success" : "text-error"
+                          }`}
+                        >
+                          {s.exitCode}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               ))}
             </div>
