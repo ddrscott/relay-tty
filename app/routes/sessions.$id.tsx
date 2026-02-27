@@ -5,6 +5,20 @@ import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
 import { useSpeechRecognition } from "../hooks/use-speech-recognition";
 import { groupByCwd } from "../lib/session-groups";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Type,
+  ChevronsDown,
+  Mic,
+  MicOff,
+  SendHorizontal,
+  Copy,
+  Check,
+  Trash2,
+  NotebookPen,
+} from "lucide-react";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id);
@@ -79,9 +93,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     navigate(`/sessions/${id}`);
   }
 
+  // Speech recognition — appends transcribed text to scratchpad
   const { listening, toggle: toggleMic, stop: stopMic, supported: micSupported } =
     useSpeechRecognition(useCallback((text: string) => {
-      terminalRef.current?.sendText(text);
+      setPadText((prev) => prev + text);
     }, []));
 
   // Apply sticky modifiers to a key string, then clear them
@@ -117,13 +132,47 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, [ctrlOn, altOn, applyModifiers]);
 
+  // Send scratchpad text to terminal and close
+  const sendPad = useCallback(() => {
+    if (!terminalRef.current || !padText.trim()) return;
+    terminalRef.current.sendText(padText + "\r");
+    setPadText("");
+    setPadOpen(false);
+    if (listening) stopMic();
+  }, [padText, listening, stopMic]);
+
+  // Open scratchpad, preserving scroll position
+  const openPad = useCallback((startMic?: boolean) => {
+    // If terminal is at bottom, schedule a scroll-to-bottom after layout shift
+    if (atBottom) {
+      requestAnimationFrame(() => terminalRef.current?.scrollToBottom());
+    }
+    setPadOpen(true);
+    setPadCopied(false);
+    if (startMic && micSupported && !listening) {
+      toggleMic();
+    }
+  }, [atBottom, micSupported, listening, toggleMic]);
+
   return (
     <main className="h-dvh flex flex-col relative">
       {/* Header bar */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-base-200 border-b border-base-300">
+      <div className="flex items-center gap-1 px-2 py-2 bg-base-200 border-b border-base-300">
         <Link to="/" className="btn btn-ghost btn-xs">
-          &larr;
+          <ArrowLeft className="w-4 h-4" />
         </Link>
+
+        {/* Previous session arrow */}
+        {prevSession && (
+          <button
+            className="btn btn-ghost btn-xs"
+            onClick={() => goTo(prevSession.id)}
+            onMouseDown={(e) => e.preventDefault()}
+            aria-label="Previous session"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Session title -- tap to open picker */}
         <div className="relative flex-1 min-w-0" ref={pickerRef}>
@@ -187,13 +236,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
+        {/* Next session arrow */}
+        {nextSession && (
+          <button
+            className="btn btn-ghost btn-xs"
+            onClick={() => goTo(nextSession.id)}
+            onMouseDown={(e) => e.preventDefault()}
+            aria-label="Next session"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        )}
+
         <div className="dropdown dropdown-end">
           <button tabIndex={0} className="btn btn-ghost btn-xs font-mono" aria-label="Font size">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <path d="M4 7V4h16v3" />
-              <path d="M9 20h6" />
-              <path d="M12 4v16" />
-            </svg>
+            <Type className="w-4 h-4" />
           </button>
           <div tabIndex={0} className="dropdown-content z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl p-2 flex items-center gap-1">
             <button
@@ -213,7 +270,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
-      {/* Terminal area with edge turners */}
+      {/* Terminal area */}
       <div className="flex-1 relative min-h-0 overflow-hidden">
         {TerminalComponent && (
           <TerminalComponent
@@ -227,42 +284,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {/* Left edge turner */}
-        {prevSession && (
-          <button
-            className="absolute left-0 top-0 bottom-0 w-10 z-10 flex items-center justify-center bg-gradient-to-r from-base-100/80 to-transparent opacity-60 hover:opacity-100 active:opacity-100 transition-opacity"
-            onClick={() => goTo(prevSession.id)}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Previous session"
-          >
-            <span className="text-base-content text-xl font-bold">&lsaquo;</span>
-          </button>
-        )}
-
-        {/* Right edge turner */}
-        {nextSession && (
-          <button
-            className="absolute right-0 top-0 bottom-0 w-10 z-10 flex items-center justify-center bg-gradient-to-l from-base-100/80 to-transparent opacity-60 hover:opacity-100 active:opacity-100 transition-opacity"
-            onClick={() => goTo(nextSession.id)}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Next session"
-          >
-            <span className="text-base-content text-xl font-bold">&rsaquo;</span>
-          </button>
-        )}
-
         {/* Jump to bottom */}
         {!atBottom && (
           <button
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 btn btn-sm btn-neutral gap-1 opacity-80 hover:opacity-100 transition-opacity shadow-lg"
+            tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); terminalRef.current?.scrollToBottom(); }}
             onClick={() => terminalRef.current?.scrollToBottom()}
             aria-label="Jump to bottom"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <polyline points="7 13 12 18 17 13" />
-              <polyline points="7 6 12 11 17 6" />
-            </svg>
+            <ChevronsDown className="w-4 h-4" />
             Bottom
           </button>
         )}
@@ -295,7 +327,53 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
         )}
       </div>
-      {/* Terminal key bar — Ctrl, Tab, Esc, arrows, more */}
+
+      {/* Scratchpad bottom sheet — 4 lines tall, between terminal and key bar */}
+      {padOpen && (
+        <div className="bg-base-200 border-t border-base-300">
+          <div className="flex items-center gap-1 px-3 py-1 border-b border-base-300">
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => {
+                navigator.clipboard.writeText(padText).then(() => {
+                  setPadCopied(true);
+                  setTimeout(() => setPadCopied(false), 1500);
+                });
+              }}
+              aria-label="Copy"
+            >
+              {padCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            </button>
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => { setPadText(""); padRef.current?.focus(); }}
+              aria-label="Clear"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <div className="flex-1" />
+            <button
+              className="btn btn-xs btn-primary gap-1"
+              onClick={sendPad}
+              disabled={!padText.trim()}
+            >
+              <SendHorizontal className="w-4 h-4" />
+              Send
+            </button>
+          </div>
+          <textarea
+            ref={padRef}
+            className="w-full px-3 py-2 bg-base-100 text-base-content font-mono text-sm resize-none focus:outline-none overflow-y-auto"
+            style={{ height: `${4 * 1.5}em`, lineHeight: "1.5" }}
+            value={padText}
+            onChange={(e) => setPadText(e.target.value)}
+            placeholder="Compose text or tap mic to dictate..."
+            autoFocus={!listening}
+          />
+        </div>
+      )}
+
+      {/* Terminal key bar */}
       <div className="bg-base-200 border-t border-base-300 px-2 py-1.5 flex items-center gap-1" onMouseDown={(e) => e.preventDefault()}>
         <button className="btn btn-xs btn-ghost font-mono" onClick={() => sendKey("\x1b")}>Esc</button>
         <button className="btn btn-xs btn-ghost font-mono" onClick={() => sendKey("\t")}>Tab</button>
@@ -307,111 +385,35 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           className={`btn btn-xs ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
           onClick={() => setAltOn(!altOn)}
         >Alt</button>
-        <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
-        <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
-        <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-        <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+        <div className="flex-1 flex justify-center gap-1">
+          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
+          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
+          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
+          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+        </div>
         <button
-          className={`btn btn-xs ${padOpen ? "btn-primary" : "btn-ghost"} font-mono`}
-          onClick={() => { setPadOpen(!padOpen); setPadCopied(false); }}
+          className={`btn btn-xs ${padOpen ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => padOpen ? setPadOpen(false) : openPad()}
           aria-label="Scratchpad"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-            <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
-          </svg>
+          <NotebookPen className="w-4 h-4" />
         </button>
-        <div className="flex-1" />
-
-        {/* Mic / Return — transforms when recording */}
-        {micSupported && !listening && (
+        {micSupported && (
           <button
-            className="btn btn-xs btn-ghost"
-            onClick={toggleMic}
-            aria-label="Start recording"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <rect x="9" y="2" width="6" height="11" rx="3" />
-              <path d="M5 10a7 7 0 0 0 14 0" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-            </svg>
-          </button>
-        )}
-        {listening && (
-          <button
-            className="btn btn-xs btn-primary"
+            className={`btn btn-xs ${listening ? "btn-error animate-pulse" : "btn-ghost"}`}
             onClick={() => {
-              terminalRef.current?.sendText("\r");
-              stopMic();
+              if (listening) {
+                stopMic();
+              } else {
+                openPad(true);
+              }
             }}
-            aria-label="Submit and stop recording"
+            aria-label={listening ? "Stop recording" : "Start recording"}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <polyline points="9 10 4 15 9 20" />
-              <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-            </svg>
+            {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
         )}
       </div>
-
-      {/* Scratchpad modal */}
-      {padOpen && (
-        <div className="absolute inset-0 z-30 flex flex-col bg-base-100/95 backdrop-blur-sm">
-          <div className="flex items-center gap-2 px-3 py-2 bg-base-200 border-b border-base-300">
-            <span className="text-sm font-semibold flex-1">Scratchpad</span>
-            <button
-              className="btn btn-xs btn-ghost font-mono"
-              onClick={() => {
-                navigator.clipboard.writeText(padText).then(() => {
-                  setPadCopied(true);
-                  setTimeout(() => setPadCopied(false), 1500);
-                });
-              }}
-            >{padCopied ? "Copied" : "Copy"}</button>
-            <button
-              className="btn btn-xs btn-ghost font-mono"
-              onClick={() => { setPadText(""); padRef.current?.focus(); }}
-            >Clear</button>
-            <button
-              className="btn btn-xs btn-ghost font-mono"
-              onClick={() => { setPadText(""); setPadCopied(false); padRef.current?.focus(); }}
-            >New</button>
-            <button
-              className="btn btn-xs btn-ghost"
-              onClick={() => setPadOpen(false)}
-              aria-label="Close scratchpad"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <textarea
-            ref={padRef}
-            className="flex-1 w-full p-3 bg-base-100 text-base-content font-mono text-sm resize-none focus:outline-none"
-            value={padText}
-            onChange={(e) => setPadText(e.target.value)}
-            placeholder="Compose text here..."
-            autoFocus
-          />
-        </div>
-      )}
-
-      {/* Cancel recording — floats above the bar when listening */}
-      {listening && (
-        <button
-          className="absolute bottom-12 right-3 z-10 btn btn-circle btn-sm btn-ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={stopMic}
-          aria-label="Cancel recording"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      )}
     </main>
   );
 }
