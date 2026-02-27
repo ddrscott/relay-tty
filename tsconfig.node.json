@@ -22,6 +22,7 @@
     "cli/**/*.ts",
     "server/**/*.ts",
     "service/**/*.ts",
-    "shared/**/*.ts"
+    "shared/**/*.ts",
+    "test/**/*.ts"
   ]
 }

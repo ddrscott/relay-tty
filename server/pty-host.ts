@@ -49,15 +49,33 @@ try {
   // doesn't exist, fine
 }
 
-// Spawn PTY
+// Spawn PTY — if the command doesn't exist or can't be spawned,
+// write an error to the session metadata and exit so the client
+// sees a meaningful error instead of a silent dead socket.
 const cwd = cwdArg || process.env.HOME || "/";
-const ptyProcess = pty.spawn(command, args, {
-  name: "xterm-256color",
-  cols,
-  rows,
-  cwd,
-  env: process.env as Record<string, string>,
-});
+let ptyProcess: pty.IPty;
+try {
+  ptyProcess = pty.spawn(command, args, {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env: process.env as Record<string, string>,
+  });
+} catch (err: any) {
+  const msg = err?.message || String(err);
+  process.stderr.write(`pty-host: failed to spawn "${command}": ${msg}\n`);
+  // Write session metadata so server can report the failure
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+  fs.writeFileSync(sessionPath, JSON.stringify({
+    id, command, args, cwd,
+    createdAt: Date.now(), lastActivity: Date.now(),
+    status: "exited", exitCode: 127, exitedAt: Date.now(),
+    cols, rows, pid: process.pid,
+    error: msg,
+  }));
+  process.exit(127);
+}
 
 const outputBuffer = new OutputBuffer();
 const clients = new Set<net.Socket>();
@@ -309,12 +327,7 @@ const server = net.createServer((socket) => {
   });
 });
 
-server.listen(socketPath, () => {
-  // Signal readiness to parent (if spawned with IPC)
-  if (process.send) {
-    process.send({ ready: true, socketPath });
-  }
-});
+server.listen(socketPath);
 
 // Ignore SIGHUP — we're detached, don't die on terminal hangup
 process.on("SIGHUP", () => {});

@@ -36,6 +36,7 @@
     "start": "NODE_ENV=production node server.js",
     "build:cli": "tsc -p tsconfig.node.json",
     "prepack": "npm run build",
+    "test": "tsc -p tsconfig.node.json && node --test dist/test/*.test.js",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null; true"
   },
   "dependencies": {

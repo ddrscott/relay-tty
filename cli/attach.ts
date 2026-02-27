@@ -4,6 +4,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import * as os from "node:os";
 import { WS_MSG } from "../shared/types.js";
+import { parseFrames } from "../shared/framing.js";
 
 const SOCKETS_DIR = path.join(os.homedir(), ".relay-tty", "sockets");
 
@@ -23,148 +24,153 @@ interface AttachOpts {
   onDetach?: () => void;
 }
 
+// ── Shared raw mode and lifecycle management ───────────────────────────
+
+interface RawSession {
+  rawMode: boolean;
+  stdinAttached: boolean;
+  cleanExit: boolean;
+  userDetached: boolean;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  retryDelay: number;
+  reconnecting: boolean;
+  /** Send raw data to the active transport */
+  sendMessage: (msg: Buffer) => void;
+}
+
+const MAX_RETRY_DELAY = 5000;
+
+function createRawSession(opts: AttachOpts, resolve: () => void): RawSession {
+  const session: RawSession = {
+    rawMode: false,
+    stdinAttached: false,
+    cleanExit: false,
+    userDetached: false,
+    reconnectTimer: null,
+    retryDelay: 500,
+    reconnecting: false,
+    sendMessage: () => {},
+  };
+  return session;
+}
+
+function enterRaw(s: RawSession, onStdinData: (data: Buffer) => void, onResize: () => void) {
+  if (!s.rawMode && process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    s.rawMode = true;
+  }
+  process.stdin.resume();
+  if (!s.stdinAttached) {
+    s.stdinAttached = true;
+    process.stdin.on("data", onStdinData);
+    process.on("SIGWINCH", onResize);
+    process.on("exit", () => {
+      if (s.rawMode && process.stdin.isTTY) process.stdin.setRawMode(false);
+    });
+  }
+}
+
+function exitRaw(s: RawSession, onStdinData: (data: Buffer) => void, onResize: () => void) {
+  if (s.rawMode && process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
+    s.rawMode = false;
+  }
+  if (s.stdinAttached) {
+    s.stdinAttached = false;
+    process.stdin.removeListener("data", onStdinData);
+    process.removeListener("SIGWINCH", onResize);
+  }
+}
+
+function sendData(s: RawSession, data: Buffer) {
+  const msg = Buffer.alloc(1 + data.length);
+  msg[0] = WS_MSG.DATA;
+  data.copy(msg, 1);
+  s.sendMessage(msg);
+}
+
+function sendResize(s: RawSession) {
+  if (!process.stdout.columns || !process.stdout.rows) return;
+  const msg = Buffer.alloc(5);
+  msg[0] = WS_MSG.RESIZE;
+  msg.writeUInt16BE(process.stdout.columns, 1);
+  msg.writeUInt16BE(process.stdout.rows, 3);
+  s.sendMessage(msg);
+}
+
+function handleMessage(type: number, payload: Buffer, s: RawSession, opts: AttachOpts, finish: () => void) {
+  switch (type) {
+    case WS_MSG.DATA:
+    case WS_MSG.BUFFER_REPLAY:
+      process.stdout.write(payload);
+      s.reconnecting = false;
+      break;
+    case WS_MSG.EXIT: {
+      const exitCode = payload.readInt32BE(0);
+      s.cleanExit = true;
+      finish();
+      opts.onExit?.(exitCode);
+      break;
+    }
+  }
+}
+
+/** Write a length-prefixed frame to a Unix socket. */
+function writeFrame(sock: net.Socket, payload: Buffer) {
+  if (sock.writable) {
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(payload.length, 0);
+    sock.write(header);
+    sock.write(payload);
+  }
+}
+
+// ── Public API ──────────────────────────────────────────────────────────
+
 /**
  * Attach via WebSocket (through the server), with auto-reconnect.
  */
 export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
   return new Promise((resolve) => {
-    let rawMode = false;
-    let cleanExit = false;
-    let userDetached = false;
     let ws: WebSocket | null = null;
     let socket: net.Socket | null = null;
-    let pending = Buffer.alloc(0); // for socket framing
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryDelay = 500;
-    let reconnecting = false;
-    const MAX_RETRY_DELAY = 5000;
+    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
-    let stdinAttached = false;
-
-    function enterRaw() {
-      if (!rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
-        rawMode = true;
-      }
-      process.stdin.resume();
-      if (!stdinAttached) {
-        stdinAttached = true;
-        process.stdin.on("data", onStdinData);
-        process.on("SIGWINCH", onResize);
-        process.on("exit", onProcessExit);
-      }
-    }
-
-    function exitRaw() {
-      if (rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-        rawMode = false;
-      }
-      if (stdinAttached) {
-        stdinAttached = false;
-        process.stdin.removeListener("data", onStdinData);
-        process.removeListener("SIGWINCH", onResize);
-        process.removeListener("exit", onProcessExit);
-      }
-    }
-
-    function onProcessExit() {
-      if (rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
-    }
+    const s = createRawSession(opts, resolve);
 
     function finish() {
-      exitRaw();
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
+      exitRaw(s, onStdinData, onResize);
+      if (s.reconnectTimer) { clearTimeout(s.reconnectTimer); s.reconnectTimer = null; }
       ws?.close();
       socket?.destroy();
       resolve();
     }
 
     function detach() {
-      userDetached = true;
-      cleanExit = true;
+      s.userDetached = true;
+      s.cleanExit = true;
       finish();
       process.stderr.write("\r\nDetached.\r\n");
       opts.onDetach?.();
     }
 
-    function handleExit(exitCode: number) {
-      cleanExit = true;
-      finish();
-      opts.onExit?.(exitCode);
-    }
-
-    // --- Data sending (works for whichever transport is active) ---
-
-    function sendData(data: Buffer) {
-      const msg = Buffer.alloc(1 + data.length);
-      msg[0] = WS_MSG.DATA;
-      data.copy(msg, 1);
-
+    // Wire up transport-agnostic send
+    s.sendMessage = (msg: Buffer) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(msg);
       } else if (socket && socket.writable) {
-        const header = Buffer.alloc(4);
-        header.writeUInt32BE(msg.length, 0);
-        socket.write(header);
-        socket.write(msg);
+        writeFrame(socket, msg);
       }
-    }
-
-    function sendResize() {
-      if (!process.stdout.columns || !process.stdout.rows) return;
-      const msg = Buffer.alloc(5);
-      msg[0] = WS_MSG.RESIZE;
-      msg.writeUInt16BE(process.stdout.columns, 1);
-      msg.writeUInt16BE(process.stdout.rows, 3);
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(msg);
-      } else if (socket && socket.writable) {
-        const header = Buffer.alloc(4);
-        header.writeUInt32BE(msg.length, 0);
-        socket.write(header);
-        socket.write(msg);
-      }
-    }
+    };
 
     function onStdinData(data: Buffer) {
       for (let i = 0; i < data.length; i++) {
-        if (data[i] === 0x1d) {
-          detach();
-          return;
-        }
+        if (data[i] === 0x1d) { detach(); return; }
       }
-      sendData(data);
+      sendData(s, data);
     }
 
-    function onResize() {
-      sendResize();
-    }
-
-    // --- Message handling (shared between WS and socket) ---
-
-    function handleMessage(type: number, payload: Buffer) {
-      switch (type) {
-        case WS_MSG.DATA:
-        case WS_MSG.BUFFER_REPLAY:
-          process.stdout.write(payload);
-          reconnecting = false; // successfully receiving data again
-          break;
-        case WS_MSG.EXIT: {
-          const exitCode = payload.readInt32BE(0);
-          handleExit(exitCode);
-          break;
-        }
-      }
-    }
-
-    // --- Reconnect logic ---
+    function onResize() { sendResize(s); }
 
     function sessionSocketExists(): boolean {
       if (!opts.sessionId) return false;
@@ -172,60 +178,58 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
     }
 
     function scheduleReconnect() {
-      if (cleanExit || userDetached) return;
-      if (reconnectTimer) return; // already scheduled
+      if (s.cleanExit || s.userDetached) return;
+      if (s.reconnectTimer) return;
 
-      // Check if pty-host is still alive (socket file exists)
       if (!sessionSocketExists()) {
         process.stderr.write("\r\nSession ended.\r\n");
         finish();
         return;
       }
 
-      if (!reconnecting) {
-        reconnecting = true;
+      if (!s.reconnecting) {
+        s.reconnecting = true;
         process.stderr.write("\r\nConnection lost. Reconnecting...\r\n");
       }
 
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        if (cleanExit || userDetached) return;
+      s.reconnectTimer = setTimeout(() => {
+        s.reconnectTimer = null;
+        if (s.cleanExit || s.userDetached) return;
         connectWs();
-      }, retryDelay);
-      retryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
+      }, s.retryDelay);
+      s.retryDelay = Math.min(s.retryDelay * 1.5, MAX_RETRY_DELAY);
     }
 
     // --- WebSocket transport ---
 
     function connectWs() {
-      if (cleanExit || userDetached) return;
+      if (s.cleanExit || s.userDetached) return;
 
       const newWs = new WebSocket(wsUrl);
       ws = newWs;
       socket = null;
 
       newWs.on("open", () => {
-        if (cleanExit || userDetached) { newWs.close(); return; }
-        retryDelay = 500;
-        if (!rawMode) enterRaw();
-        sendResize();
+        if (s.cleanExit || s.userDetached) { newWs.close(); return; }
+        s.retryDelay = 500;
+        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
+        sendResize(s);
       });
 
       newWs.on("message", (data: Buffer) => {
         if (data.length < 1) return;
-        handleMessage(data[0], data.subarray(1));
+        handleMessage(data[0], data.subarray(1), s, opts, finish);
       });
 
       newWs.on("error", () => {
-        // WS failed — try direct socket before scheduling retry
         ws = null;
-        if (cleanExit || userDetached) return;
+        if (s.cleanExit || s.userDetached) return;
         connectSocket();
       });
 
       newWs.on("close", () => {
         if (ws === newWs) ws = null;
-        if (!cleanExit && !userDetached && !socket) {
+        if (!s.cleanExit && !s.userDetached && !socket) {
           scheduleReconnect();
         }
       });
@@ -234,7 +238,7 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
     // --- Unix socket transport (fallback when server is down) ---
 
     function connectSocket() {
-      if (cleanExit || userDetached) return;
+      if (s.cleanExit || s.userDetached) return;
       if (!opts.sessionId) { scheduleReconnect(); return; }
 
       const socketPath = path.join(SOCKETS_DIR, `${opts.sessionId}.sock`);
@@ -250,40 +254,30 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
       pending = Buffer.alloc(0);
 
       newSocket.on("connect", () => {
-        if (cleanExit || userDetached) { newSocket.destroy(); return; }
-        retryDelay = 500;
-        if (!rawMode) enterRaw();
-        sendResize();
+        if (s.cleanExit || s.userDetached) { newSocket.destroy(); return; }
+        s.retryDelay = 500;
+        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
+        sendResize(s);
       });
 
       newSocket.on("data", (chunk) => {
         pending = Buffer.concat([pending, chunk]);
-        while (pending.length >= 4) {
-          const msgLen = pending.readUInt32BE(0);
-          if (pending.length < 4 + msgLen) break;
-          const payload = pending.subarray(4, 4 + msgLen);
-          pending = pending.subarray(4 + msgLen);
-          if (payload.length < 1) continue;
-          handleMessage(payload[0], payload.subarray(1));
-        }
+        pending = parseFrames(pending, (type, payload) => {
+          handleMessage(type, payload, s, opts, finish);
+        });
       });
 
       newSocket.on("error", () => {
         socket = null;
-        if (!cleanExit && !userDetached) {
-          scheduleReconnect();
-        }
+        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
       });
 
       newSocket.on("close", () => {
         if (socket === newSocket) socket = null;
-        if (!cleanExit && !userDetached) {
-          scheduleReconnect();
-        }
+        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
       });
     }
 
-    // --- Start ---
     connectWs();
   });
 }
@@ -295,104 +289,42 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
  */
 export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise<void> {
   return new Promise((resolve) => {
-    let rawMode = false;
-    let cleanExit = false;
-    let userDetached = false;
     let sock: net.Socket | null = null;
-    let pending = Buffer.alloc(0);
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryDelay = 500;
-    let reconnecting = false;
-    const MAX_RETRY_DELAY = 5000;
+    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
-    let stdinAttached = false;
-
-    function enterRaw() {
-      if (!rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
-        rawMode = true;
-      }
-      process.stdin.resume();
-      if (!stdinAttached) {
-        stdinAttached = true;
-        process.stdin.on("data", onStdinData);
-        process.on("SIGWINCH", onResize);
-        process.on("exit", onProcessExit);
-      }
-    }
-
-    function exitRaw() {
-      if (rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-        rawMode = false;
-      }
-      if (stdinAttached) {
-        stdinAttached = false;
-        process.stdin.removeListener("data", onStdinData);
-        process.removeListener("SIGWINCH", onResize);
-        process.removeListener("exit", onProcessExit);
-      }
-    }
-
-    function onProcessExit() {
-      if (rawMode && process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
-    }
+    const s = createRawSession(opts, resolve);
 
     function finish() {
-      exitRaw();
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
+      exitRaw(s, onStdinData, onResize);
+      if (s.reconnectTimer) { clearTimeout(s.reconnectTimer); s.reconnectTimer = null; }
       sock?.destroy();
       resolve();
     }
 
     function detach() {
-      userDetached = true;
-      cleanExit = true;
+      s.userDetached = true;
+      s.cleanExit = true;
       finish();
       process.stderr.write("\r\nDetached.\r\n");
       opts.onDetach?.();
     }
 
-    function writeFrame(payload: Buffer) {
-      if (sock && sock.writable) {
-        const header = Buffer.alloc(4);
-        header.writeUInt32BE(payload.length, 0);
-        sock.write(header);
-        sock.write(payload);
-      }
-    }
+    s.sendMessage = (msg: Buffer) => {
+      if (sock) writeFrame(sock, msg);
+    };
 
     function onStdinData(data: Buffer) {
       for (let i = 0; i < data.length; i++) {
-        if (data[i] === 0x1d) {
-          detach();
-          return;
-        }
+        if (data[i] === 0x1d) { detach(); return; }
       }
-
-      const msg = Buffer.alloc(1 + data.length);
-      msg[0] = WS_MSG.DATA;
-      data.copy(msg, 1);
-      writeFrame(msg);
+      sendData(s, data);
     }
 
-    function onResize() {
-      if (!process.stdout.columns || !process.stdout.rows) return;
-      const msg = Buffer.alloc(5);
-      msg[0] = WS_MSG.RESIZE;
-      msg.writeUInt16BE(process.stdout.columns, 1);
-      msg.writeUInt16BE(process.stdout.rows, 3);
-      writeFrame(msg);
-    }
+    function onResize() { sendResize(s); }
 
     function scheduleReconnect() {
-      if (cleanExit || userDetached) return;
-      if (reconnectTimer) return;
+      if (s.cleanExit || s.userDetached) return;
+      if (s.reconnectTimer) return;
 
       if (!fs.existsSync(socketPath)) {
         process.stderr.write("\r\nSession ended.\r\n");
@@ -400,21 +332,21 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
         return;
       }
 
-      if (!reconnecting) {
-        reconnecting = true;
+      if (!s.reconnecting) {
+        s.reconnecting = true;
         process.stderr.write("\r\nConnection lost. Reconnecting...\r\n");
       }
 
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        if (cleanExit || userDetached) return;
+      s.reconnectTimer = setTimeout(() => {
+        s.reconnectTimer = null;
+        if (s.cleanExit || s.userDetached) return;
         connect();
-      }, retryDelay);
-      retryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
+      }, s.retryDelay);
+      s.retryDelay = Math.min(s.retryDelay * 1.5, MAX_RETRY_DELAY);
     }
 
     function connect() {
-      if (cleanExit || userDetached) return;
+      if (s.cleanExit || s.userDetached) return;
 
       if (!fs.existsSync(socketPath)) {
         process.stderr.write("\r\nSession ended.\r\n");
@@ -427,51 +359,27 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
       pending = Buffer.alloc(0);
 
       newSock.on("connect", () => {
-        if (cleanExit || userDetached) { newSock.destroy(); return; }
-        retryDelay = 500;
-        if (!rawMode) enterRaw();
-        onResize();
+        if (s.cleanExit || s.userDetached) { newSock.destroy(); return; }
+        s.retryDelay = 500;
+        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
+        sendResize(s);
       });
 
       newSock.on("data", (chunk) => {
         pending = Buffer.concat([pending, chunk]);
-        while (pending.length >= 4) {
-          const msgLen = pending.readUInt32BE(0);
-          if (pending.length < 4 + msgLen) break;
-          const payload = pending.subarray(4, 4 + msgLen);
-          pending = pending.subarray(4 + msgLen);
-          if (payload.length < 1) continue;
-          const type = payload[0];
-          const data = payload.subarray(1);
-          switch (type) {
-            case WS_MSG.DATA:
-            case WS_MSG.BUFFER_REPLAY:
-              reconnecting = false;
-              process.stdout.write(data);
-              break;
-            case WS_MSG.EXIT: {
-              const exitCode = data.readInt32BE(0);
-              cleanExit = true;
-              finish();
-              opts.onExit?.(exitCode);
-              break;
-            }
-          }
-        }
+        pending = parseFrames(pending, (type, payload) => {
+          handleMessage(type, payload, s, opts, finish);
+        });
       });
 
       newSock.on("error", () => {
         sock = null;
-        if (!cleanExit && !userDetached) {
-          scheduleReconnect();
-        }
+        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
       });
 
       newSock.on("close", () => {
         if (sock === newSock) sock = null;
-        if (!cleanExit && !userDetached) {
-          scheduleReconnect();
-        }
+        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
       });
     }
 

@@ -4,6 +4,15 @@ import * as cookie from "cookie";
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
 
+/**
+ * Check if request originates from localhost.
+ *
+ * SECURITY: This relies on req.ip being the direct connection IP.
+ * If Express `trust proxy` is enabled, req.ip becomes the X-Forwarded-For
+ * value, which can be spoofed — allowing remote clients to bypass auth
+ * by sending `X-Forwarded-For: 127.0.0.1`. Do NOT set `trust proxy`
+ * without also removing or reworking this bypass.
+ */
 function isLocalhost(req: Request): boolean {
   const ip = req.ip || req.socket.remoteAddress || "";
   return (

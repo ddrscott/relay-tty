@@ -20,13 +20,6 @@ app.use(compression());
 app.use(morgan("short"));
 app.use(express.json());
 
-// Session store is created here so both API routes and React Router loaders can access it
-let sessionStore;
-let ptyManager;
-let wsHandler;
-let verifyWsAuth;
-let generateToken;
-
 function writeServerInfo() {
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(SERVER_FILE, JSON.stringify({
@@ -40,39 +33,46 @@ function clearServerInfo() {
   try { unlinkSync(SERVER_FILE); } catch {}
 }
 
+/**
+ * Load all server modules through a unified loader.
+ * In dev, the loader is Vite SSR; in prod, it's dynamic import from dist/.
+ */
+async function loadModules(load) {
+  const storeModule = await load("session-store");
+  const sessionStore = new storeModule.SessionStore();
+
+  const ptyModule = await load("pty-manager");
+  const ptyManager = new ptyModule.PtyManager(sessionStore);
+  await ptyManager.discover();
+
+  const authModule = await load("auth");
+  app.use(authModule.authMiddleware);
+
+  const apiModule = await load("api");
+  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager));
+
+  const wsModule = await load("ws-handler");
+  const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
+
+  const notifyModule = await load("notify");
+  notifyModule.setupNotifications(ptyManager, sessionStore, {
+    discordWebhook: DISCORD_WEBHOOK,
+    appUrl: APP_URL,
+  });
+
+  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken };
+}
+
 async function start() {
+  let modules;
+
   if (isDev) {
-    // In dev, Vite handles TS compilation for us
     const vite = await import("vite");
     const viteServer = await vite.createServer({
       server: { middlewareMode: true },
     });
 
-    // Load server modules through Vite SSR pipeline (handles .ts)
-    const storeModule = await viteServer.ssrLoadModule("./server/session-store.ts");
-    sessionStore = new storeModule.SessionStore();
-
-    const ptyModule = await viteServer.ssrLoadModule("./server/pty-manager.ts");
-    ptyManager = new ptyModule.PtyManager(sessionStore);
-    await ptyManager.discover();
-
-    // Auth middleware (before API routes)
-    const authModule = await viteServer.ssrLoadModule("./server/auth.ts");
-    app.use(authModule.authMiddleware);
-    verifyWsAuth = authModule.verifyWsAuth;
-    generateToken = authModule.generateToken;
-
-    const apiModule = await viteServer.ssrLoadModule("./server/api.ts");
-    app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager));
-
-    const wsModule = await viteServer.ssrLoadModule("./server/ws-handler.ts");
-    wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
-
-    const notifyModule = await viteServer.ssrLoadModule("./server/notify.ts");
-    notifyModule.setupNotifications(ptyManager, sessionStore, {
-      discordWebhook: DISCORD_WEBHOOK,
-      appUrl: APP_URL,
-    });
+    modules = await loadModules((name) => viteServer.ssrLoadModule(`./server/${name}.ts`));
 
     app.use(viteServer.middlewares);
 
@@ -81,7 +81,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore };
+          return { sessionStore: modules.sessionStore };
         },
       })
     );
@@ -90,31 +90,7 @@ async function start() {
     const { fileURLToPath } = await import("node:url");
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-    // In production, load compiled JS
-    const { SessionStore } = await import("./dist/server/session-store.js");
-    sessionStore = new SessionStore();
-
-    const { PtyManager } = await import("./dist/server/pty-manager.js");
-    ptyManager = new PtyManager(sessionStore);
-    await ptyManager.discover();
-
-    // Auth middleware
-    const { authMiddleware, verifyWsAuth: vwa, generateToken: gt } = await import("./dist/server/auth.js");
-    app.use(authMiddleware);
-    verifyWsAuth = vwa;
-    generateToken = gt;
-
-    const { createApiRouter } = await import("./dist/server/api.js");
-    app.use("/api", createApiRouter(sessionStore, ptyManager));
-
-    const { WsHandler } = await import("./dist/server/ws-handler.js");
-    wsHandler = new WsHandler(sessionStore, ptyManager);
-
-    const { setupNotifications } = await import("./dist/server/notify.js");
-    setupNotifications(ptyManager, sessionStore, {
-      discordWebhook: DISCORD_WEBHOOK,
-      appUrl: APP_URL,
-    });
+    modules = await loadModules((name) => import(`./dist/server/${name}.js`));
 
     app.use("/assets", express.static(
       path.join(__dirname, "build/client/assets"),
@@ -131,27 +107,26 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore };
+          return { sessionStore: modules.sessionStore };
         },
       })
     );
   }
 
+  const { wsHandler, verifyWsAuth, generateToken } = modules;
+
   const httpServer = createServer(app);
 
-  // WS upgrade routing with auth check
-  if (wsHandler) {
-    httpServer.on("upgrade", (req, socket, head) => {
-      // Share WS connections validate their own token inside handleUpgrade
-      const isShareWs = req.url?.startsWith("/ws/share");
-      if (!isShareWs && verifyWsAuth && !verifyWsAuth(req)) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      wsHandler.handleUpgrade(req, socket, head);
-    });
-  }
+  httpServer.on("upgrade", (req, socket, head) => {
+    // Share WS connections validate their own token inside handleUpgrade
+    const isShareWs = req.url?.startsWith("/ws/share");
+    if (!isShareWs && verifyWsAuth && !verifyWsAuth(req)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wsHandler.handleUpgrade(req, socket, head);
+  });
 
   httpServer.listen(PORT, HOST, async () => {
     writeServerInfo();

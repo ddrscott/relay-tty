@@ -379,24 +379,24 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
       {/* Terminal key bar */}
       <div className="bg-base-200 border-t border-base-300 px-2 py-1.5 flex items-center gap-1" onMouseDown={(e) => e.preventDefault()}>
-        <button className="btn btn-xs btn-ghost font-mono" onClick={() => sendKey("\x1b")}>Esc</button>
-        <button className="btn btn-xs btn-ghost font-mono" onClick={() => sendKey("\t")}>Tab</button>
+        <button className="btn btn-sm btn-ghost font-mono" onClick={() => sendKey("\x1b")}>Esc</button>
+        <button className="btn btn-sm btn-ghost font-mono" onClick={() => sendKey("\t")}>Tab</button>
         <button
-          className={`btn btn-xs ${ctrlOn ? "btn-primary" : "btn-ghost"} font-mono`}
+          className={`btn btn-sm ${ctrlOn ? "btn-primary" : "btn-ghost"} font-mono`}
           onClick={() => setCtrlOn(!ctrlOn)}
         >Ctrl</button>
         <button
-          className={`btn btn-xs ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
+          className={`btn btn-sm ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
           onClick={() => setAltOn(!altOn)}
         >Alt</button>
         <div className="flex-1 flex justify-center gap-1">
-          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
-          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
-          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-          <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
         </div>
         <button
-          className={`btn btn-xs ${padOpen ? "btn-primary" : "btn-ghost"}`}
+          className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost"}`}
           onClick={() => padOpen ? setPadOpen(false) : openPad()}
           aria-label="Scratchpad"
         >
@@ -404,7 +404,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </button>
         {micSupported && (
           <button
-            className={`btn btn-xs ${listening ? "btn-error animate-pulse" : "btn-ghost"}`}
+            className={`btn btn-sm ${listening ? "btn-error animate-pulse" : "btn-ghost"}`}
             onClick={() => {
               if (listening) {
                 stopMic();
