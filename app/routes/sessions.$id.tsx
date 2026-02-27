@@ -172,20 +172,29 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            className="btn btn-ghost btn-xs"
-            onClick={() => setFontSize((s) => Math.max(8, s - 2))}
-          >
-            A-
+        <div className="dropdown dropdown-end">
+          <button tabIndex={0} className="btn btn-ghost btn-xs font-mono" aria-label="Font size">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <path d="M4 7V4h16v3" />
+              <path d="M9 20h6" />
+              <path d="M12 4v16" />
+            </svg>
           </button>
-          <span className="text-xs w-6 text-center">{fontSize}</span>
-          <button
-            className="btn btn-ghost btn-xs"
-            onClick={() => setFontSize((s) => Math.min(28, s + 2))}
-          >
-            A+
-          </button>
+          <div tabIndex={0} className="dropdown-content z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl p-2 flex items-center gap-1">
+            <button
+              className="btn btn-ghost btn-xs font-mono"
+              onClick={() => setFontSize((s) => Math.max(8, s - 2))}
+            >
+              A-
+            </button>
+            <span className="text-xs w-6 text-center font-mono">{fontSize}</span>
+            <button
+              className="btn btn-ghost btn-xs font-mono"
+              onClick={() => setFontSize((s) => Math.min(28, s + 2))}
+            >
+              A+
+            </button>
+          </div>
         </div>
       </div>
 
