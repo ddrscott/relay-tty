@@ -7,4 +7,4 @@
 - [x] Mic opens scratchpad without virtual keyboard ([detail](work-queue/mic-no-keyboard.md))
 - [x] Add version/info indicator to session screen (e.g. small `?` button showing relay-tty version + session details)
 - [x] Add session activity metrics to pty-host ([detail](work-queue/pty-session-metrics.md))
-- [ ] Replace redundant `running` status badge with a green dot on the session title
+- [x] Replace redundant `running` status badge with a green dot on the session title
