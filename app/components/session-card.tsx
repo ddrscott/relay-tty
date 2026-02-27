@@ -18,7 +18,7 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
   const isRunning = session.status === "running";
   const displayCommand = [session.command, ...session.args].join(" ");
   const [loading, setLoading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     return () => {
