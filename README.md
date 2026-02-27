@@ -7,21 +7,16 @@ Run `relay htop` on your Mac/Linux box, then pick it up from your phone. Session
 ## Quick Start
 
 ```bash
-npx relay-tty bash           # creates a session and attaches locally
-                              # Ctrl+] to detach (session keeps running)
-```
-
-Or install globally:
-
-```bash
 npm i -g relay-tty
-relay bash
+relay bash                   # creates a session and attaches locally
+                              # Ctrl+] to detach (session keeps running)
 ```
 
 ### Start the web server
 
 ```bash
 relay server start           # http://localhost:7680
+relay server start --tunnel  # expose via relaytty.com (zero config)
 relay server install         # install as system service (launchd/systemd)
 ```
 
@@ -34,6 +29,7 @@ relay attach <id>            # reattach to existing session
 relay list                   # list all sessions
 relay stop <id>              # kill a session
 relay server start           # start server in foreground
+relay server start --tunnel  # start with public tunnel via relaytty.com
 relay server install         # install as system service (launchd/systemd)
 relay server uninstall       # remove system service
 ```
@@ -125,6 +121,20 @@ Visit the auth token URL in a browser to set the session cookie (30-day expiry).
 ### Discord Notifications
 
 When both `APP_URL` and `DISCORD_WEBHOOK` are set, the server posts a clickable auth link to Discord on startup. Tap it on your phone to authenticate instantly — the callback sets a cookie and redirects to a clean URL. Useful for accessing relay-tty from mobile without copy/pasting tokens.
+
+## Tunnel
+
+`relay server start --tunnel` exposes your server publicly via `<slug>.relaytty.com` — no Cloudflare account, no DNS, no config files. On first run it auto-provisions an anonymous account and assigns a stable subdomain. A QR code is printed for quick mobile access.
+
+```bash
+relay server start --tunnel
+# Tunnel active: https://abc123.relaytty.com
+# [QR code]
+```
+
+How it works: the CLI opens an outbound WebSocket to relaytty.com, which reverse-proxies HTTP and WebSocket traffic back to localhost. Config is saved at `~/.config/relay-tty/tunnel.json` and reused on subsequent runs (same subdomain every time).
+
+The tunnel uses an ephemeral local port by default to avoid clashing with a normal `relay server start` instance. Use `--port` to override.
 
 ## Service Management
 
