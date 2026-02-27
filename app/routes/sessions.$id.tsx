@@ -50,6 +50,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [padOpen, setPadOpen] = useState(false);
   const [padText, setPadText] = useState("");
   const [padCopied, setPadCopied] = useState(false);
+  const [micOpened, setMicOpened] = useState(false);
   const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
 
@@ -141,6 +142,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setTimeout(() => terminalRef.current?.sendText("\r"), 50);
     setPadText("");
     setPadOpen(false);
+    setMicOpened(false);
     if (listening) stopMic();
   }, [padText, listening, stopMic]);
 
@@ -148,6 +150,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const openPad = useCallback((startMic?: boolean) => {
     setPadOpen(true);
     setPadCopied(false);
+    setMicOpened(!!startMic);
     if (startMic && micSupported && !listening) {
       toggleMic();
     }
@@ -365,8 +368,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             style={{ height: `${4 * 1.5}em`, lineHeight: "1.5" }}
             value={padText}
             onChange={(e) => setPadText(e.target.value)}
-            placeholder="Compose text or tap mic to dictate..."
-            autoFocus={!listening}
+            placeholder={micOpened ? "Listening... tap here to type" : "Compose text or tap mic to dictate..."}
+            readOnly={micOpened}
+            autoFocus={!micOpened}
+            onTouchEnd={() => {
+              if (micOpened) {
+                setMicOpened(false);
+                requestAnimationFrame(() => padRef.current?.focus());
+              }
+            }}
+            onClick={() => {
+              if (micOpened) {
+                setMicOpened(false);
+                requestAnimationFrame(() => padRef.current?.focus());
+              }
+            }}
           />
         </div>
       )}
@@ -391,7 +407,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
         <button
           className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-          onClick={() => padOpen ? setPadOpen(false) : openPad()}
+          onClick={() => { if (padOpen) { setPadOpen(false); setMicOpened(false); } else { openPad(); } }}
           aria-label="Scratchpad"
         >
           <NotebookPen className="w-4 h-4" />
@@ -402,6 +418,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onClick={() => {
               if (listening) {
                 stopMic();
+                setMicOpened(false);
               } else {
                 openPad(true);
               }
