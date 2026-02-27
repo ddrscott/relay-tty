@@ -49,7 +49,7 @@ async function loadModules(load) {
   app.use(authModule.authMiddleware);
 
   const apiModule = await load("api");
-  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager));
+  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL }));
 
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);

@@ -18,30 +18,34 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
 
   return (
     <Link to={`/sessions/${session.id}`} className="block">
-      <div className="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer">
-        <div className="card-body p-4">
+      <div className="bg-[#0f0f1a] hover:bg-[#1a1a2e] border border-[#1e1e2e] hover:border-[#2d2d44] rounded-lg transition-colors cursor-pointer">
+        <div className="p-4">
           <div className="flex items-center justify-between">
-            <code className="text-sm font-mono truncate">
+            <code className="text-sm font-mono truncate text-[#e2e8f0]">
               {session.title || displayCommand}
             </code>
             <span
-              className={`badge badge-sm shrink-0 ${isRunning ? "badge-success" : "badge-ghost"}`}
+              className={`text-xs font-mono shrink-0 px-1.5 py-0.5 rounded border ${
+                isRunning
+                  ? "text-[#22c55e] border-[#22c55e]/30"
+                  : "text-[#64748b] border-[#2d2d44]"
+              }`}
             >
               {isRunning ? "running" : `exited (${session.exitCode})`}
             </span>
           </div>
           {session.title && (
-            <div className="text-xs text-base-content/40 font-mono truncate">
+            <div className="text-xs text-[#64748b] font-mono truncate mt-1">
               {displayCommand}
             </div>
           )}
           {showCwd && (
-            <div className="text-xs text-base-content/50 font-mono truncate">
+            <div className="text-xs text-[#94a3b8] font-mono truncate mt-1">
               {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
             </div>
           )}
-          <div className="flex items-center justify-between text-xs text-base-content/50">
-            <span>{session.id}</span>
+          <div className="flex items-center justify-between text-xs text-[#64748b] mt-2">
+            <span className="font-mono">{session.id}</span>
             <span>{timeAgo(session.createdAt)}</span>
           </div>
         </div>

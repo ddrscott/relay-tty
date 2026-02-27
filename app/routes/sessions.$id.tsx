@@ -158,35 +158,35 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, [atBottom, micSupported, listening, toggleMic]);
 
   return (
-    <main className="h-dvh flex flex-col relative">
-      {/* Header bar: back, title, gap, <, index, >, font */}
-      <div className="flex items-center gap-1 px-2 py-2 bg-base-200 border-b border-base-300">
-        <Link to="/" className="btn btn-ghost btn-xs">
+    <main className="h-dvh flex flex-col relative bg-[#0a0a0f]">
+      {/* Header bar */}
+      <div className="flex items-center gap-1 px-2 py-2 bg-[#0f0f1a] border-b border-[#1e1e2e]">
+        <Link to="/" className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]">
           <ArrowLeft className="w-4 h-4" />
         </Link>
 
         {/* Session title -- tap to open picker */}
         <div className="relative min-w-0" ref={pickerRef}>
           <button
-            className="text-left truncate cursor-pointer hover:bg-base-300 rounded px-1 -mx-1 transition-colors"
+            className="text-left truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
             onClick={() => setPickerOpen(!pickerOpen)}
           >
-            <code className="text-sm font-mono truncate block">
+            <code className="text-sm font-mono truncate block text-[#e2e8f0]">
               {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
             </code>
           </button>
 
           {/* Session picker dropdown — grouped by cwd */}
           {pickerOpen && allSessions.length > 1 && (
-            <div className="absolute top-full left-0 mt-1 z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64">
+            <div className="absolute top-full left-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64">
               {groups.map((group, gi) => (
                 <div key={group.cwd}>
                   {gi > 0 && (
-                    <div className="border-t border-base-content/10 mx-2 my-1" />
+                    <div className="border-t border-[#2d2d44] mx-2 my-1" />
                   )}
                   {groups.length > 1 && (
                     <div className="px-3 pt-2 pb-1">
-                      <code className="text-xs text-base-content/40 font-mono">
+                      <code className="text-xs text-[#64748b] font-mono">
                         {group.label}
                       </code>
                     </div>
@@ -194,24 +194,24 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                   {group.sessions.map((s) => (
                     <button
                       key={s.id}
-                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-base-100 transition-colors ${
-                        s.id === session.id ? "bg-base-100" : ""
+                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-[#0f0f1a] transition-colors ${
+                        s.id === session.id ? "bg-[#0f0f1a]" : ""
                       } ${s.status === "exited" ? "opacity-50" : ""}`}
                       onClick={() => goTo(s.id)}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        s.status === "running" ? "bg-success" : "bg-base-content/20"
+                        s.status === "running" ? "bg-[#22c55e]" : "bg-[#64748b]/30"
                       }`} />
-                      <code className="text-sm font-mono truncate flex-1">
+                      <code className="text-sm font-mono truncate flex-1 text-[#e2e8f0]">
                         {s.title || `${s.command} ${s.args.join(" ")}`}
                       </code>
-                      <span className="text-xs text-base-content/30 font-mono shrink-0">
+                      <span className="text-xs text-[#64748b] font-mono shrink-0">
                         {s.id}
                       </span>
                       {s.status === "exited" && (
                         <span
                           className={`text-xs shrink-0 ${
-                            s.exitCode === 0 ? "text-success" : "text-error"
+                            s.exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"
                           }`}
                         >
                           {s.exitCode}
@@ -231,18 +231,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {allSessions.length > 1 && (
           <div className="flex items-center gap-0.5">
             <button
-              className="btn btn-ghost btn-xs"
+              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
               onClick={() => prevSession && goTo(prevSession.id)}
               onMouseDown={(e) => e.preventDefault()}
               aria-label="Previous session"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-xs font-mono text-base-content/50 w-8 text-center">
+            <span className="text-xs font-mono text-[#64748b] w-8 text-center">
               {currentIndex + 1}/{allSessions.length}
             </span>
             <button
-              className="btn btn-ghost btn-xs"
+              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
               onClick={() => nextSession && goTo(nextSession.id)}
               onMouseDown={(e) => e.preventDefault()}
               aria-label="Next session"
@@ -253,19 +253,19 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         )}
 
         <div className="dropdown dropdown-end">
-          <button tabIndex={0} className="btn btn-ghost btn-xs font-mono" aria-label="Font size">
+          <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" aria-label="Font size">
             <Type className="w-4 h-4" />
           </button>
-          <div tabIndex={0} className="dropdown-content z-30 bg-base-300 border border-base-content/10 rounded-lg shadow-xl p-2 flex items-center gap-1">
+          <div tabIndex={0} className="dropdown-content z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-2 flex items-center gap-1">
             <button
-              className="btn btn-ghost btn-xs font-mono"
+              className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
               onClick={() => setFontSize((s) => Math.max(8, s - 2))}
             >
               A-
             </button>
-            <span className="text-xs w-6 text-center font-mono">{fontSize}</span>
+            <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{fontSize}</span>
             <button
-              className="btn btn-ghost btn-xs font-mono"
+              className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
               onClick={() => setFontSize((s) => Math.min(28, s + 2))}
             >
               A+
@@ -275,7 +275,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       </div>
 
       {/* Terminal area */}
-      <div className="flex-1 relative min-h-0 overflow-hidden">
+      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]">
         {TerminalComponent && (
           <TerminalComponent
             ref={terminalRef}
@@ -291,7 +291,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Jump to bottom */}
         {!atBottom && (
           <button
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 btn btn-sm btn-neutral gap-1 opacity-80 hover:opacity-100 transition-opacity shadow-lg"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#94a3b8] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#e2e8f0] transition-all shadow-lg"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onTouchEnd={(e) => { e.preventDefault(); terminalRef.current?.scrollToBottom(); }}
@@ -305,21 +305,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
         {/* Buffer replay progress */}
         {replayProgress !== null && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-base-300/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg flex items-center gap-3">
-            <span className="loading loading-spinner loading-sm" />
-            <span className="text-sm font-mono">Loading {Math.round(replayProgress * 100)}%</span>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#0f0f1a]/90 border border-[#2d2d44] backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg flex items-center gap-3">
+            <span className="loading loading-spinner loading-sm text-[#22c55e]" />
+            <span className="text-sm font-mono text-[#94a3b8]">Loading {Math.round(replayProgress * 100)}%</span>
             <progress className="progress progress-primary w-24" value={replayProgress * 100} max="100" />
           </div>
         )}
 
         {/* Exit overlay */}
         {exitCode !== null && (
-          <div className="absolute inset-0 flex items-center justify-center bg-base-100/80 z-20">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0f]/85 z-20">
             <div className="text-center">
-              <p className="text-lg mb-2">
+              <p className="text-lg mb-2 text-[#e2e8f0]">
                 Process exited with code{" "}
                 <code
-                  className={exitCode === 0 ? "text-success" : "text-error"}
+                  className={exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"}
                 >
                   {exitCode}
                 </code>
@@ -334,10 +334,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
       {/* Scratchpad bottom sheet — 4 lines tall, between terminal and key bar */}
       {padOpen && (
-        <div className="bg-base-200 border-t border-base-300">
-          <div className="flex items-center gap-1 px-3 py-1 border-b border-base-300">
+        <div className="bg-[#0f0f1a] border-t border-[#1e1e2e]">
+          <div className="flex items-center gap-1 px-3 py-1 border-b border-[#1e1e2e]">
             <button
-              className="btn btn-xs btn-ghost"
+              className="btn btn-xs btn-ghost text-[#64748b] hover:text-[#e2e8f0]"
               onClick={() => {
                 navigator.clipboard.writeText(padText).then(() => {
                   setPadCopied(true);
@@ -346,10 +346,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               }}
               aria-label="Copy"
             >
-              {padCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {padCopied ? <Check className="w-4 h-4 text-[#22c55e]" /> : <Copy className="w-4 h-4" />}
             </button>
             <button
-              className="btn btn-xs btn-ghost"
+              className="btn btn-xs btn-ghost text-[#64748b] hover:text-[#e2e8f0]"
               onClick={() => { setPadText(""); padRef.current?.focus(); }}
               aria-label="Clear"
             >
@@ -367,7 +367,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
           <textarea
             ref={padRef}
-            className="w-full px-3 py-2 bg-base-100 text-base-content font-mono text-sm resize-none focus:outline-none overflow-y-auto"
+            className="w-full px-3 py-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm resize-none focus:outline-none overflow-y-auto placeholder:text-[#64748b]"
             style={{ height: `${4 * 1.5}em`, lineHeight: "1.5" }}
             value={padText}
             onChange={(e) => setPadText(e.target.value)}
@@ -378,25 +378,25 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       )}
 
       {/* Terminal key bar */}
-      <div className="bg-base-200 border-t border-base-300 px-2 py-1.5 flex items-center gap-1" onMouseDown={(e) => e.preventDefault()}>
-        <button className="btn btn-sm btn-ghost font-mono" onClick={() => sendKey("\x1b")}>Esc</button>
-        <button className="btn btn-sm btn-ghost font-mono" onClick={() => sendKey("\t")}>Tab</button>
+      <div className="bg-[#0f0f1a] border-t border-[#1e1e2e] px-2 py-1.5 flex items-center gap-1" onMouseDown={(e) => e.preventDefault()}>
+        <button className="btn btn-sm btn-ghost font-mono text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b")}>Esc</button>
+        <button className="btn btn-sm btn-ghost font-mono text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\t")}>Tab</button>
         <button
-          className={`btn btn-sm ${ctrlOn ? "btn-primary" : "btn-ghost"} font-mono`}
+          className={`btn btn-sm font-mono ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
           onClick={() => setCtrlOn(!ctrlOn)}
         >Ctrl</button>
         <button
-          className={`btn btn-sm ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
+          className={`btn btn-sm font-mono ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
           onClick={() => setAltOn(!altOn)}
         >Alt</button>
         <div className="flex-1 flex justify-center gap-1">
-          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
-          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
-          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-          <button className="btn btn-sm btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[D")}>&larr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[B")}>&darr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
+          <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
         </div>
         <button
-          className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost"}`}
+          className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
           onClick={() => padOpen ? setPadOpen(false) : openPad()}
           aria-label="Scratchpad"
         >
@@ -404,7 +404,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </button>
         {micSupported && (
           <button
-            className={`btn btn-sm ${listening ? "btn-error animate-pulse" : "btn-ghost"}`}
+            className={`btn btn-sm ${listening ? "btn-error animate-pulse" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => {
               if (listening) {
                 stopMic();
