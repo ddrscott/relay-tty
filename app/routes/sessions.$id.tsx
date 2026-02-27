@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
+import { useSpeechRecognition } from "../hooks/use-speech-recognition";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id);
@@ -12,11 +13,6 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const allSessions = context.sessionStore.list();
   return { session, allSessions };
 }
-
-const SpeechRecognition =
-  typeof window !== "undefined"
-    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    : null;
 
 export default function SessionView({ loaderData }: Route.ComponentProps) {
   const { session, allSessions } = loaderData as {
@@ -32,14 +28,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [termTitle, setTermTitle] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const micStoppedByUser = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
-  const [toolbarOpen, setToolbarOpen] = useState(false);
   const [ctrlOn, setCtrlOn] = useState(false);
   const [altOn, setAltOn] = useState(false);
-  const [shiftOn, setShiftOn] = useState(false);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
   const prevSession = allSessions.length > 1
@@ -78,58 +69,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     navigate(`/sessions/${id}`);
   }
 
-  const toggleMic = useCallback(() => {
-    if (!SpeechRecognition) return;
-
-    if (listening && recognitionRef.current) {
-      micStoppedByUser.current = true;
-      recognitionRef.current.stop();
-      return;
-    }
-
-    micStoppedByUser.current = false;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognitionRef.current = recognition;
-
-    let lastResultIndex = 0;
-
-    recognition.onresult = (event: any) => {
-      // Send only newly finalized results
-      for (let i = lastResultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          const text = event.results[i][0]?.transcript;
-          if (text && terminalRef.current) {
-            terminalRef.current.sendText(text);
-          }
-          lastResultIndex = i + 1;
-        }
-      }
-    };
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => {
-      // Auto-restart if system killed it (silence timeout, etc.)
-      // unless user explicitly stopped
-      if (!micStoppedByUser.current) {
-        try {
-          recognition.start();
-        } catch {
-          setListening(false);
-        }
-      } else {
-        setListening(false);
-      }
-    };
-    recognition.onerror = (e: any) => {
-      // 'no-speech' and 'aborted' are recoverable — let onend restart
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        micStoppedByUser.current = true;
-        setListening(false);
-      }
-    };
-
-    recognition.start();
-  }, [listening]);
+  const { listening, toggle: toggleMic, stop: stopMic, supported: micSupported } =
+    useSpeechRecognition(useCallback((text: string) => {
+      terminalRef.current?.sendText(text);
+    }, []));
 
   // Apply sticky modifiers to a key string, then clear them
   const applyModifiers = useCallback((key: string): string => {
@@ -143,14 +86,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     if (altOn) {
       out = "\x1b" + out;
     }
-    if (shiftOn && key.length === 1) {
-      out = key.toUpperCase();
-    }
     setCtrlOn(false);
     setAltOn(false);
-    setShiftOn(false);
     return out;
-  }, [ctrlOn, altOn, shiftOn]);
+  }, [ctrlOn, altOn]);
 
   // Send a key from on-screen buttons, applying sticky modifiers
   const sendKey = useCallback((key: string) => {
@@ -161,12 +100,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // Set input transform on terminal so keyboard input also gets modifiers
   useEffect(() => {
     if (!terminalRef.current) return;
-    if (ctrlOn || altOn || shiftOn) {
+    if (ctrlOn || altOn) {
       terminalRef.current.setInputTransform((data: string) => applyModifiers(data));
     } else {
       terminalRef.current.setInputTransform(null);
     }
-  }, [ctrlOn, altOn, shiftOn, applyModifiers]);
+  }, [ctrlOn, altOn, applyModifiers]);
 
   return (
     <main className="h-dvh flex flex-col relative">
@@ -325,19 +264,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           className={`btn btn-xs ${ctrlOn ? "btn-primary" : "btn-ghost"} font-mono`}
           onClick={() => setCtrlOn(!ctrlOn)}
         >Ctrl</button>
+        <button
+          className={`btn btn-xs ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
+          onClick={() => setAltOn(!altOn)}
+        >Alt</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[D")}>&larr;</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
-        <button
-          className={`btn btn-xs ${toolbarOpen ? "btn-primary" : "btn-ghost"} font-mono`}
-          onClick={() => setToolbarOpen(!toolbarOpen)}
-        >...</button>
-
         <div className="flex-1" />
 
         {/* Mic / Return — transforms when recording */}
-        {SpeechRecognition && !listening && (
+        {micSupported && !listening && (
           <button
             className="btn btn-xs btn-ghost"
             onClick={toggleMic}
@@ -355,8 +293,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             className="btn btn-xs btn-primary"
             onClick={() => {
               terminalRef.current?.sendText("\r");
-              micStoppedByUser.current = true;
-              if (recognitionRef.current) recognitionRef.current.stop();
+              stopMic();
             }}
             aria-label="Submit and stop recording"
           >
@@ -368,37 +305,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {/* Extended keys overlay — absolutely positioned over terminal */}
-      {toolbarOpen && (
-        <div
-          className="absolute bottom-16 left-2 right-2 z-20 bg-base-300/95 backdrop-blur-sm rounded-lg shadow-xl px-3 py-2 flex flex-wrap gap-1"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <button
-            className={`btn btn-xs ${altOn ? "btn-primary" : "btn-ghost"} font-mono`}
-            onClick={() => setAltOn(!altOn)}
-          >Alt</button>
-          <button
-            className={`btn btn-xs ${shiftOn ? "btn-primary" : "btn-ghost"} font-mono`}
-            onClick={() => setShiftOn(!shiftOn)}
-          >Shift</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => sendKey(" ")}>Space</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x03"); }}>^C</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x04"); }}>^D</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x1a"); }}>^Z</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x0c"); }}>^L</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x12"); }}>^R</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x01"); }}>^A</button>
-          <button className="btn btn-xs btn-ghost font-mono" onClick={() => { terminalRef.current?.sendText("\x05"); }}>^E</button>
-        </div>
-      )}
-
       {/* Cancel recording — floats above the bar when listening */}
       {listening && (
         <button
           className="absolute bottom-12 right-3 z-10 btn btn-circle btn-sm btn-ghost"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => { micStoppedByUser.current = true; if (recognitionRef.current) recognitionRef.current.stop(); }}
+          onClick={stopMic}
           aria-label="Cancel recording"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
