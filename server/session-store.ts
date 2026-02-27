@@ -46,6 +46,13 @@ export class SessionStore {
     }
   }
 
+  setTitle(id: string, title: string): void {
+    const session = this.sessions.get(id);
+    if (session) {
+      session.title = title;
+    }
+  }
+
   markExited(id: string, exitCode: number): void {
     const session = this.sessions.get(id);
     if (session) {

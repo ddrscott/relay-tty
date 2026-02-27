@@ -31,6 +31,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [atBottom, setAtBottom] = useState(true);
   const [ctrlOn, setCtrlOn] = useState(false);
   const [altOn, setAltOn] = useState(false);
+  const [padOpen, setPadOpen] = useState(false);
+  const [padText, setPadText] = useState("");
+  const [padCopied, setPadCopied] = useState(false);
+  const padRef = useRef<HTMLTextAreaElement>(null);
+  const [replayProgress, setReplayProgress] = useState<number | null>(null);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
   const prevSession = allSessions.length > 1
@@ -146,7 +151,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                       {i + 1}
                     </span>
                     <code className="text-sm font-mono truncate flex-1">
-                      {s.command} {s.args.join(" ")}
+                      {s.title || `${s.command} ${s.args.join(" ")}`}
                     </code>
                     <span className="text-xs text-base-content/30 font-mono shrink-0">
                       {s.id}
@@ -194,6 +199,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onExit={(code: number) => setExitCode(code)}
             onTitleChange={setTermTitle}
             onScrollChange={setAtBottom}
+            onReplayProgress={setReplayProgress}
           />
         )}
 
@@ -237,6 +243,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
 
+        {/* Buffer replay progress */}
+        {replayProgress !== null && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-base-300/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg flex items-center gap-3">
+            <span className="loading loading-spinner loading-sm" />
+            <span className="text-sm font-mono">Loading {Math.round(replayProgress * 100)}%</span>
+            <progress className="progress progress-primary w-24" value={replayProgress * 100} max="100" />
+          </div>
+        )}
+
         {/* Exit overlay */}
         {exitCode !== null && (
           <div className="absolute inset-0 flex items-center justify-center bg-base-100/80 z-20">
@@ -272,6 +287,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[B")}>&darr;</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
         <button className="btn btn-xs btn-ghost font-mono px-1" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+        <button
+          className={`btn btn-xs ${padOpen ? "btn-primary" : "btn-ghost"} font-mono`}
+          onClick={() => { setPadOpen(!padOpen); setPadCopied(false); }}
+          aria-label="Scratchpad"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+          </svg>
+        </button>
         <div className="flex-1" />
 
         {/* Mic / Return — transforms when recording */}
@@ -304,6 +329,50 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
       </div>
+
+      {/* Scratchpad modal */}
+      {padOpen && (
+        <div className="absolute inset-0 z-30 flex flex-col bg-base-100/95 backdrop-blur-sm">
+          <div className="flex items-center gap-2 px-3 py-2 bg-base-200 border-b border-base-300">
+            <span className="text-sm font-semibold flex-1">Scratchpad</span>
+            <button
+              className="btn btn-xs btn-ghost font-mono"
+              onClick={() => {
+                navigator.clipboard.writeText(padText).then(() => {
+                  setPadCopied(true);
+                  setTimeout(() => setPadCopied(false), 1500);
+                });
+              }}
+            >{padCopied ? "Copied" : "Copy"}</button>
+            <button
+              className="btn btn-xs btn-ghost font-mono"
+              onClick={() => { setPadText(""); padRef.current?.focus(); }}
+            >Clear</button>
+            <button
+              className="btn btn-xs btn-ghost font-mono"
+              onClick={() => { setPadText(""); setPadCopied(false); padRef.current?.focus(); }}
+            >New</button>
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => setPadOpen(false)}
+              aria-label="Close scratchpad"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <textarea
+            ref={padRef}
+            className="flex-1 w-full p-3 bg-base-100 text-base-content font-mono text-sm resize-none focus:outline-none"
+            value={padText}
+            onChange={(e) => setPadText(e.target.value)}
+            placeholder="Compose text here..."
+            autoFocus
+          />
+        </div>
+      )}
 
       {/* Cancel recording — floats above the bar when listening */}
       {listening && (

@@ -1,17 +1,28 @@
 /**
  * Circular byte buffer for terminal output replay.
  * Keeps the last N bytes of output so new clients can catch up.
+ *
+ * Tracks a monotonic totalWritten counter so clients can resume from
+ * a byte offset and receive only the delta they missed.
  */
 export class OutputBuffer {
   private buffer: Buffer;
   private writePos = 0;
   private filled = false;
+  private _totalWritten = 0;
 
   constructor(private maxSize: number = 10 * 1024 * 1024) {
     this.buffer = Buffer.alloc(maxSize);
   }
 
+  /** Total bytes ever written (monotonically increasing). */
+  get totalWritten(): number {
+    return this._totalWritten;
+  }
+
   write(data: Buffer): void {
+    this._totalWritten += data.length;
+
     if (data.length >= this.maxSize) {
       // Data larger than buffer — just keep the tail
       data.copy(this.buffer, 0, data.length - this.maxSize);
@@ -38,6 +49,7 @@ export class OutputBuffer {
     }
   }
 
+  /** Read the entire buffer contents (for full replay). */
   read(): Buffer {
     if (!this.filled) {
       return this.buffer.subarray(0, this.writePos);
@@ -50,8 +62,42 @@ export class OutputBuffer {
     return sanitizeStart(raw);
   }
 
+  /**
+   * Read bytes from a global offset to the current write position.
+   *
+   * Returns null if the offset is before the buffer start (data has been
+   * overwritten — caller should fall back to full replay).
+   * Returns an empty Buffer if the offset is at or past totalWritten (caught up).
+   */
+  readFrom(offset: number): Buffer | null {
+    if (offset >= this._totalWritten) {
+      return Buffer.alloc(0); // fully caught up
+    }
+
+    const bufferStart = this._totalWritten - this.size;
+    if (offset < bufferStart) {
+      return null; // too old, data overwritten
+    }
+
+    // How many bytes to skip from the start of the linearized buffer
+    const skipBytes = offset - bufferStart;
+    const linearized = this.readRaw();
+    return linearized.subarray(skipBytes);
+  }
+
   get size(): number {
     return this.filled ? this.maxSize : this.writePos;
+  }
+
+  /** Read raw linearized buffer without sanitization. */
+  private readRaw(): Buffer {
+    if (!this.filled) {
+      return this.buffer.subarray(0, this.writePos);
+    }
+    return Buffer.concat([
+      this.buffer.subarray(this.writePos),
+      this.buffer.subarray(0, this.writePos),
+    ]);
   }
 }
 

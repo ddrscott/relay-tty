@@ -14,9 +14,13 @@ interface TerminalProps {
   onExit?: (exitCode: number) => void;
   onTitleChange?: (title: string) => void;
   onScrollChange?: (atBottom: boolean) => void;
+  onReplayProgress?: (progress: number | null) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange }, ref) {
+/** Size of chunks fed to xterm.js during buffer replay (bytes) */
+const REPLAY_CHUNK_SIZE = 64 * 1024;
+
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -68,6 +72,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
+
+    // Byte offset tracking — survives WS reconnects within this useEffect,
+    // resets to 0 when sessionId changes (new useEffect lifecycle).
+    let byteOffset = 0;
 
     async function init() {
       const { Terminal: XTerm } = await import("@xterm/xterm");
@@ -237,6 +245,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (disposed) return;
         retryDelay = 1000;
         setStatus("connected");
+
+        // Send RESUME with our byte offset so pty-host can send a delta
+        // instead of the full buffer. Must be sent before RESIZE so pty-host
+        // receives it within the 100ms handshake window.
+        const resumeMsg = new Uint8Array(9); // 1 type + 8 float64
+        resumeMsg[0] = WS_MSG.RESUME;
+        new DataView(resumeMsg.buffer).setFloat64(1, byteOffset, false);
+        ws.send(resumeMsg);
+
         // Send resize so pty-host knows our dimensions
         const msg = new Uint8Array(5);
         msg[0] = WS_MSG.RESIZE;
@@ -253,22 +270,72 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         const payload = data.slice(1);
 
         switch (type) {
-          case WS_MSG.BUFFER_REPLAY:
-            // Clear screen before replaying buffer to avoid garbled output
-            term.reset();
-            term.write(payload, () => {
-              // Force immediate viewport scroll area sync after buffer is fully parsed.
-              // Without this, _scrollArea.style.height is stale (from before the replay),
-              // causing the browser to clamp scrollTop to a tiny range — scroll "stops abruptly".
-              const core = (term as any)._core;
-              if (core?.viewport) {
-                core.viewport.syncScrollArea(true);
+          case WS_MSG.BUFFER_REPLAY: {
+            const isReconnect = byteOffset > 0;
+
+            if (isReconnect && payload.length === 0) {
+              // Fully caught up — nothing to write
+              break;
+            }
+
+            if (isReconnect) {
+              // Delta replay — xterm.js already has prior state, just append
+              term.write(payload, () => {
+                const core = (term as any)._core;
+                if (core?.viewport) core.viewport.syncScrollArea(true);
+                term.scrollToBottom();
+              });
+            } else {
+              // First connect — full replay with reset
+              term.reset();
+
+              if (payload.length <= REPLAY_CHUNK_SIZE) {
+                term.write(payload, () => {
+                  const core = (term as any)._core;
+                  if (core?.viewport) core.viewport.syncScrollArea(true);
+                  term.scrollToBottom();
+                });
+              } else {
+                // Chunked write for large buffers
+                onReplayProgress?.(0);
+                let chunkOffset = 0;
+                const total = payload.length;
+
+                function writeNextChunk() {
+                  const end = Math.min(chunkOffset + REPLAY_CHUNK_SIZE, total);
+                  const chunk = payload.subarray(chunkOffset, end);
+                  const isLast = end >= total;
+
+                  term.write(chunk, () => {
+                    if (isLast) {
+                      const core = (term as any)._core;
+                      if (core?.viewport) core.viewport.syncScrollArea(true);
+                      term.scrollToBottom();
+                      onReplayProgress?.(null);
+                    } else {
+                      chunkOffset = end;
+                      onReplayProgress?.(chunkOffset / total);
+                      setTimeout(writeNextChunk, 0);
+                    }
+                  });
+                }
+
+                writeNextChunk();
               }
-              term.scrollToBottom();
-            });
+            }
             break;
+          }
+          case WS_MSG.SYNC: {
+            // Server tells us the current byte offset after replay/delta
+            if (payload.length >= 8) {
+              const view = new DataView(payload.buffer, payload.byteOffset);
+              byteOffset = view.getFloat64(0, false);
+            }
+            break;
+          }
           case WS_MSG.DATA:
             term.write(payload);
+            byteOffset += payload.length;
             break;
           case WS_MSG.EXIT: {
             const view = new DataView(payload.buffer, payload.byteOffset);

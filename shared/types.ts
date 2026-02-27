@@ -10,6 +10,7 @@ export interface Session {
   exitedAt?: number;
   cols: number;
   rows: number;
+  title?: string;
 }
 
 export const WS_MSG = {
@@ -17,6 +18,11 @@ export const WS_MSG = {
   RESIZE: 0x01,
   EXIT: 0x02,
   BUFFER_REPLAY: 0x03,
+  TITLE: 0x04,
+  /** Client→server: resume from byte offset [8B float64]. */
+  RESUME: 0x10,
+  /** Server→client: current total byte offset [8B float64]. */
+  SYNC: 0x11,
 } as const;
 
 export interface CreateSessionRequest {

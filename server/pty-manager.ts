@@ -258,6 +258,11 @@ export class PtyManager extends EventEmitter {
             this.emit("exit", id, exitCode);
             break;
           }
+          case WS_MSG.TITLE: {
+            const title = payload.subarray(1).toString("utf8");
+            this.sessionStore.setTitle(id, title);
+            break;
+          }
           // BUFFER_REPLAY: ignore for monitoring
         }
       }

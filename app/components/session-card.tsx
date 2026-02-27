@@ -21,13 +21,20 @@ export function SessionCard({ session }: { session: Session }) {
       <div className="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer">
         <div className="card-body p-4">
           <div className="flex items-center justify-between">
-            <code className="text-sm font-mono">{displayCommand}</code>
+            <code className="text-sm font-mono truncate">
+              {session.title || displayCommand}
+            </code>
             <span
-              className={`badge badge-sm ${isRunning ? "badge-success" : "badge-ghost"}`}
+              className={`badge badge-sm shrink-0 ${isRunning ? "badge-success" : "badge-ghost"}`}
             >
               {isRunning ? "running" : `exited (${session.exitCode})`}
             </span>
           </div>
+          {session.title && (
+            <div className="text-xs text-base-content/40 font-mono truncate">
+              {displayCommand}
+            </div>
+          )}
           <div className="text-xs text-base-content/50 font-mono truncate">
             {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
           </div>

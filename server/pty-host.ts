@@ -86,11 +86,41 @@ function writeFrame(socket: net.Socket, payload: Buffer): void {
   socket.write(payload);
 }
 
+// Parse OSC 0/2 title sequences from PTY output
+// Format: ESC ] 0|2 ; <title> BEL  or  ESC ] 0|2 ; <title> ESC \
+const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*?)(?:\x07|\x1b\\)/;
+
+function broadcastTitle(title: string): void {
+  const titleBuf = Buffer.from(title, "utf8");
+  const msg = Buffer.alloc(1 + titleBuf.length);
+  msg[0] = WS_MSG.TITLE;
+  titleBuf.copy(msg, 1);
+
+  for (const client of clients) {
+    try {
+      writeFrame(client, msg);
+    } catch {
+      // client disconnected, will be cleaned up on 'close'
+    }
+  }
+}
+
 // PTY data → broadcast to all connected sockets
 ptyProcess.onData((data: string) => {
   const buf = Buffer.from(data, "utf8");
   outputBuffer.write(buf);
   sessionMeta.lastActivity = Date.now();
+
+  // Check for OSC title change
+  const titleMatch = data.match(OSC_TITLE_RE);
+  if (titleMatch) {
+    const newTitle = titleMatch[1];
+    if (newTitle !== (sessionMeta as any).title) {
+      (sessionMeta as any).title = newTitle;
+      fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
+      broadcastTitle(newTitle);
+    }
+  }
 
   const msg = Buffer.alloc(1 + buf.length);
   msg[0] = WS_MSG.DATA;
@@ -144,25 +174,80 @@ ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: numb
   }, 1000);
 });
 
-// Unix socket server
-const server = net.createServer((socket) => {
-  clients.add(socket);
-
-  // Send buffer replay to new connection
-  const bufData = outputBuffer.read();
+/** Send BUFFER_REPLAY + SYNC to a socket. */
+function sendReplay(socket: net.Socket, bufData: Buffer): void {
   if (bufData.length > 0) {
     const msg = Buffer.alloc(1 + bufData.length);
     msg[0] = WS_MSG.BUFFER_REPLAY;
     bufData.copy(msg, 1);
     writeFrame(socket, msg);
   }
+  sendSync(socket);
+}
 
-  // If process already exited, send exit code
-  if (exitCode !== null) {
-    const msg = Buffer.alloc(5);
-    msg[0] = WS_MSG.EXIT;
-    msg.writeInt32BE(exitCode, 1);
-    writeFrame(socket, msg);
+/** Send SYNC (current byte offset) to a socket. */
+function sendSync(socket: net.Socket): void {
+  const msg = Buffer.alloc(9); // 1 type + 8 float64
+  msg[0] = WS_MSG.SYNC;
+  msg.writeDoubleBE(outputBuffer.totalWritten, 1);
+  writeFrame(socket, msg);
+}
+
+// Unix socket server
+const server = net.createServer((socket) => {
+  clients.add(socket);
+
+  // Wait briefly for a RESUME message before sending full replay.
+  // Browser clients send RESUME immediately on connect with their byte offset.
+  // CLI clients (and old clients) don't send RESUME, so after 100ms we fall
+  // back to a full replay — the delay is imperceptible for terminal output.
+  let replayHandled = false;
+
+  const replayTimeout = setTimeout(() => {
+    if (replayHandled) return;
+    replayHandled = true;
+    sendReplay(socket, outputBuffer.read());
+    sendExitIfNeeded(socket);
+  }, 100);
+
+  function sendExitIfNeeded(sock: net.Socket) {
+    if (exitCode !== null) {
+      const msg = Buffer.alloc(5);
+      msg[0] = WS_MSG.EXIT;
+      msg.writeInt32BE(exitCode, 1);
+      writeFrame(sock, msg);
+    }
+  }
+
+  function handleResume(data: Buffer) {
+    if (replayHandled) return; // too late, already sent full replay
+    replayHandled = true;
+    clearTimeout(replayTimeout);
+
+    if (data.length < 8) {
+      // Malformed RESUME — send full replay
+      sendReplay(socket, outputBuffer.read());
+      sendExitIfNeeded(socket);
+      return;
+    }
+
+    const clientOffset = data.readDoubleBE(0);
+
+    if (clientOffset <= 0) {
+      // First connect — full replay
+      sendReplay(socket, outputBuffer.read());
+    } else {
+      // Try delta replay
+      const delta = outputBuffer.readFrom(clientOffset);
+      if (delta === null) {
+        // Offset too old — full replay
+        sendReplay(socket, outputBuffer.read());
+      } else {
+        sendReplay(socket, delta);
+      }
+    }
+
+    sendExitIfNeeded(socket);
   }
 
   // Parse incoming frames from client
@@ -195,15 +280,20 @@ const server = net.createServer((socket) => {
             sessionMeta.rows = newRows;
           }
           break;
+        case WS_MSG.RESUME:
+          handleResume(data);
+          break;
       }
     }
   });
 
   socket.on("close", () => {
+    clearTimeout(replayTimeout);
     clients.delete(socket);
   });
 
   socket.on("error", () => {
+    clearTimeout(replayTimeout);
     clients.delete(socket);
   });
 });
