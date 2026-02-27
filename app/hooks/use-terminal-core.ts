@@ -425,6 +425,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           opts.onNotification?.(message);
           break;
         }
+        case WS_MSG.SESSION_STATE: {
+          // 1-byte payload: 0x00 = idle, 0x01 = active
+          // Prep for future UI (idle indicator, notifications, etc.)
+          // const isActive = payload.length > 0 && payload[0] === 0x01;
+          break;
+        }
       }
     }
 

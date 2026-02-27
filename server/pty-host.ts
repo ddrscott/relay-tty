@@ -81,20 +81,103 @@ const outputBuffer = new OutputBuffer();
 const clients = new Set<net.Socket>();
 let exitCode: number | null = null;
 
+// ── Activity metrics ─────────────────────────────────────────────────
+
+const IDLE_TIMEOUT_MS = 60_000;
+const JSON_WRITE_INTERVAL_MS = 5_000;
+const BPS_WINDOW_MS = 30_000;
+
+/** Rolling window of (timestamp, byteCount) samples for bytes/sec calculation */
+const bpsSamples: Array<{ t: number; bytes: number }> = [];
+let sessionActive = true; // starts active since we just spawned
+let metaDirty = false;
+let jsonWriteTimer: ReturnType<typeof setInterval> | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function computeBytesPerSecond(now: number): number {
+  // Prune samples older than the window
+  while (bpsSamples.length > 0 && bpsSamples[0].t < now - BPS_WINDOW_MS) {
+    bpsSamples.shift();
+  }
+  if (bpsSamples.length === 0) return 0;
+  const totalBytes = bpsSamples.reduce((sum, s) => sum + s.bytes, 0);
+  const windowSpan = Math.min(now - bpsSamples[0].t, BPS_WINDOW_MS);
+  // Avoid division by zero; if all samples are at the same instant, use 1s
+  return totalBytes / Math.max(windowSpan / 1000, 1);
+}
+
+function broadcastSessionState(active: boolean): void {
+  const msg = Buffer.alloc(2);
+  msg[0] = WS_MSG.SESSION_STATE;
+  msg[1] = active ? 0x01 : 0x00;
+
+  for (const client of clients) {
+    try {
+      writeFrame(client, msg);
+    } catch {
+      // client disconnected, will be cleaned up on 'close'
+    }
+  }
+}
+
+function resetIdleTimer(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (sessionActive) {
+      sessionActive = false;
+      broadcastSessionState(false);
+      markMetaDirty();
+    }
+  }, IDLE_TIMEOUT_MS);
+}
+
+function markMetaDirty(): void {
+  metaDirty = true;
+}
+
+/** Atomic JSON write: write to temp file then rename */
+function flushSessionMeta(): void {
+  if (!metaDirty) return;
+  metaDirty = false;
+  try {
+    const tmpPath = sessionPath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(sessionMeta));
+    fs.renameSync(tmpPath, sessionPath);
+  } catch {
+    // If rename fails, try direct write as fallback
+    try {
+      fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
+    } catch {
+      // Disk error — nothing we can do
+    }
+  }
+}
+
 // Write session metadata to disk
+const now = Date.now();
 const sessionMeta = {
   id,
   command,
   args,
   cwd,
-  createdAt: Date.now(),
-  lastActivity: Date.now(),
+  createdAt: now,
+  lastActivity: now,
   status: "running" as const,
   cols,
   rows,
   pid: process.pid,
+  startedAt: new Date(now).toISOString(),
+  totalBytesWritten: 0,
+  lastActiveAt: new Date(now).toISOString(),
+  bytesPerSecond: 0,
 };
 fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
+
+// Start periodic JSON flush (every 5s)
+jsonWriteTimer = setInterval(flushSessionMeta, JSON_WRITE_INTERVAL_MS);
+
+// Start the idle timer
+resetIdleTimer();
 
 // Frame helpers
 function writeFrame(socket: net.Socket, payload: Buffer): void {
@@ -144,7 +227,23 @@ function broadcastNotification(message: string): void {
 
 // PTY data → broadcast to all connected sockets
 ptyProcess.onData((data: string) => {
-  sessionMeta.lastActivity = Date.now();
+  const dataTime = Date.now();
+  sessionMeta.lastActivity = dataTime;
+
+  // Update activity metrics
+  const dataByteLen = Buffer.byteLength(data, "utf8");
+  sessionMeta.totalBytesWritten += dataByteLen;
+  sessionMeta.lastActiveAt = new Date(dataTime).toISOString();
+  bpsSamples.push({ t: dataTime, bytes: dataByteLen });
+  sessionMeta.bytesPerSecond = computeBytesPerSecond(dataTime);
+  markMetaDirty();
+
+  // Transition idle → active
+  if (!sessionActive) {
+    sessionActive = true;
+    broadcastSessionState(true);
+  }
+  resetIdleTimer();
 
   // Check for OSC title change
   const titleMatch = data.match(OSC_TITLE_RE);
@@ -152,7 +251,8 @@ ptyProcess.onData((data: string) => {
     const newTitle = titleMatch[1];
     if (newTitle !== (sessionMeta as any).title) {
       (sessionMeta as any).title = newTitle;
-      fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
+      markMetaDirty();
+      flushSessionMeta(); // Title changes flush immediately for discovery
       broadcastTitle(newTitle);
     }
   }
@@ -205,11 +305,16 @@ ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: numb
     }
   }
 
-  // Update session metadata on disk
+  // Update session metadata on disk (flush immediately on exit)
   (sessionMeta as any).status = "exited";
   (sessionMeta as any).exitCode = exitCode;
   (sessionMeta as any).exitedAt = Date.now();
-  fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
+  metaDirty = true;
+  flushSessionMeta();
+
+  // Stop periodic timers
+  if (jsonWriteTimer) { clearInterval(jsonWriteTimer); jsonWriteTimer = null; }
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
 
   // Brief delay to let clients receive exit frame, then clean up and exit
   setTimeout(() => {
@@ -226,7 +331,7 @@ ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: numb
   }, 1000);
 });
 
-/** Send BUFFER_REPLAY + SYNC + TITLE to a socket. */
+/** Send BUFFER_REPLAY + SYNC + TITLE + SESSION_STATE to a socket. */
 function sendReplay(socket: net.Socket, bufData: Buffer): void {
   if (bufData.length > 0) {
     const msg = Buffer.alloc(1 + bufData.length);
@@ -246,6 +351,12 @@ function sendReplay(socket: net.Socket, bufData: Buffer): void {
     titleBuf.copy(msg, 1);
     writeFrame(socket, msg);
   }
+
+  // Send current activity state so clients know idle/active on connect
+  const stateMsg = Buffer.alloc(2);
+  stateMsg[0] = WS_MSG.SESSION_STATE;
+  stateMsg[1] = sessionActive ? 0x01 : 0x00;
+  writeFrame(socket, stateMsg);
 }
 
 /** Send SYNC (current byte offset) to a socket. */
@@ -368,6 +479,8 @@ process.on("SIGHUP", () => {});
 
 // Graceful shutdown on SIGTERM
 process.on("SIGTERM", () => {
+  if (jsonWriteTimer) { clearInterval(jsonWriteTimer); jsonWriteTimer = null; }
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   ptyProcess.kill();
   for (const client of clients) {
     client.destroy();
@@ -378,14 +491,11 @@ process.on("SIGTERM", () => {
   } catch {
     // ignore
   }
-  // Update metadata
+  // Update metadata (atomic write)
   (sessionMeta as any).status = "exited";
   (sessionMeta as any).exitCode = -1;
   (sessionMeta as any).exitedAt = Date.now();
-  try {
-    fs.writeFileSync(sessionPath, JSON.stringify(sessionMeta));
-  } catch {
-    // ignore
-  }
+  metaDirty = true;
+  flushSessionMeta();
   process.exit(0);
 });
