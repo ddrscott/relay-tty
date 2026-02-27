@@ -12,7 +12,7 @@ function timeAgo(timestamp: number): string {
   return `${days}d ago`;
 }
 
-export function SessionCard({ session }: { session: Session }) {
+export function SessionCard({ session, showCwd = true }: { session: Session; showCwd?: boolean }) {
   const isRunning = session.status === "running";
   const displayCommand = [session.command, ...session.args].join(" ");
 
@@ -35,9 +35,11 @@ export function SessionCard({ session }: { session: Session }) {
               {displayCommand}
             </div>
           )}
-          <div className="text-xs text-base-content/50 font-mono truncate">
-            {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
-          </div>
+          {showCwd && (
+            <div className="text-xs text-base-content/50 font-mono truncate">
+              {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-base-content/50">
             <span>{session.id}</span>
             <span>{timeAgo(session.createdAt)}</span>
