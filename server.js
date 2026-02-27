@@ -68,6 +68,12 @@ async function start() {
     const wsModule = await viteServer.ssrLoadModule("./server/ws-handler.ts");
     wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
 
+    const notifyModule = await viteServer.ssrLoadModule("./server/notify.ts");
+    notifyModule.setupNotifications(ptyManager, sessionStore, {
+      discordWebhook: DISCORD_WEBHOOK,
+      appUrl: APP_URL,
+    });
+
     app.use(viteServer.middlewares);
 
     const { createRequestHandler } = await import("@react-router/express");
@@ -103,6 +109,12 @@ async function start() {
 
     const { WsHandler } = await import("./dist/server/ws-handler.js");
     wsHandler = new WsHandler(sessionStore, ptyManager);
+
+    const { setupNotifications } = await import("./dist/server/notify.js");
+    setupNotifications(ptyManager, sessionStore, {
+      discordWebhook: DISCORD_WEBHOOK,
+      appUrl: APP_URL,
+    });
 
     app.use("/assets", express.static(
       path.join(__dirname, "build/client/assets"),
