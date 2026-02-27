@@ -25,6 +25,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const termRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<any>(null);
+  const webglRef = useRef<any>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
@@ -82,6 +83,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       await import("@xterm/xterm/css/xterm.css");
       const { FitAddon } = await import("@xterm/addon-fit");
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
+      const { WebglAddon } = await import("@xterm/addon-webgl");
 
       if (disposed || !containerRef.current) return;
 
@@ -104,6 +106,17 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       term.loadAddon(new WebLinksAddon());
 
       term.open(containerRef.current!);
+
+      // WebGL renderer — must be loaded after term.open() since it needs the canvas
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { webgl.dispose(); });
+        term.loadAddon(webgl);
+        webglRef.current = webgl;
+      } catch {
+        // WebGL unavailable — falls back to default canvas renderer
+      }
+
       termRef.current = term;
       fitAddonRef.current = fitAddon;
 
@@ -388,6 +401,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
       wsRef.current?.close();
+      // Dispose WebGL addon before terminal to avoid stale render callbacks
+      try { webglRef.current?.dispose(); } catch { /* already disposed */ }
+      webglRef.current = null;
       termRef.current?.dispose();
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
