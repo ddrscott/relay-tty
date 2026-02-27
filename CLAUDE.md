@@ -27,3 +27,5 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 
 ## Process Architecture
 Each session runs in a detached `pty-host` process (compiled JS) that survives server restarts. Code changes to `pty-host.ts` require restarting the pty-host process (or creating new sessions) — running sessions use the old compiled code.
+
+**Critical: The CLI spawns processes, not the server.** `relay <command>` always calls `spawnDirect()` so pty-host inherits the *user's* environment. The server is only a WebSocket bridge — it discovers sessions from disk via `discoverOne()`. Never route process creation through the server; whoever spawns the process determines the child's env, and the server's env is whatever launched it (could be Claude Code, tmux, systemd, etc.).
