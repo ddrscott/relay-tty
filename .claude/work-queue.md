@@ -12,3 +12,4 @@
 - [x] Update README to feature `relay share` and `--tunnel` more prominently as hero features
 - [x] Update docs to clarify buffer size configuration and non-permanent workload expectations
 - [x] Replace redundant `running` status badge with a green dot on the session title
+- [x] Desktop grid view: 4x2 live terminal monitor dashboard with grid/list toggle ([detail](work-queue/desktop-grid-view.md))
