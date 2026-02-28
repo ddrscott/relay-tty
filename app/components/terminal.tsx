@@ -24,7 +24,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
 
-  const { termRef, wsRef, status, fit, sendBinary } = useTerminalCore(containerRef, {
+  const { termRef, status, fit, sendBinary } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
     onExit,
