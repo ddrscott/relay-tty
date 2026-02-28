@@ -7,8 +7,10 @@ import { useSpeechRecognition } from "../hooks/use-speech-recognition";
 import { groupByCwd } from "../lib/session-groups";
 import {
   ArrowLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Type,
   ChevronsDown,
   Info,
@@ -52,6 +54,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [ctrlOn, setCtrlOn] = useState(false);
   const [altOn, setAltOn] = useState(false);
   const [padOpen, setPadOpen] = useState(false);
+  const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
   const [padCopied, setPadCopied] = useState(false);
   const [micOpened, setMicOpened] = useState(false);
@@ -239,7 +242,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, [ctrlOn, altOn, applyModifiers]);
 
-  // Send scratchpad text to terminal and close
+  // Send scratchpad text to terminal (pad stays open for repeated use)
   const sendPad = useCallback(() => {
     if (!terminalRef.current || !padText.trim()) return;
     // Send text first, then \r separately — if sent together, bracketed
@@ -247,8 +250,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     terminalRef.current.sendText(padText);
     setTimeout(() => terminalRef.current?.sendText("\r"), 50);
     setPadText("");
-    setPadOpen(false);
-    setMicOpened(false);
     if (listening) stopMic();
   }, [padText, listening, stopMic]);
 
@@ -531,7 +532,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {/* Scratchpad bottom sheet — 4 lines tall, between terminal and key bar */}
+      {/* Scratchpad bottom sheet — single-line default, expandable to 4 rows */}
       {padOpen && (
         <div className="bg-[#0f0f1a] border-t border-[#1e1e2e]">
           <div className="flex items-center gap-1 px-3 py-1 border-b border-[#1e1e2e]">
@@ -554,6 +555,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             >
               <Trash2 className="w-4 h-4" />
             </button>
+            <button
+              className="btn btn-xs btn-ghost text-[#64748b] hover:text-[#e2e8f0]"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
+              onClick={() => setPadExpanded((v) => !v)}
+              aria-label={padExpanded ? "Collapse scratchpad" : "Expand scratchpad"}
+            >
+              {padExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
             <div className="flex-1" />
             <button
               className="btn btn-xs btn-primary gap-1"
@@ -567,7 +578,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <textarea
             ref={padRef}
             className="w-full px-3 py-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm resize-none focus:outline-none overflow-y-auto placeholder:text-[#64748b]"
-            style={{ height: `${4 * 1.5}em`, lineHeight: "1.5" }}
+            style={{ height: padExpanded ? `${4 * 1.5}em` : "1.5em", lineHeight: "1.5", paddingTop: padExpanded ? undefined : "0.375em", paddingBottom: padExpanded ? undefined : "0.375em" }}
             value={padText}
             onChange={(e) => setPadText(e.target.value)}
             placeholder={micOpened ? "Listening... tap here to type" : "Compose text or tap mic to dictate..."}
