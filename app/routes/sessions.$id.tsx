@@ -3,7 +3,6 @@ import { Link, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
-import { useSpeechRecognition } from "../hooks/use-speech-recognition";
 import { groupByCwd } from "../lib/session-groups";
 import {
   ArrowLeft,
@@ -14,8 +13,6 @@ import {
   Type,
   ChevronsDown,
   Info,
-  Mic,
-  MicOff,
   SendHorizontal,
   Copy,
   Check,
@@ -26,7 +23,7 @@ import {
 } from "lucide-react";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
-  const session = context.sessionStore.get(params.id);
+  const session = context.sessionStore.get(params.id!);
   if (!session) {
     throw new Response("Session not found", { status: 404 });
   }
@@ -57,7 +54,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
   const [padCopied, setPadCopied] = useState(false);
-  const [micOpened, setMicOpened] = useState(false);
   const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -203,12 +199,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     navigate(`/sessions/${id}`);
   }
 
-  // Speech recognition — appends transcribed text to scratchpad
-  const { listening, toggle: toggleMic, stop: stopMic, supported: micSupported } =
-    useSpeechRecognition(useCallback((text: string) => {
-      setPadText((prev) => prev + text);
-    }, []));
-
   // Apply sticky modifiers to a key string, then clear them
   const applyModifiers = useCallback((key: string): string => {
     let out = key;
@@ -250,18 +240,13 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     terminalRef.current.sendText(padText);
     setTimeout(() => terminalRef.current?.sendText("\r"), 50);
     setPadText("");
-    if (listening) stopMic();
-  }, [padText, listening, stopMic]);
+  }, [padText]);
 
   // Open scratchpad — xterm handles scroll preservation on resize
-  const openPad = useCallback((startMic?: boolean) => {
+  const openPad = useCallback(() => {
     setPadOpen(true);
     setPadCopied(false);
-    setMicOpened(!!startMic);
-    if (startMic && micSupported && !listening) {
-      toggleMic();
-    }
-  }, [micSupported, listening, toggleMic]);
+  }, []);
 
   return (
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
@@ -582,21 +567,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             style={{ lineHeight: "1.5" }}
             value={padText}
             onChange={(e) => setPadText(e.target.value)}
-            placeholder={micOpened ? "Listening..." : "Type a command..."}
-            readOnly={micOpened}
-            autoFocus={!micOpened}
-            onTouchEnd={() => {
-              if (micOpened) {
-                setMicOpened(false);
-                requestAnimationFrame(() => padRef.current?.focus());
-              }
-            }}
-            onClick={() => {
-              if (micOpened) {
-                setMicOpened(false);
-                requestAnimationFrame(() => padRef.current?.focus());
-              }
-            }}
+            placeholder="Type a command..."
+            autoFocus
           />
         </div>
       )}
@@ -631,27 +603,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </button>
         <button
           className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-          onClick={() => { if (padOpen) { setPadOpen(false); setPadExpanded(false); setMicOpened(false); } else { openPad(); } }}
+          onClick={() => { if (padOpen) { setPadOpen(false); setPadExpanded(false); } else { openPad(); } }}
           aria-label="Scratchpad"
         >
           <NotebookPen className="w-4 h-4" />
         </button>
-        {micSupported && (
-          <button
-            className={`btn btn-sm ${listening ? "btn-error animate-pulse" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-            onClick={() => {
-              if (listening) {
-                stopMic();
-                setMicOpened(false);
-              } else {
-                openPad(true);
-              }
-            }}
-            aria-label={listening ? "Stop recording" : "Start recording"}
-          >
-            {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </button>
-        )}
       </div>
     </main>
   );
