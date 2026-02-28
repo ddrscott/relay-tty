@@ -7,4 +7,8 @@
 - [x] Mic opens scratchpad without virtual keyboard ([detail](work-queue/mic-no-keyboard.md))
 - [x] Add version/info indicator to session screen (e.g. small `?` button showing relay-tty version + session details)
 - [x] Add session activity metrics to pty-host ([detail](work-queue/pty-session-metrics.md))
+- [x] Update README to clarify target user: people new to terminal/shell, not SSH/tmux power users
+- [ ] Improve mobile terminal UX: pinch-to-zoom, keyboard-aware scrolling, server-env fix ([detail](work-queue/mobile-ux-improvements.md))
+- [ ] Update README to feature `relay share` and `--tunnel` more prominently as hero features
+- [ ] Update docs to clarify buffer size configuration and non-permanent workload expectations
 - [x] Replace redundant `running` status badge with a green dot on the session title
