@@ -81,7 +81,7 @@ CLI: relay htop ────POST /api/sessions──▶│
                             ┌──────────────────────────────────┐
                             │ pty-host (detached process)      │
                             │   ├─ node-pty (owns the PTY)     │
-                            │   ├─ OutputBuffer (50KB ring)    │
+                            │   ├─ OutputBuffer (10MB ring)    │
                             │   └─ Unix socket server          │
                             │       ~/.relay-tty/sockets/<id>  │
                             └──────────────────────────────────┘
@@ -104,7 +104,7 @@ Binary frames, first byte = message type:
 
 - **Process separation** — each session runs in a detached `pty-host` process that owns the PTY. The server can crash, restart, or be upgraded without killing sessions. Session metadata is persisted to `~/.relay-tty/sessions/` and sockets live at `~/.relay-tty/sockets/`. On restart, the server discovers and reconnects to surviving sessions.
 - **CLI attaches by default** — `relay bash` creates a session and enters raw TTY mode. `--detach` for fire-and-forget.
-- **50KB output ring buffer** — new clients replay recent output on connect (buffer lives in pty-host).
+- **10MB output ring buffer** — new clients replay recent output on connect (buffer lives in pty-host). This is a session replay buffer for reconnecting viewers, not a logging system. relay-tty is built for interactive sessions, not permanent workloads — use proper log infrastructure if you need durable output retention.
 - **Per-client socket connections** — each WS client gets its own Unix socket to the pty-host, so each gets independent buffer replay.
 - **Multi-client** — CLI and browser can view/interact with the same session simultaneously.
 - **Localhost auth bypass** — CLI on the same machine skips authentication.
