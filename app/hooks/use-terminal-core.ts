@@ -75,6 +75,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
     let byteOffset = 0;
+    const scrollState = { momentumActive: false };
 
     // Extract session ID from wsPath for buffer caching (only for /ws/sessions/<id>)
     const sessionIdMatch = opts.wsPath.match(/^\/ws\/sessions\/([^/?]+)/);
@@ -133,7 +134,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       term.unicode.activeVersion = "11";
       term.open(containerRef.current!);
 
-      // WebGL renderer — must be loaded after term.open()
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => { webgl.dispose(); });
@@ -149,7 +149,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       if (!opts.readOnly) {
         setupMobileInput(term, containerRef.current!);
-        setupTouchScrolling(term, containerRef.current!, opts.fontSize ?? 14);
+        setupTouchScrolling(term, containerRef.current!, opts.fontSize ?? 14, scrollState);
       }
 
       // Prevent iOS text-span touch issues (xterm.js #3613)
@@ -157,9 +157,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       style.textContent = ".xterm-rows span { pointer-events: none; }";
       containerRef.current!.appendChild(style);
 
-      // Track scroll position
+      // Track scroll position (skip during momentum to prevent feedback loop)
       if (opts.onScrollChange) {
         term.onScroll(() => {
+          if (scrollState.momentumActive) return;
           const buf = term.buffer.active;
           opts.onScrollChange!(buf.viewportY >= buf.baseY);
         });
@@ -248,7 +249,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── Pixel-smooth touch scrolling with momentum ──────────────────
 
-    function setupTouchScrolling(term: any, container: HTMLElement, fontSize: number) {
+    function setupTouchScrolling(term: any, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }) {
       const screen = container.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
@@ -256,6 +257,32 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const measureRowHeight = () => {
         const core = (term as any)._core;
         return core?._renderService?.dimensions?.css?.cell?.height || fontSize * 1.2;
+      };
+
+      // Save original viewport functions so we can disable/restore them
+      // during momentum. _innerRefresh recalculates row height and snaps
+      // scrollTop = ydisp * rowHeight — if row height fluctuates (Unicode/emoji),
+      // this causes visible oscillation. We disable it during momentum and
+      // let our CSS transform handle sub-pixel positioning instead.
+      const core = (term as any)._core;
+      const viewport = core?.viewport;
+      const origInnerRefresh = viewport?._innerRefresh?.bind(viewport);
+      const origSyncScrollArea = viewport?.syncScrollArea?.bind(viewport);
+      const origHandleScroll = viewport?._handleScroll?.bind(viewport);
+
+      const disableViewport = () => {
+        if (!viewport) return;
+        viewport._innerRefresh = () => {};
+        viewport.syncScrollArea = () => {};
+        viewport._handleScroll = () => {};
+      };
+
+      const restoreViewport = () => {
+        if (!viewport) return;
+        viewport._innerRefresh = origInnerRefresh;
+        viewport.syncScrollArea = origSyncScrollArea;
+        viewport._handleScroll = origHandleScroll;
+        viewport.syncScrollArea(true);
       };
 
       // Track scroll position in LINE UNITS (float), not pixels.
@@ -305,6 +332,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const cancelMomentum = () => {
         if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0; }
         screen.style.transform = '';
+        scrollState.momentumActive = false;
+        restoreViewport();
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
@@ -382,18 +411,44 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         e.stopPropagation();
         touching = false;
 
+        // Suppress two oscillation sources during momentum:
+        // 1. Viewport: _innerRefresh recalculates row height on each
+        //    scrollLines() call → scrollTop snaps to ydisp * fluctuating
+        //    height → visual oscillation. Disabled during momentum.
+        // 2. React feedback: scrollLines → onScroll → onScrollChange →
+        //    re-render → ResizeObserver → fit() → snapBottomUntil →
+        //    DATA scrollToBottom. Gated by scrollState.momentumActive.
+        scrollState.momentumActive = true;
+        disableViewport();
         const friction = 0.95;
-        let snapped = false; // after first line crossing, stop sub-pixel
+        const rh = measureRowHeight();
+        // Track what line the canvas is actually rendering. scrollLines()
+        // updates ydisp synchronously, but the canvas re-render is deferred
+        // to the next rAF. By computing our CSS transform relative to the
+        // canvas's CURRENT content (not the pending ydisp), we avoid the
+        // 1-frame visual mismatch that causes jitter at line boundaries.
+        let canvasLine = term.buffer.active.viewportY;
         const step = () => {
-          if (Math.abs(lineVelocity) < 0.03) {
-            // Final snap
+          if (Math.abs(lineVelocity) < 0.05) {
             scrollLine = Math.round(scrollLine);
             const targetLine = Math.round(scrollLine);
-            const currentLine = term.buffer.active.viewportY;
-            if (targetLine !== currentLine) {
-              term.scrollLines(targetLine - currentLine);
+            if (targetLine !== canvasLine) {
+              // Snap to final line — but canvas hasn't re-rendered yet.
+              // Keep the transform for this frame, then clear on the
+              // next frame after the canvas catches up.
+              term.scrollLines(targetLine - canvasLine);
+              const pixelOffset = (scrollLine - canvasLine) * rh;
+              screen.style.transform = `translateY(${-pixelOffset}px)`;
+              momentumRaf = requestAnimationFrame(() => {
+                screen.style.transform = '';
+                scrollState.momentumActive = false;
+                restoreViewport();
+              });
+            } else {
+              screen.style.transform = '';
+              scrollState.momentumActive = false;
+              restoreViewport();
             }
-            screen.style.transform = '';
             return;
           }
           scrollLine += lineVelocity;
@@ -401,18 +456,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           scrollLine = Math.max(0, Math.min(scrollLine, maxLines));
 
           const targetLine = Math.floor(scrollLine);
-          const currentLine = term.buffer.active.viewportY;
-
-          if (targetLine !== currentLine) {
-            term.scrollLines(targetLine - currentLine);
-            // First line crossing — stop sub-pixel transforms from here on.
-            // xterm's internal dimension recalculations triggered by
-            // scrollLines() fight with CSS transforms, causing oscillation.
-            snapped = true;
-            screen.style.transform = '';
-          } else if (!snapped) {
-            // Still coasting within the initial line — smooth sub-pixel
-            const rh = measureRowHeight();
+          if (targetLine !== canvasLine) {
+            // Update ydisp — canvas will re-render on the NEXT rAF
+            // (renderer's rAF fires before ours since it's registered first).
+            // For THIS frame, canvas still shows canvasLine.
+            term.scrollLines(targetLine - canvasLine);
+            const pixelOffset = (scrollLine - canvasLine) * rh;
+            screen.style.transform = `translateY(${-pixelOffset}px)`;
+            canvasLine = targetLine; // will be rendered next frame
+          } else {
+            // No line crossing — canvas matches, standard sub-pixel
             const subPixel = (scrollLine - targetLine) * rh;
             screen.style.transform = subPixel > 0.5 ? `translateY(${-subPixel}px)` : '';
           }
@@ -487,7 +540,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           }
           break;
         case WS_MSG.DATA:
-          if (Date.now() < snapBottomUntilRef.current) {
+          if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
             term.write(payload, () => term.scrollToBottom());
           } else {
             term.write(payload);
@@ -590,7 +643,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     initTerminal();
 
-    const observer = new ResizeObserver(() => fit());
+    const observer = new ResizeObserver(() => { if (!scrollState.momentumActive) fit(); });
     if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
