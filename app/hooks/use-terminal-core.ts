@@ -253,16 +253,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
 
-      const getRowHeight = () => {
+      const measureRowHeight = () => {
         const core = (term as any)._core;
         return core?._renderService?.dimensions?.css?.cell?.height || fontSize * 1.2;
       };
-      const getMaxScroll = () => term.buffer.active.baseY * getRowHeight();
 
-      let scrollPos = 0;
+      // Track scroll position in LINE UNITS (float), not pixels.
+      // This decouples our position tracking from row-height measurement
+      // fluctuations. targetLine = floor(scrollLine) is rock-stable,
+      // and the fractional part (0 to <1) × current height produces
+      // at most sub-pixel jitter — invisible.
+      let scrollLine = 0;       // float line position (e.g. 29.4)
+      let lineVelocity = 0;     // lines per 16ms frame
       let lastTouchY = 0;
       let lastTouchTime = 0;
-      let velocity = 0;
       let momentumRaf = 0;
       let touching = false;
 
@@ -281,19 +285,21 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
 
       const applyScroll = () => {
-        const rowHeight = getRowHeight();
-        const maxScroll = getMaxScroll();
-        scrollPos = Math.max(0, Math.min(scrollPos, maxScroll));
+        const maxLines = term.buffer.active.baseY;
+        scrollLine = Math.max(0, Math.min(scrollLine, maxLines));
 
-        const targetLine = Math.round(scrollPos / rowHeight);
+        const targetLine = Math.floor(scrollLine);
         const currentLine = term.buffer.active.viewportY;
         if (targetLine !== currentLine) {
           term.scrollLines(targetLine - currentLine);
         }
 
-        const lineAligned = term.buffer.active.viewportY * rowHeight;
-        const subPixel = scrollPos - lineAligned;
-        screen.style.transform = subPixel !== 0 ? `translateY(${-subPixel}px)` : '';
+        // Convert fractional line offset to pixels using fresh measurement.
+        // Only the fraction (0 to <1) is scaled, so even if the measurement
+        // fluctuates by 1px, the visual jitter is <1px — imperceptible.
+        const rh = measureRowHeight();
+        const subPixel = (scrollLine - targetLine) * rh;
+        screen.style.transform = subPixel > 0.5 ? `translateY(${-subPixel}px)` : '';
       };
 
       const cancelMomentum = () => {
@@ -319,8 +325,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         touching = true;
         lastTouchY = e.touches[0].clientY;
         lastTouchTime = performance.now();
-        velocity = 0;
-        scrollPos = term.buffer.active.viewportY * getRowHeight();
+        lineVelocity = 0;
+        scrollLine = term.buffer.active.viewportY;
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
@@ -348,13 +354,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         const deltaY = lastTouchY - touchY;
         const now = performance.now();
         const dt = now - lastTouchTime;
+        const rh = measureRowHeight();
+        const deltaLines = deltaY / rh;
 
         if (dt > 0 && dt < 100) {
-          const instantV = (deltaY / dt) * 16;
-          velocity = velocity * 0.7 + instantV * 0.3;
+          const instantV = (deltaLines / dt) * 16;
+          lineVelocity = lineVelocity * 0.7 + instantV * 0.3;
         }
 
-        scrollPos += deltaY;
+        scrollLine += deltaLines;
         applyScroll();
         lastTouchY = touchY;
         lastTouchTime = now;
@@ -374,12 +382,42 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         e.stopPropagation();
         touching = false;
 
-        const friction = 0.96;
+        const friction = 0.95;
+        let snapped = false; // after first line crossing, stop sub-pixel
         const step = () => {
-          if (Math.abs(velocity) < 0.3) { screen.style.transform = ''; return; }
-          scrollPos += velocity;
-          applyScroll();
-          velocity *= friction;
+          if (Math.abs(lineVelocity) < 0.03) {
+            // Final snap
+            scrollLine = Math.round(scrollLine);
+            const targetLine = Math.round(scrollLine);
+            const currentLine = term.buffer.active.viewportY;
+            if (targetLine !== currentLine) {
+              term.scrollLines(targetLine - currentLine);
+            }
+            screen.style.transform = '';
+            return;
+          }
+          scrollLine += lineVelocity;
+          const maxLines = term.buffer.active.baseY;
+          scrollLine = Math.max(0, Math.min(scrollLine, maxLines));
+
+          const targetLine = Math.floor(scrollLine);
+          const currentLine = term.buffer.active.viewportY;
+
+          if (targetLine !== currentLine) {
+            term.scrollLines(targetLine - currentLine);
+            // First line crossing — stop sub-pixel transforms from here on.
+            // xterm's internal dimension recalculations triggered by
+            // scrollLines() fight with CSS transforms, causing oscillation.
+            snapped = true;
+            screen.style.transform = '';
+          } else if (!snapped) {
+            // Still coasting within the initial line — smooth sub-pixel
+            const rh = measureRowHeight();
+            const subPixel = (scrollLine - targetLine) * rh;
+            screen.style.transform = subPixel > 0.5 ? `translateY(${-subPixel}px)` : '';
+          }
+
+          lineVelocity *= friction;
           momentumRaf = requestAnimationFrame(step);
         };
         momentumRaf = requestAnimationFrame(step);
