@@ -32,6 +32,10 @@ export interface TerminalCoreOpts {
   onNotification?: (message: string) => void;
   /** Called when a pinch-to-zoom gesture requests a font size change */
   onFontSizeChange?: (delta: number) => void;
+  /** Called when text is auto-copied to clipboard (desktop selection or explicit copy) */
+  onCopy?: () => void;
+  /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
+  selectionModeRef?: React.RefObject<boolean>;
 }
 
 export interface TerminalCoreRef {
@@ -153,10 +157,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         setupTouchScrolling(term, containerRef.current!, opts.fontSize ?? 14, scrollState);
       }
 
-      // Prevent iOS text-span touch issues (xterm.js #3613)
-      const style = document.createElement("style");
-      style.textContent = ".xterm-rows span { pointer-events: none; }";
-      containerRef.current!.appendChild(style);
+      // Prevent iOS text-span touch issues (xterm.js #3613).
+      // In selection mode, we re-enable pointer-events so native selection works.
+      const iosStyle = document.createElement("style");
+      iosStyle.textContent = ".xterm-rows span { pointer-events: none; }";
+      containerRef.current!.appendChild(iosStyle);
 
       // Track scroll position (skip during momentum to prevent feedback loop)
       if (opts.onScrollChange) {
@@ -171,6 +176,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (opts.onTitleChange) {
         term.onTitleChange((title: string) => opts.onTitleChange!(title));
       }
+
+      // ── Auto-copy on selection (desktop + mobile) ─────────────────
+      // When the user selects text in xterm, auto-copy to clipboard.
+      // Debounce: only copy when there is actual selected text (ignore deselection).
+      term.onSelectionChange(() => {
+        const sel = term.getSelection();
+        if (!sel) return;
+        navigator.clipboard.writeText(sel).then(() => {
+          opts.onCopy?.();
+        }).catch(() => {
+          // Clipboard API may fail (permissions, non-HTTPS) — silent fallback
+        });
+      });
 
       // ── Load cached buffer from IndexedDB for instant display ─────
       if (cacheSessionId) {
@@ -334,6 +352,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (e.touches.length === 2) {
           // Start pinch-to-zoom
           e.stopPropagation();
@@ -356,6 +376,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (pinching && e.touches.length === 2) {
           e.stopPropagation();
           e.preventDefault();
@@ -395,6 +417,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchend", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (pinching) {
           // End pinch when fewer than 2 fingers remain
           if (e.touches.length < 2) {
@@ -416,7 +440,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         //    Gated by scrollState.momentumActive.
         scrollState.momentumActive = true;
         setViewportActive(false);
-        const friction = 0.95;
+        const friction = 0.97;
         const rh = measureRowHeight();
 
         // scrollLines() updates ydisp synchronously but the canvas
