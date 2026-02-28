@@ -73,14 +73,18 @@ export function registerListCommand(program: Command) {
         return;
       }
 
-      const header = `${"ID".padEnd(10)} ${"COMMAND".padEnd(20)} ${"STATUS".padEnd(12)} ${"AGE".padEnd(6)}`;
+      const home = os.homedir();
+      const header = `${"ID".padEnd(10)} ${"COMMAND".padEnd(20)} ${"CWD".padEnd(30)} ${"STATUS".padEnd(12)} ${"AGE".padEnd(6)}`;
       console.log(header);
       for (const s of sessions) {
         const cmd = [s.command, ...s.args].join(" ").slice(0, 19);
+        const cwd = (s.cwd || home).startsWith(home)
+          ? "~" + (s.cwd || home).slice(home.length)
+          : (s.cwd || home);
         const status = s.status === "running" ? "running" : `exited(${s.exitCode})`;
         const age = timeAgo(s.createdAt);
         console.log(
-          `${s.id.padEnd(10)} ${cmd.padEnd(20)} ${status.padEnd(12)} ${age.padEnd(6)}`
+          `${s.id.padEnd(10)} ${cmd.padEnd(20)} ${cwd.slice(0, 29).padEnd(30)} ${status.padEnd(12)} ${age.padEnd(6)}`
         );
       }
     });
