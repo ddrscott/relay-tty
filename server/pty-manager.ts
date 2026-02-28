@@ -116,11 +116,28 @@ export class PtyManager extends EventEmitter {
     const ptyHostPath = this.resolvePtyHostPath();
     const effectiveCwd = cwd || process.env.HOME || "/";
 
+    // When spawning from the server, process.env may be minimal
+    // (e.g. systemd/launchd). Wrap the command in a login shell so
+    // the user's profile (~/.bash_profile, ~/.zshrc, etc.) is sourced.
+    // This gives browser-created sessions the same environment as CLI-spawned ones.
+    //
+    // We pass the original command/args as RELAY_ORIG_COMMAND/RELAY_ORIG_ARGS
+    // env vars so pty-host can record the correct metadata for display.
+    const userShell = process.env.SHELL || "/bin/sh";
+    const fullCmd = args.length > 0
+      ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
+      : `exec ${shellEscape(command)}`;
+    const wrappedArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+
     // Spawn pty-host as detached process — survives server death
-    const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args], {
+    const child = cpSpawn("node", wrappedArgs, {
       detached: true,
       stdio: "ignore",
-      env: process.env,
+      env: {
+        ...process.env,
+        RELAY_ORIG_COMMAND: command,
+        RELAY_ORIG_ARGS: JSON.stringify(args),
+      },
     });
     child.unref();
 
@@ -353,4 +370,12 @@ export class PtyManager extends EventEmitter {
       this.monitors.delete(id);
     });
   }
+}
+
+/** Escape a string for safe inclusion in a shell command */
+function shellEscape(s: string): string {
+  // If the string is safe (alphanumeric + common safe chars), return as-is
+  if (/^[a-zA-Z0-9._\-/=:@]+$/.test(s)) return s;
+  // Otherwise, single-quote it, escaping any embedded single quotes
+  return "'" + s.replace(/'/g, "'\\''") + "'";
 }

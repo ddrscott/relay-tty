@@ -65,6 +65,57 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
+  // ── Keyboard-aware viewport: adjust layout when virtual keyboard opens ──
+  // On mobile, the on-screen keyboard shrinks the visual viewport but `dvh`
+  // uses the "large viewport" (without keyboard). We listen to visualViewport
+  // resize events and set the main container height to match, so the terminal
+  // resizes via flex and the cursor stays visible.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return;
+
+    function onResize() {
+      const el = mainRef.current;
+      if (!el || !vv) return;
+      // Only apply on mobile-ish screens where a virtual keyboard is likely
+      if (window.innerWidth > 1024) return;
+      // Detect keyboard: visual viewport significantly smaller than window
+      const keyboardOpen = vv.height < window.innerHeight - 50;
+      if (keyboardOpen) {
+        // Set height to visual viewport height and offset for any viewport scroll
+        el.style.height = `${vv.height}px`;
+        // Translate to account for viewport offset (iOS scrolls the page up)
+        el.style.transform = `translateY(${vv.offsetTop}px)`;
+        // Scroll terminal to bottom so cursor is visible after keyboard opens
+        requestAnimationFrame(() => terminalRef.current?.scrollToBottom());
+      } else {
+        // Keyboard closed — reset to CSS-driven layout
+        el.style.height = "";
+        el.style.transform = "";
+      }
+    }
+
+    function onReset() {
+      const el = mainRef.current;
+      if (!el) return;
+      el.style.height = "";
+      el.style.transform = "";
+    }
+
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+
+    // Run once on mount in case keyboard is already open
+    onResize();
+
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+      onReset();
+    };
+  }, []);
+
   const handleNotification = useCallback((message: string) => {
     // Only notify when the tab is hidden — user is already looking if visible
     if (document.visibilityState !== "hidden") return;
@@ -72,6 +123,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const title = termTitle || session.command;
     new Notification(title, { body: message, tag: `relay-${session.id}` });
   }, [termTitle, session.command, session.id]);
+
+  // Pinch-to-zoom: adjust font size by delta, clamped to 8–28
+  const handleFontSizeChange = useCallback((delta: number) => {
+    setFontSize((s) => Math.max(8, Math.min(28, s + delta)));
+  }, []);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -188,7 +244,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, [micSupported, listening, toggleMic]);
 
   return (
-    <main className="h-dvh flex flex-col relative bg-[#0a0a0f]">
+    <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-2 bg-[#0f0f1a] border-b border-[#1e1e2e]">
         <Link to="/" className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]">
@@ -366,6 +422,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onScrollChange={setAtBottom}
             onReplayProgress={setReplayProgress}
             onNotification={handleNotification}
+            onFontSizeChange={handleFontSizeChange}
           />
         )}
 

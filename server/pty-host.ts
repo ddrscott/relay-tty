@@ -32,6 +32,17 @@ if (!id || !command) {
   process.exit(1);
 }
 
+// When spawned from the server via a login-shell wrapper, the actual command
+// in argv is the login shell (e.g. "zsh -l -c exec bash"). The server passes
+// the original user-requested command via env vars for metadata display.
+const displayCommand = process.env.RELAY_ORIG_COMMAND || command;
+const displayArgs: string[] = process.env.RELAY_ORIG_ARGS
+  ? (() => { try { return JSON.parse(process.env.RELAY_ORIG_ARGS); } catch { return args; } })()
+  : args;
+// Clean up env vars so they don't leak into the child process
+delete process.env.RELAY_ORIG_COMMAND;
+delete process.env.RELAY_ORIG_ARGS;
+
 const cols = parseInt(colsStr, 10) || 80;
 const rows = parseInt(rowsStr, 10) || 24;
 
@@ -64,11 +75,11 @@ try {
   });
 } catch (err: any) {
   const msg = err?.message || String(err);
-  process.stderr.write(`pty-host: failed to spawn "${command}": ${msg}\n`);
+  process.stderr.write(`pty-host: failed to spawn "${displayCommand}": ${msg}\n`);
   // Write session metadata so server can report the failure
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
   fs.writeFileSync(sessionPath, JSON.stringify({
-    id, command, args, cwd,
+    id, command: displayCommand, args: displayArgs, cwd,
     createdAt: Date.now(), lastActivity: Date.now(),
     status: "exited", exitCode: 127, exitedAt: Date.now(),
     cols, rows, pid: process.pid,
@@ -157,8 +168,8 @@ function flushSessionMeta(): void {
 const now = Date.now();
 const sessionMeta = {
   id,
-  command,
-  args,
+  command: displayCommand,
+  args: displayArgs,
   cwd,
   createdAt: now,
   lastActivity: now,

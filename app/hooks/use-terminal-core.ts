@@ -30,6 +30,8 @@ export interface TerminalCoreOpts {
   onAuthError?: () => void;
   /** Called when an OSC 9 notification arrives from the PTY */
   onNotification?: (message: string) => void;
+  /** Called when a pinch-to-zoom gesture requests a font size change */
+  onFontSizeChange?: (delta: number) => void;
 }
 
 export interface TerminalCoreRef {
@@ -264,6 +266,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       let momentumRaf = 0;
       let touching = false;
 
+      // ── Pinch-to-zoom state ───────────────────────────────────────
+      let pinching = false;
+      let lastPinchDist = 0;
+      // Accumulate fractional pinch distance so small movements don't get lost
+      let pinchAccum = 0;
+      // Pixels of pinch distance change per 2px font size step
+      const PINCH_THRESHOLD = 30;
+
+      function getPinchDistance(t1: Touch, t2: Touch): number {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+
       const applyScroll = () => {
         const rowHeight = getRowHeight();
         const maxScroll = getMaxScroll();
@@ -286,6 +302,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 2) {
+          // Start pinch-to-zoom
+          e.stopPropagation();
+          e.preventDefault();
+          pinching = true;
+          touching = false;
+          cancelMomentum();
+          lastPinchDist = getPinchDistance(e.touches[0], e.touches[1]);
+          pinchAccum = 0;
+          return;
+        }
         if (e.touches.length !== 1) return;
         e.stopPropagation();
         cancelMomentum();
@@ -294,9 +321,25 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         lastTouchTime = performance.now();
         velocity = 0;
         scrollPos = term.buffer.active.viewportY * getRowHeight();
-      }, { capture: true, passive: true });
+      }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
+        if (pinching && e.touches.length === 2) {
+          e.stopPropagation();
+          e.preventDefault();
+          const dist = getPinchDistance(e.touches[0], e.touches[1]);
+          pinchAccum += dist - lastPinchDist;
+          lastPinchDist = dist;
+
+          // Fire font size change in 2px increments
+          if (Math.abs(pinchAccum) >= PINCH_THRESHOLD) {
+            const steps = Math.trunc(pinchAccum / PINCH_THRESHOLD);
+            pinchAccum -= steps * PINCH_THRESHOLD;
+            opts.onFontSizeChange?.(steps * 2);
+          }
+          return;
+        }
+
         if (!touching || e.touches.length !== 1) return;
         e.stopPropagation();
         e.preventDefault();
@@ -318,6 +361,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchend", (e) => {
+        if (pinching) {
+          // End pinch when fewer than 2 fingers remain
+          if (e.touches.length < 2) {
+            pinching = false;
+            pinchAccum = 0;
+          }
+          e.stopPropagation();
+          return;
+        }
         if (!touching) return;
         e.stopPropagation();
         touching = false;
