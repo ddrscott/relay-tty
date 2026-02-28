@@ -14,3 +14,6 @@
 - [x] Replace redundant `running` status badge with a green dot on the session title
 - [x] Desktop grid view: 4x2 live terminal monitor dashboard with grid/list toggle ([detail](work-queue/desktop-grid-view.md))
 - [x] Show CWD column in `relay list` output alongside the command
+- [x] Support selecting and copying text out of xterm ([detail](work-queue/xterm-text-copy.md))
+- [ ] Scratchpad: default to single-line input with expand toggle for multi-line ([detail](work-queue/scratchpad-single-line.md))
+- [ ] Remove mic button from input bar, move scratchpad button to the right side

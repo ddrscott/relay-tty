@@ -19,6 +19,8 @@ import {
   Check,
   Trash2,
   NotebookPen,
+  TextSelect,
+  ClipboardCheck,
 } from "lucide-react";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
@@ -57,6 +59,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [copyToast, setCopyToast] = useState(false);
+  const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -128,6 +133,20 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const handleFontSizeChange = useCallback((delta: number) => {
     setFontSize((s) => Math.max(8, Math.min(28, s + delta)));
   }, []);
+
+  // Show brief "Copied" toast when text is auto-copied to clipboard
+  const handleCopy = useCallback(() => {
+    if (copyToastTimer.current) clearTimeout(copyToastTimer.current);
+    setCopyToast(true);
+    copyToastTimer.current = setTimeout(() => setCopyToast(false), 1500);
+  }, []);
+
+  // Toggle selection mode for mobile text selection
+  const toggleSelectionMode = useCallback(() => {
+    const next = !selectionMode;
+    setSelectionMode(next);
+    terminalRef.current?.setSelectionMode(next);
+  }, [selectionMode]);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -423,6 +442,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onReplayProgress={setReplayProgress}
             onNotification={handleNotification}
             onFontSizeChange={handleFontSizeChange}
+            onCopy={handleCopy}
+            onSelectionModeChange={setSelectionMode}
           />
         )}
 
@@ -439,6 +460,46 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <ChevronsDown className="w-4 h-4" />
             Bottom
           </button>
+        )}
+
+        {/* "Copied!" toast — brief confirmation for auto-copy on selection */}
+        {copyToast && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#22c55e]/40 text-[#22c55e] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg">
+            <ClipboardCheck className="w-4 h-4" />
+            Copied
+          </div>
+        )}
+
+        {/* Selection mode floating bar — shows Copy and Done on mobile */}
+        {selectionMode && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#da7756]/40 rounded-lg px-2 py-1 shadow-lg flex items-center gap-2">
+            <span className="text-xs font-mono text-[#da7756]">Select text</span>
+            <button
+              className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0] gap-1"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                terminalRef.current?.copySelection();
+              }}
+              onClick={() => terminalRef.current?.copySelection()}
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copy
+            </button>
+            <button
+              className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                toggleSelectionMode();
+              }}
+              onClick={() => toggleSelectionMode()}
+            >
+              Done
+            </button>
+          </div>
         )}
 
         {/* Buffer replay progress */}
@@ -546,6 +607,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[A")}>&uarr;</button>
           <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
         </div>
+        <button
+          className={`btn btn-sm ${selectionMode ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); toggleSelectionMode(); }}
+          onClick={() => toggleSelectionMode()}
+          aria-label={selectionMode ? "Exit selection mode" : "Select text"}
+        >
+          <TextSelect className="w-4 h-4" />
+        </button>
         <button
           className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
           onClick={() => { if (padOpen) { setPadOpen(false); setMicOpened(false); } else { openPad(); } }}
