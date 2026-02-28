@@ -20,6 +20,7 @@ import {
   NotebookPen,
   TextSelect,
   ClipboardCheck,
+  X,
 } from "lucide-react";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
@@ -58,7 +59,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
-  const [selectionMode, setSelectionMode] = useState(false);
+  const [textViewerOpen, setTextViewerOpen] = useState(false);
+  const [textViewerContent, setTextViewerContent] = useState("");
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -140,12 +142,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     copyToastTimer.current = setTimeout(() => setCopyToast(false), 1500);
   }, []);
 
-  // Toggle selection mode for mobile text selection
-  const toggleSelectionMode = useCallback(() => {
-    const next = !selectionMode;
-    setSelectionMode(next);
-    terminalRef.current?.setSelectionMode(next);
-  }, [selectionMode]);
+  // Open text viewer overlay with current visible terminal content
+  const openTextViewer = useCallback(() => {
+    const text = terminalRef.current?.getVisibleText() ?? "";
+    setTextViewerContent(text);
+    setTextViewerOpen(true);
+  }, []);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -429,7 +431,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onNotification={handleNotification}
             onFontSizeChange={handleFontSizeChange}
             onCopy={handleCopy}
-            onSelectionModeChange={setSelectionMode}
           />
         )}
 
@@ -456,35 +457,33 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        {/* Selection mode floating bar — shows Copy and Done on mobile */}
-        {selectionMode && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#da7756]/40 rounded-lg px-2 py-1 shadow-lg flex items-center gap-2">
-            <span className="text-xs font-mono text-[#da7756]">Select text</span>
-            <button
-              className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0] gap-1"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                terminalRef.current?.copySelection();
-              }}
-              onClick={() => terminalRef.current?.copySelection()}
-            >
-              <Copy className="w-3.5 h-3.5" />
-              Copy
-            </button>
-            <button
-              className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                toggleSelectionMode();
-              }}
-              onClick={() => toggleSelectionMode()}
-            >
-              Done
-            </button>
+        {/* Text viewer overlay — selectable DOM text for mobile copy */}
+        {textViewerOpen && (
+          <div className="absolute inset-0 z-20 flex flex-col bg-[#0a0a0f]/95">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2d2d44]">
+              <span className="text-sm font-mono text-[#94a3b8] flex-1">Visible text</span>
+              <button
+                className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0] gap-1"
+                onClick={() => {
+                  navigator.clipboard.writeText(textViewerContent).then(() => {
+                    handleCopy();
+                  });
+                }}
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Copy all
+              </button>
+              <button
+                className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={(e) => { e.preventDefault(); setTextViewerOpen(false); }}
+                onClick={() => setTextViewerOpen(false)}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <pre className="flex-1 overflow-auto px-3 py-2 text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-all select-all">{textViewerContent}</pre>
           </div>
         )}
 
@@ -592,12 +591,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <button className="btn btn-sm btn-ghost font-mono px-1 text-[#94a3b8] hover:text-[#e2e8f0]" onClick={() => sendKey("\x1b[C")}>&rarr;</button>
         </div>
         <button
-          className={`btn btn-sm ${selectionMode ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+          className={`btn btn-sm ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
           tabIndex={-1}
           onMouseDown={(e) => e.preventDefault()}
-          onTouchEnd={(e) => { e.preventDefault(); toggleSelectionMode(); }}
-          onClick={() => toggleSelectionMode()}
-          aria-label={selectionMode ? "Exit selection mode" : "Select text"}
+          onTouchEnd={(e) => { e.preventDefault(); textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
+          onClick={() => textViewerOpen ? setTextViewerOpen(false) : openTextViewer()}
+          aria-label="View text for copying"
         >
           <TextSelect className="w-4 h-4" />
         </button>

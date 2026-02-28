@@ -34,8 +34,6 @@ export interface TerminalCoreOpts {
   onFontSizeChange?: (delta: number) => void;
   /** Called when text is auto-copied to clipboard (desktop selection or explicit copy) */
   onCopy?: () => void;
-  /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
-  selectionModeRef?: React.RefObject<boolean>;
 }
 
 export interface TerminalCoreRef {
@@ -158,7 +156,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
-      // In selection mode, we re-enable pointer-events so native selection works.
       const iosStyle = document.createElement("style");
       iosStyle.textContent = ".xterm-rows span { pointer-events: none; }";
       containerRef.current!.appendChild(iosStyle);
@@ -352,8 +349,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
-        // In selection mode, let touch events through for native text selection
-        if (opts.selectionModeRef?.current) return;
         if (e.touches.length === 2) {
           // Start pinch-to-zoom
           e.stopPropagation();
@@ -376,8 +371,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
-        // In selection mode, let touch events through for native text selection
-        if (opts.selectionModeRef?.current) return;
         if (pinching && e.touches.length === 2) {
           e.stopPropagation();
           e.preventDefault();
@@ -417,8 +410,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchend", (e) => {
-        // In selection mode, let touch events through for native text selection
-        if (opts.selectionModeRef?.current) return;
         if (pinching) {
           // End pinch when fewer than 2 fingers remain
           if (e.touches.length < 2) {
