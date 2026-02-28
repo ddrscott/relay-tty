@@ -577,11 +577,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
           <textarea
             ref={padRef}
-            className="w-full px-3 py-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm resize-none focus:outline-none overflow-y-auto placeholder:text-[#64748b]"
-            style={{ height: padExpanded ? `${4 * 1.5}em` : "1.5em", lineHeight: "1.5", paddingTop: padExpanded ? undefined : "0.375em", paddingBottom: padExpanded ? undefined : "0.375em" }}
+            className="w-full px-3 py-1.5 bg-[#19191f] text-[#e2e8f0] font-mono text-sm resize-none focus:outline-none overflow-y-auto placeholder:text-[#64748b]"
+            rows={padExpanded ? 4 : 1}
+            style={{ lineHeight: "1.5" }}
             value={padText}
             onChange={(e) => setPadText(e.target.value)}
-            placeholder={micOpened ? "Listening... tap here to type" : "Compose text or tap mic to dictate..."}
+            placeholder={micOpened ? "Listening..." : "Type a command..."}
             readOnly={micOpened}
             autoFocus={!micOpened}
             onTouchEnd={() => {
@@ -630,7 +631,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </button>
         <button
           className={`btn btn-sm ${padOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-          onClick={() => { if (padOpen) { setPadOpen(false); setMicOpened(false); } else { openPad(); } }}
+          onClick={() => { if (padOpen) { setPadOpen(false); setPadExpanded(false); setMicOpened(false); } else { openPad(); } }}
           aria-label="Scratchpad"
         >
           <NotebookPen className="w-4 h-4" />
