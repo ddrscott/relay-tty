@@ -1,6 +1,6 @@
 # relay-tty
 
-Run terminal commands on your computer, access them from any browser — phone, tablet, whatever.
+Run terminal commands on your computer, access them from any browser — phone, tablet, whatever. Share your terminal with anyone via a link, or expose it publicly with zero config.
 
 You don't need to know SSH. You don't need tmux. If you're getting into AI and someone told you to "run this in a terminal," relay-tty lets you do that and check on it from your phone. Sessions survive disconnects, and multiple people can watch the same session at once.
 
@@ -20,6 +20,30 @@ relay server start --tunnel  # expose via relaytty.com (zero config)
 relay server install         # install as system service (launchd/systemd)
 ```
 
+## Share a Session
+
+Generate a read-only link so anyone can watch your terminal live — no login, no setup on their end.
+
+```bash
+relay share <session-id>
+# https://abc123.relaytty.com/s/eyJ...
+# Read-only link (expires in 60m)
+```
+
+The URL goes to stdout, metadata to stderr (POSIX convention). Default TTL is 1 hour; max is 24 hours (`--ttl 86400`). Viewers see a live terminal stream but can't type.
+
+## Public Access with `--tunnel`
+
+`--tunnel` exposes your server publicly via `<slug>.relaytty.com` — no accounts, no DNS, no config files. On first run it provisions a stable subdomain and prints a QR code for quick mobile access.
+
+```bash
+relay server start --tunnel
+# Tunnel active: https://abc123.relaytty.com
+# [QR code]
+```
+
+Config is saved at `~/.config/relay-tty/tunnel.json` and reused on subsequent runs (same subdomain every time). Combine with `relay share` to let anyone watch a session without giving them full access.
+
 ## CLI
 
 ```bash
@@ -28,6 +52,8 @@ relay --detach <command>     # run command, print URL, return to prompt
 relay attach <id>            # reattach to existing session
 relay list                   # list all sessions
 relay stop <id>              # kill a session
+relay share <id>             # generate read-only share link (1h default)
+relay share <id> --ttl 86400 # share link with 24h TTL
 relay server start           # start server in foreground
 relay server start --tunnel  # start with public tunnel via relaytty.com
 relay server install         # install as system service (launchd/systemd)
@@ -122,19 +148,9 @@ Visit the auth token URL in a browser to set the session cookie (30-day expiry).
 
 When both `APP_URL` and `DISCORD_WEBHOOK` are set, the server posts a clickable auth link to Discord on startup. Tap it on your phone to authenticate instantly — the callback sets a cookie and redirects to a clean URL. Useful for accessing relay-tty from mobile without copy/pasting tokens.
 
-## Tunnel
+## Tunnel Details
 
-`relay server start --tunnel` exposes your server publicly via `<slug>.relaytty.com` — no Cloudflare account, no DNS, no config files. On first run it auto-provisions an anonymous account and assigns a stable subdomain. A QR code is printed for quick mobile access.
-
-```bash
-relay server start --tunnel
-# Tunnel active: https://abc123.relaytty.com
-# [QR code]
-```
-
-How it works: the CLI opens an outbound WebSocket to relaytty.com, which reverse-proxies HTTP and WebSocket traffic back to localhost. Config is saved at `~/.config/relay-tty/tunnel.json` and reused on subsequent runs (same subdomain every time).
-
-The tunnel uses an ephemeral local port by default to avoid clashing with a normal `relay server start` instance. Use `--port` to override.
+The tunnel opens an outbound WebSocket to relaytty.com, which reverse-proxies HTTP and WebSocket traffic back to localhost. It uses an ephemeral local port by default to avoid clashing with a normal `relay server start` instance. Use `--port` to override.
 
 ## Service Management
 
