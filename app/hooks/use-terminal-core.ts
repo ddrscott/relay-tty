@@ -134,6 +134,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       term.unicode.activeVersion = "11";
       term.open(containerRef.current!);
 
+      // WebGL renderer — must be loaded after term.open()
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => { webgl.dispose(); });
@@ -254,42 +255,40 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
 
-      const measureRowHeight = () => {
-        const core = (term as any)._core;
-        return core?._renderService?.dimensions?.css?.cell?.height || fontSize * 1.2;
-      };
+      const core = (term as any)._core;
+      const viewport = core?.viewport;
+
+      const measureRowHeight = () =>
+        core?._renderService?.dimensions?.css?.cell?.height || fontSize * 1.2;
 
       // Save original viewport functions so we can disable/restore them
       // during momentum. _innerRefresh recalculates row height and snaps
       // scrollTop = ydisp * rowHeight — if row height fluctuates (Unicode/emoji),
       // this causes visible oscillation. We disable it during momentum and
       // let our CSS transform handle sub-pixel positioning instead.
-      const core = (term as any)._core;
-      const viewport = core?.viewport;
-      const origInnerRefresh = viewport?._innerRefresh?.bind(viewport);
-      const origSyncScrollArea = viewport?.syncScrollArea?.bind(viewport);
-      const origHandleScroll = viewport?._handleScroll?.bind(viewport);
-
-      const disableViewport = () => {
-        if (!viewport) return;
-        viewport._innerRefresh = () => {};
-        viewport.syncScrollArea = () => {};
-        viewport._handleScroll = () => {};
+      const origViewport = viewport && {
+        _innerRefresh: viewport._innerRefresh.bind(viewport),
+        syncScrollArea: viewport.syncScrollArea.bind(viewport),
+        _handleScroll: viewport._handleScroll.bind(viewport),
       };
 
-      const restoreViewport = () => {
-        if (!viewport) return;
-        viewport._innerRefresh = origInnerRefresh;
-        viewport.syncScrollArea = origSyncScrollArea;
-        viewport._handleScroll = origHandleScroll;
-        viewport.syncScrollArea(true);
+      const setViewportActive = (active: boolean) => {
+        if (!viewport || !origViewport) return;
+        if (active) {
+          viewport._innerRefresh = origViewport._innerRefresh;
+          viewport.syncScrollArea = origViewport.syncScrollArea;
+          viewport._handleScroll = origViewport._handleScroll;
+          viewport.syncScrollArea(true);
+        } else {
+          viewport._innerRefresh = () => {};
+          viewport.syncScrollArea = () => {};
+          viewport._handleScroll = () => {};
+        }
       };
 
       // Track scroll position in LINE UNITS (float), not pixels.
       // This decouples our position tracking from row-height measurement
-      // fluctuations. targetLine = floor(scrollLine) is rock-stable,
-      // and the fractional part (0 to <1) × current height produces
-      // at most sub-pixel jitter — invisible.
+      // fluctuations caused by Unicode/emoji characters.
       let scrollLine = 0;       // float line position (e.g. 29.4)
       let lineVelocity = 0;     // lines per 16ms frame
       let lastTouchY = 0;
@@ -312,28 +311,26 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
 
       const applyScroll = () => {
-        const maxLines = term.buffer.active.baseY;
-        scrollLine = Math.max(0, Math.min(scrollLine, maxLines));
-
+        scrollLine = Math.max(0, Math.min(scrollLine, term.buffer.active.baseY));
         const targetLine = Math.floor(scrollLine);
         const currentLine = term.buffer.active.viewportY;
         if (targetLine !== currentLine) {
           term.scrollLines(targetLine - currentLine);
         }
-
-        // Convert fractional line offset to pixels using fresh measurement.
-        // Only the fraction (0 to <1) is scaled, so even if the measurement
-        // fluctuates by 1px, the visual jitter is <1px — imperceptible.
         const rh = measureRowHeight();
         const subPixel = (scrollLine - targetLine) * rh;
         screen.style.transform = subPixel > 0.5 ? `translateY(${-subPixel}px)` : '';
       };
 
+      const stopMomentum = () => {
+        scrollState.momentumActive = false;
+        setViewportActive(true);
+      };
+
       const cancelMomentum = () => {
         if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0; }
         screen.style.transform = '';
-        scrollState.momentumActive = false;
-        restoreViewport();
+        stopMomentum();
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
@@ -411,61 +408,53 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         e.stopPropagation();
         touching = false;
 
-        // Suppress two oscillation sources during momentum:
-        // 1. Viewport: _innerRefresh recalculates row height on each
-        //    scrollLines() call → scrollTop snaps to ydisp * fluctuating
-        //    height → visual oscillation. Disabled during momentum.
+        // Momentum scrolling. Two oscillation sources are suppressed:
+        // 1. Viewport _innerRefresh snaps scrollTop to ydisp × fluctuating
+        //    row height (Unicode/emoji) → disabled via setViewportActive.
         // 2. React feedback: scrollLines → onScroll → onScrollChange →
-        //    re-render → ResizeObserver → fit() → snapBottomUntil →
-        //    DATA scrollToBottom. Gated by scrollState.momentumActive.
+        //    re-render → ResizeObserver → fit() → scrollToBottom on DATA.
+        //    Gated by scrollState.momentumActive.
         scrollState.momentumActive = true;
-        disableViewport();
+        setViewportActive(false);
         const friction = 0.95;
         const rh = measureRowHeight();
-        // Track what line the canvas is actually rendering. scrollLines()
-        // updates ydisp synchronously, but the canvas re-render is deferred
-        // to the next rAF. By computing our CSS transform relative to the
-        // canvas's CURRENT content (not the pending ydisp), we avoid the
-        // 1-frame visual mismatch that causes jitter at line boundaries.
+
+        // scrollLines() updates ydisp synchronously but the canvas
+        // re-renders on the next rAF. We track canvasLine separately
+        // and compute CSS transforms relative to it, eliminating the
+        // 1-frame visual mismatch at line boundaries.
         let canvasLine = term.buffer.active.viewportY;
+
         const step = () => {
           if (Math.abs(lineVelocity) < 0.05) {
-            scrollLine = Math.round(scrollLine);
+            // Snap to nearest whole line and stop
             const targetLine = Math.round(scrollLine);
             if (targetLine !== canvasLine) {
-              // Snap to final line — but canvas hasn't re-rendered yet.
-              // Keep the transform for this frame, then clear on the
-              // next frame after the canvas catches up.
               term.scrollLines(targetLine - canvasLine);
-              const pixelOffset = (scrollLine - canvasLine) * rh;
-              screen.style.transform = `translateY(${-pixelOffset}px)`;
+              screen.style.transform = `translateY(${-(targetLine - canvasLine) * rh}px)`;
+              // Wait one frame for canvas to catch up before clearing
               momentumRaf = requestAnimationFrame(() => {
                 screen.style.transform = '';
-                scrollState.momentumActive = false;
-                restoreViewport();
+                stopMomentum();
               });
             } else {
               screen.style.transform = '';
-              scrollState.momentumActive = false;
-              restoreViewport();
+              stopMomentum();
             }
             return;
           }
-          scrollLine += lineVelocity;
-          const maxLines = term.buffer.active.baseY;
-          scrollLine = Math.max(0, Math.min(scrollLine, maxLines));
 
+          scrollLine += lineVelocity;
+          scrollLine = Math.max(0, Math.min(scrollLine, term.buffer.active.baseY));
           const targetLine = Math.floor(scrollLine);
+
           if (targetLine !== canvasLine) {
-            // Update ydisp — canvas will re-render on the NEXT rAF
-            // (renderer's rAF fires before ours since it's registered first).
-            // For THIS frame, canvas still shows canvasLine.
+            // Line crossing — compute transform relative to current canvas
+            // content since the re-render won't arrive until next rAF
             term.scrollLines(targetLine - canvasLine);
-            const pixelOffset = (scrollLine - canvasLine) * rh;
-            screen.style.transform = `translateY(${-pixelOffset}px)`;
-            canvasLine = targetLine; // will be rendered next frame
+            screen.style.transform = `translateY(${-(scrollLine - canvasLine) * rh}px)`;
+            canvasLine = targetLine;
           } else {
-            // No line crossing — canvas matches, standard sub-pixel
             const subPixel = (scrollLine - targetLine) * rh;
             screen.style.transform = subPixel > 0.5 ? `translateY(${-subPixel}px)` : '';
           }
