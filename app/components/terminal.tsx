@@ -28,7 +28,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
 
-  const { termRef, status, fit, sendBinary } = useTerminalCore(containerRef, {
+  const { termRef, status, contentReady, fit, sendBinary } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
     onExit,
@@ -118,7 +118,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
   return (
     <div className="relative w-full h-full">
-      {status === "connecting" && (
+      {(!contentReady || status === "connecting") && (
         <div className="absolute inset-0 flex items-center justify-center z-10 bg-base-100/80">
           <span className="loading loading-spinner loading-lg" />
         </div>
@@ -128,7 +128,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           <span className="text-warning">Reconnecting...</span>
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full overflow-hidden" />
+      <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
     </div>
   );
 });

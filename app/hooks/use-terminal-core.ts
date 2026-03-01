@@ -50,6 +50,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const fitAddonRef = useRef<any>(null);
   const webglRef = useRef<any>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [contentReady, setContentReady] = useState(false);
 
   // After a resize, apps like Claude Code redraw their TUI. That output
   // arrives over WS and can scroll xterm away from the bottom. This ref
@@ -82,6 +83,18 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
     const scrollState = { momentumActive: false };
+
+    // Track whether initial content (cache or first BUFFER_REPLAY) has been
+    // written to xterm. Until this is true the container stays invisible so
+    // the user never sees a rapid-scroll flash on session switch.
+    let initialContentReady = false;
+    setContentReady(false);
+
+    function markContentReady() {
+      if (initialContentReady) return;
+      initialContentReady = true;
+      setContentReady(true);
+    }
 
     // Extract session ID from wsPath for buffer caching (only for /ws/sessions/<id>)
     const sessionIdMatch = opts.wsPath.match(/^\/ws\/sessions\/([^/?]+)/);
@@ -192,6 +205,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       });
 
       // ── Load cached buffer from IndexedDB for instant display ─────
+      // When cache exists, write it all to xterm BEFORE connecting the WS
+      // so that RESUME sends the correct offset and avoids interleaving.
+      // The terminal container is kept invisible during this write so the
+      // user never sees rapid-scroll flashing on session switch.
       if (cacheSessionId) {
         try {
           const cached = await loadCache(cacheSessionId);
@@ -202,36 +219,40 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // Write cached buffer into xterm before WS connect.
             // This gives near-instant display; the WS RESUME will
             // fetch only the delta since the cached offset.
-            const syncAndScroll = () => {
-              const core = (term as any)._core;
-              if (core?.viewport) core.viewport.syncScrollArea(true);
-              term.scrollToBottom();
-            };
-
-            if (cached.buffer.length <= REPLAY_CHUNK_SIZE) {
-              term.write(cached.buffer, syncAndScroll);
-            } else {
-              // Chunked write for large cached buffers
-              opts.onReplayProgress?.(0);
-              let chunkOff = 0;
-              const total = cached.buffer.length;
-              const writeNextCacheChunk = () => {
-                const end = Math.min(chunkOff + REPLAY_CHUNK_SIZE, total);
-                const chunk = cached.buffer.subarray(chunkOff, end);
-                const isLast = end >= total;
-                term.write(chunk, () => {
-                  if (isLast) {
-                    syncAndScroll();
-                    opts.onReplayProgress?.(null);
-                  } else {
-                    chunkOff = end;
-                    opts.onReplayProgress?.(chunkOff / total);
-                    setTimeout(writeNextCacheChunk, 0);
-                  }
-                });
+            await new Promise<void>((resolve) => {
+              const syncAndScroll = () => {
+                const core = (term as any)._core;
+                if (core?.viewport) core.viewport.syncScrollArea(true);
+                term.scrollToBottom();
+                markContentReady();
+                resolve();
               };
-              writeNextCacheChunk();
-            }
+
+              if (cached.buffer.length <= REPLAY_CHUNK_SIZE) {
+                term.write(cached.buffer, syncAndScroll);
+              } else {
+                // Chunked write for large cached buffers
+                opts.onReplayProgress?.(0);
+                let chunkOff = 0;
+                const total = cached.buffer.length;
+                const writeNextCacheChunk = () => {
+                  const end = Math.min(chunkOff + REPLAY_CHUNK_SIZE, total);
+                  const chunk = cached.buffer.subarray(chunkOff, end);
+                  const isLast = end >= total;
+                  term.write(chunk, () => {
+                    if (isLast) {
+                      syncAndScroll();
+                      opts.onReplayProgress?.(null);
+                    } else {
+                      chunkOff = end;
+                      opts.onReplayProgress?.(chunkOff / total);
+                      setTimeout(writeNextCacheChunk, 0);
+                    }
+                  });
+                };
+                writeNextCacheChunk();
+              }
+            });
           } else if (cacheSessionId) {
             cacheWriter = new BufferCacheWriter(cacheSessionId);
           }
@@ -546,6 +567,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             byteOffset = view.getFloat64(0, false);
             cacheWriter?.setOffset(byteOffset);
             opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: byteOffset });
+            // If SYNC arrives and content isn't ready yet, the session has
+            // no buffered output (BUFFER_REPLAY was skipped) — show terminal.
+            markContentReady();
           }
           break;
         case WS_MSG.DATA:
@@ -556,6 +580,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           }
           byteOffset += payload.length;
           cacheWriter?.append(payload);
+          cacheWriter?.setOffset(byteOffset);
           // Throttled activity update: emit at most every 500ms during data flow
           if (opts.onActivityUpdate) {
             const now = Date.now();
@@ -569,6 +594,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         case WS_MSG.EXIT: {
           const view = new DataView(payload.buffer, payload.byteOffset);
           const exitCode = view.getInt32(0, false);
+          markContentReady();
           opts.onExit?.(exitCode);
           // Clean up cache for exited sessions
           if (cacheSessionId) deleteCache(cacheSessionId);
@@ -598,7 +624,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     function handleBufferReplay(term: any, payload: Uint8Array) {
       const isReconnect = byteOffset > 0;
-      if (isReconnect && payload.length === 0) return;
+      if (isReconnect && payload.length === 0) {
+        // Empty delta — content is already rendered from cache
+        markContentReady();
+        return;
+      }
 
       // Feed replayed/delta data into cache writer
       if (payload.length > 0) {
@@ -612,15 +642,24 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       if (isReconnect) {
-        term.write(payload, syncAndScroll);
+        // Delta from cache — content was already shown from cache,
+        // just append the small delta and mark ready
+        term.write(payload, () => {
+          syncAndScroll();
+          markContentReady();
+        });
         return;
       }
 
-      // First connect — full replay with reset
+      // First connect — full replay with reset.
+      // Keep content hidden (markContentReady called at the end).
       term.reset();
 
       if (payload.length <= REPLAY_CHUNK_SIZE) {
-        term.write(payload, syncAndScroll);
+        term.write(payload, () => {
+          syncAndScroll();
+          markContentReady();
+        });
         return;
       }
 
@@ -638,6 +677,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           if (isLast) {
             syncAndScroll();
             opts.onReplayProgress?.(null);
+            markContentReady();
           } else {
             chunkOffset = end;
             opts.onReplayProgress?.(chunkOffset / total);
@@ -677,5 +717,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     };
   }, [opts.wsPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, status, fit, sendBinary };
+  return { termRef, wsRef, fitAddonRef, status, contentReady, fit, sendBinary };
 }

@@ -12,7 +12,7 @@ export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
   function ReadOnlyTerminal({ token, onExit, onTitleChange, onAuthError }, _ref) {
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const { status } = useTerminalCore(containerRef, {
+    const { status, contentReady } = useTerminalCore(containerRef, {
       wsPath: `/ws/share?token=${encodeURIComponent(token)}`,
       readOnly: true,
       onExit,
@@ -22,7 +22,7 @@ export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
 
     return (
       <div className="relative w-full h-full">
-        {status === "connecting" && (
+        {(!contentReady || status === "connecting") && (
           <div className="absolute inset-0 flex items-center justify-center z-10 bg-base-100/80">
             <span className="loading loading-spinner loading-lg" />
           </div>
@@ -32,7 +32,7 @@ export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
             <span className="text-warning">Reconnecting...</span>
           </div>
         )}
-        <div ref={containerRef} className="w-full h-full overflow-hidden" />
+        <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
       </div>
     );
   }

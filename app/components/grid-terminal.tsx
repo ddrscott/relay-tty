@@ -17,7 +17,7 @@ export function GridTerminal({ session, onClick }: GridTerminalProps) {
   const isRunning = session.status === "running";
   const displayTitle = session.title || `${session.command} ${session.args.join(" ")}`;
 
-  const { status } = useTerminalCore(containerRef, {
+  const { status, contentReady } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
     fontSize: 9,
     readOnly: true,
@@ -29,10 +29,10 @@ export function GridTerminal({ session, onClick }: GridTerminalProps) {
       onClick={onClick}
     >
       {/* Terminal content */}
-      <div ref={containerRef} className="w-full h-full overflow-hidden" />
+      <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
 
       {/* Status overlays */}
-      {status === "connecting" && (
+      {(!contentReady || status === "connecting") && (
         <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#19191f]/80">
           <span className="loading loading-spinner loading-sm" />
         </div>
