@@ -141,12 +141,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     return () => disposable.dispose();
   }, [termRef.current, sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wire up resize → WS
+  // Wire up resize → WS (dedup to avoid redundant SIGWINCH → full TUI redraws)
+  const lastSentSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
 
     const disposable = term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
+      if (cols === lastSentSizeRef.current.cols && rows === lastSentSizeRef.current.rows) return;
+      lastSentSizeRef.current = { cols, rows };
       const msg = new Uint8Array(5);
       msg[0] = WS_MSG.RESIZE;
       new DataView(msg.buffer).setUint16(1, cols, false);

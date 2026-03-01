@@ -838,6 +838,11 @@ async fn main() {
     let state_resize = Arc::clone(&state);
     tokio::spawn(async move {
         while let Some((new_cols, new_rows)) = resize_rx.recv().await {
+            let s = state_resize.read().await;
+            if s.meta.cols == new_cols && s.meta.rows == new_rows {
+                continue; // Skip redundant resize — avoids SIGWINCH → full TUI redraw
+            }
+            drop(s);
             resize_pty(master_raw_fd, new_cols, new_rows);
             let mut s = state_resize.write().await;
             s.meta.cols = new_cols;
