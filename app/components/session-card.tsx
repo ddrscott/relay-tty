@@ -30,6 +30,7 @@ function formatRate(bps: number): string {
 
 export function SessionCard({ session, showCwd = true }: { session: Session; showCwd?: boolean }) {
   const isRunning = session.status === "running";
+  const isActive = isRunning && (session.bytesPerSecond ?? 0) >= 1;
   const displayCommand = [session.command, ...session.args].join(" ");
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -47,60 +48,61 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
   return (
     <Link to={`/sessions/${session.id}`} className="block" onClick={handleClick}>
       <div className="bg-[#0f0f1a] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] border border-[#1e1e2e] hover:border-[#2d2d44] active:border-[#3d3d5c] active:scale-[0.98] rounded-lg transition-all duration-100 cursor-pointer">
-        <div className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className={`shrink-0 inline-block w-2 h-2 rounded-full ${
-                  isRunning
-                    ? (session.bytesPerSecond ?? 0) >= 1
-                      ? "bg-[#22c55e] shadow-[0_0_6px_#22c55e] animate-pulse"
-                      : "bg-[#22c55e] shadow-[0_0_4px_#22c55e80]"
+        <div className="px-4 py-3">
+          {/* Row 1: dot + title | stats (right-aligned) */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`shrink-0 inline-block w-2 h-2 rounded-full ${
+                isActive
+                  ? "bg-[#22c55e] shadow-[0_0_6px_#22c55e] animate-pulse"
+                  : isRunning
+                    ? "bg-[#22c55e] shadow-[0_0_4px_#22c55e80]"
                     : "bg-[#64748b]/50"
-                }`}
-              />
-              <code className="text-sm font-mono truncate text-[#e2e8f0]">
-                {session.title || displayCommand}
-              </code>
-            </div>
+              }`}
+            />
+            <code className="text-sm font-mono truncate text-[#e2e8f0] flex-1 min-w-0">
+              {session.title || displayCommand}
+            </code>
             {loading ? (
               <Loader size={14} className="shrink-0 text-[#64748b] animate-spin" />
+            ) : isRunning && session.bytesPerSecond != null ? (
+              <div className="shrink-0 flex items-center gap-2 text-xs font-mono">
+                <span className={isActive ? "text-[#22c55e]" : "text-[#64748b]"}>
+                  {formatRate(session.bytesPerSecond)}
+                </span>
+                {session.totalBytesWritten != null && (
+                  <span className="text-[#64748b]">{formatBytes(session.totalBytesWritten)}</span>
+                )}
+              </div>
             ) : !isRunning ? (
               <span className="text-xs font-mono shrink-0 text-[#64748b]">
                 exit {session.exitCode}
               </span>
             ) : null}
           </div>
-          {session.title && (
-            <div className="text-xs text-[#64748b] font-mono truncate mt-1">
-              {displayCommand}
-            </div>
-          )}
-          {showCwd && (
-            <div className="text-xs text-[#94a3b8] font-mono truncate mt-1">
-              {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
-            </div>
-          )}
-          {isRunning && (session.totalBytesWritten != null || session.bytesPerSecond != null) && (
-            <div className="flex items-center gap-3 text-xs font-mono text-[#64748b] mt-2">
-              {session.bytesPerSecond != null && (
-                <span className={session.bytesPerSecond >= 1 ? "text-[#22c55e]" : ""}>
-                  {formatRate(session.bytesPerSecond)}
-                </span>
+
+          {/* Row 2: cwd · id | last active */}
+          <div className="flex items-center gap-1 mt-1 ml-4 text-xs font-mono text-[#64748b]">
+            <div className="flex items-center gap-1 min-w-0 flex-1 truncate">
+              {session.title && (
+                <>
+                  <span className="truncate">{displayCommand}</span>
+                  <span className="shrink-0">·</span>
+                </>
               )}
-              {session.totalBytesWritten != null && (
-                <span>{formatBytes(session.totalBytesWritten)}</span>
+              {showCwd && (
+                <>
+                  <span className="truncate">{session.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
+                  <span className="shrink-0">·</span>
+                </>
               )}
-              {session.lastActiveAt && (
-                <span className="ml-auto">
-                  {timeAgo(new Date(session.lastActiveAt).getTime())}
-                </span>
-              )}
+              <span className="shrink-0">{session.id}</span>
             </div>
-          )}
-          <div className="flex items-center justify-between text-xs text-[#64748b] mt-2">
-            <span className="font-mono">{session.id}</span>
-            <span>{timeAgo(session.createdAt)}</span>
+            <span className="shrink-0">
+              {isRunning && session.lastActiveAt
+                ? timeAgo(new Date(session.lastActiveAt).getTime())
+                : timeAgo(session.createdAt)}
+            </span>
           </div>
         </div>
       </div>

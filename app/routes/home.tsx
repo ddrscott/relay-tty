@@ -3,8 +3,8 @@ import { useRevalidator, useNavigate } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
-import { groupByCwd } from "../lib/session-groups";
-import { LayoutGrid, List } from "lucide-react";
+import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
+import { LayoutGrid, List, ArrowDownUp } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -26,9 +26,21 @@ const SHELL_OPTIONS = [
 
 type ViewMode = "list" | "grid";
 
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "recent", label: "Recent" },
+  { key: "active", label: "Active" },
+  { key: "created", label: "Created" },
+  { key: "name", label: "Name" },
+];
+
 function getStoredView(): ViewMode {
   if (typeof window === "undefined") return "list";
   return (localStorage.getItem("relay-tty-view") as ViewMode) || "list";
+}
+
+function getStoredSort(): SortKey {
+  if (typeof window === "undefined") return "recent";
+  return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
@@ -38,6 +50,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredView);
+  const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
 
   // Dynamic import of GridTerminal (xterm.js is client-only)
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -49,7 +62,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }
 
-  const groups = useMemo(() => groupByCwd(sessions), [sessions]);
+  const sortedSessions = useMemo(() => sortSessions(sessions, sortKey), [sessions, sortKey]);
+  const groups = useMemo(() => groupByCwd(sessions, sortKey), [sessions, sortKey]);
   const isSingleGroup = groups.length === 1;
 
   useEffect(() => {
@@ -94,6 +108,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
+  const setSort = useCallback((key: SortKey) => {
+    setSortKey(key);
+    localStorage.setItem("relay-tty-sort", key);
+  }, []);
+
   // Compute grid column count based on session count
   const gridCols = useMemo(() => {
     const n = sessions.length;
@@ -114,6 +133,37 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <span className="text-sm text-[#64748b]">
             {sessions.length} session{sessions.length !== 1 ? "s" : ""}
           </span>
+
+          {/* Sort dropdown */}
+          {sessions.length > 1 && (
+            <div className="dropdown dropdown-end">
+              <button
+                tabIndex={0}
+                className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
+              >
+                <ArrowDownUp className="w-3.5 h-3.5" />
+                {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
+              </button>
+              <ul
+                tabIndex={0}
+                className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-10 w-32 p-1 shadow-lg"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <li key={opt.key}>
+                    <button
+                      className={`font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
+                      onClick={() => {
+                        setSort(opt.key);
+                        (document.activeElement as HTMLElement)?.blur();
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Grid/list toggle — desktop only */}
           {sessions.length > 0 && (
@@ -182,7 +232,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             gridTemplateRows: `repeat(${Math.ceil(sessions.length / gridCols)}, 1fr)`,
           }}
         >
-          {sessions.map((session) => (
+          {sortedSessions.map((session) => (
             GridTerminalComponent ? (
               <GridTerminalComponent
                 key={session.id}
