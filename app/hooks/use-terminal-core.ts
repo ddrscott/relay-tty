@@ -36,6 +36,8 @@ export interface TerminalCoreOpts {
   onCopy?: () => void;
   /** Called when session activity state changes (idle/active) or byte counter updates */
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
+  /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
+  selectionModeRef?: React.RefObject<boolean>;
 }
 
 export interface TerminalCoreRef {
@@ -374,6 +376,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       xtermEl.addEventListener("touchstart", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (e.touches.length === 2) {
           // Start pinch-to-zoom
           e.stopPropagation();
@@ -396,6 +400,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (pinching && e.touches.length === 2) {
           e.stopPropagation();
           e.preventDefault();
@@ -435,6 +441,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchend", (e) => {
+        // In selection mode, let touch events through for native text selection
+        if (opts.selectionModeRef?.current) return;
         if (pinching) {
           // End pinch when fewer than 2 fingers remain
           if (e.touches.length < 2) {

@@ -7,7 +7,13 @@ export interface TerminalHandle {
   scrollToBottom: () => void;
   /** Set a transform applied to all keyboard input before sending. Return null to suppress. */
   setInputTransform: (fn: ((data: string) => string | null) | null) => void;
-  /** Get visible viewport text as plain string (for copy/text overlay) */
+  /** Toggle selection mode on/off for mobile text selection */
+  setSelectionMode: (on: boolean) => void;
+  /** Copy current xterm selection to clipboard, returns true if text was copied */
+  copySelection: () => Promise<boolean>;
+  /** Get current xterm selection text */
+  getSelection: () => string;
+  /** Get visible viewport text as plain string */
   getVisibleText: () => string;
 }
 
@@ -21,12 +27,14 @@ interface TerminalProps {
   onNotification?: (message: string) => void;
   onFontSizeChange?: (delta: number) => void;
   onCopy?: () => void;
+  onSelectionModeChange?: (on: boolean) => void;
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onActivityUpdate }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
+  const selectionModeRef = useRef(false);
 
   const { termRef, status, contentReady, fit, sendBinary } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
@@ -38,6 +46,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onNotification,
     onFontSizeChange,
     onCopy,
+    selectionModeRef,
     onActivityUpdate,
   });
 
@@ -57,6 +66,41 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     inputTransformRef.current = fn;
   }, []);
 
+  const setSelectionMode = useCallback((on: boolean) => {
+    selectionModeRef.current = on;
+    // Toggle pointer-events on .xterm-rows span for text selection on mobile.
+    // When selection mode is on, spans need pointer-events so native OS selection works.
+    const container = containerRef.current;
+    if (container) {
+      // Update the iOS fix style — we injected `.xterm-rows span { pointer-events: none }`
+      const styleEls = container.querySelectorAll("style");
+      for (const s of styleEls) {
+        if (s.textContent?.includes("xterm-rows span")) {
+          s.textContent = `.xterm-rows span { pointer-events: ${on ? "auto" : "none"}; }`;
+        }
+      }
+    }
+    onSelectionModeChange?.(on);
+  }, [onSelectionModeChange]);
+
+  const copySelection = useCallback(async (): Promise<boolean> => {
+    const term = termRef.current;
+    if (!term) return false;
+    const sel = term.getSelection();
+    if (!sel) return false;
+    try {
+      await navigator.clipboard.writeText(sel);
+      onCopy?.();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [termRef, onCopy]);
+
+  const getSelection = useCallback((): string => {
+    return termRef.current?.getSelection() || "";
+  }, [termRef]);
+
   const getVisibleText = useCallback((): string => {
     const term = termRef.current;
     if (!term) return "";
@@ -66,12 +110,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       const line = buf.getLine(i);
       lines.push(line ? line.translateToString(true) : "");
     }
-    // Trim trailing empty lines
     while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
     return lines.join("\n");
   }, [termRef]);
 
-  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, getVisibleText }), [sendText, scrollToBottom, setInputTransform, getVisibleText]);
+  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText]);
 
   // Wire up terminal input → WS (with optional input transform for sticky modifiers)
   useEffect(() => {
