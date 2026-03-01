@@ -3,6 +3,7 @@ import { Link, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
+import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
 import {
   ArrowLeft,
@@ -76,6 +77,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now()
   );
   const [idleDisplay, setIdleDisplay] = useState("");
+  const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -142,6 +144,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const title = termTitle || session.command;
     new Notification(title, { body: message, tag: `relay-${session.id}` });
   }, [termTitle, session.command, session.id]);
+
+  // File link click from terminal
+  const handleFileLink = useCallback((link: FileLink) => {
+    setFileViewerLink(link);
+  }, []);
+
+  const closeFileViewer = useCallback(() => {
+    setFileViewerLink(null);
+  }, []);
 
   // Activity update from terminal WS
   const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number }) => {
@@ -232,12 +243,23 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // Dynamic import of Terminal component (xterm.js is client-only)
   const [TerminalComponent, setTerminalComponent] =
     useState<React.ComponentType<any> | null>(null);
+  const [FileViewerComponent, setFileViewerComponent] =
+    useState<React.ComponentType<any> | null>(null);
 
   if (typeof window !== "undefined" && !TerminalComponent) {
     import("../components/terminal").then((mod) => {
       setTerminalComponent(() => mod.Terminal);
     });
   }
+
+  // Lazy-load file viewer only when first needed
+  useEffect(() => {
+    if (fileViewerLink && !FileViewerComponent && typeof window !== "undefined") {
+      import("../components/file-viewer").then((mod) => {
+        setFileViewerComponent(() => mod.FileViewer);
+      });
+    }
+  }, [fileViewerLink, FileViewerComponent]);
 
   function goTo(id: string) {
     setPickerOpen(false);
@@ -518,6 +540,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onFontSizeChange={handleFontSizeChange}
             onCopy={handleCopy}
             onActivityUpdate={handleActivityUpdate}
+            onFileLink={handleFileLink}
           />
         )}
 
@@ -600,6 +623,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               </Link>
             </div>
           </div>
+        )}
+
+        {/* File viewer side panel */}
+        {fileViewerLink && FileViewerComponent && (
+          <FileViewerComponent
+            sessionId={session.id}
+            filePath={fileViewerLink.path}
+            line={fileViewerLink.line}
+            column={fileViewerLink.column}
+            onClose={closeFileViewer}
+          />
         )}
       </div>
 

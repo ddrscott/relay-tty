@@ -18,4 +18,5 @@
 - [x] Scratchpad: default to single-line input with expand toggle for multi-line ([detail](work-queue/scratchpad-single-line.md))
 - [x] Remove mic button from input bar, move scratchpad button to the right side
 - [x] Show live session activity stats in web view (bytes/sec, total bytes, idle time) ([detail](work-queue/session-activity-dashboard.md))
+- [x] Clickable file paths in terminal with browser-based file viewer panel ([detail](work-queue/file-viewer-panel.md))
 - [x] Diagnose and fix slow session switching — full buffer replay on navigate ([detail](work-queue/session-switch-replay.md))

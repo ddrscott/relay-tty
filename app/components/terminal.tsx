@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 import { WS_MSG } from "../../shared/types";
 import { useTerminalCore } from "../hooks/use-terminal-core";
+import type { FileLink } from "../lib/file-link-provider";
 
 export interface TerminalHandle {
   sendText: (text: string) => void;
@@ -29,9 +30,10 @@ interface TerminalProps {
   onCopy?: () => void;
   onSelectionModeChange?: (on: boolean) => void;
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
+  onFileLink?: (link: FileLink) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -48,6 +50,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onCopy,
     selectionModeRef,
     onActivityUpdate,
+    onFileLink,
   });
 
   const sendText = useCallback((text: string) => {

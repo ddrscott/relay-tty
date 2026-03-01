@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WS_MSG } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
+import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
 
 /** Size of chunks fed to xterm.js during buffer replay (bytes) */
 const REPLAY_CHUNK_SIZE = 64 * 1024;
@@ -36,6 +37,8 @@ export interface TerminalCoreOpts {
   onCopy?: () => void;
   /** Called when session activity state changes (idle/active) or byte counter updates */
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
+  /** Called when a file path link is clicked in terminal output */
+  onFileLink?: (link: FileLink) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
 }
@@ -168,6 +171,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       termRef.current = term;
       fitAddonRef.current = fitAddon;
       requestAnimationFrame(() => fitAddon.fit());
+
+      // Register file path link provider (clickable file paths in terminal output)
+      if (opts.onFileLink) {
+        term.registerLinkProvider(createFileLinkProvider(term, opts.onFileLink));
+      }
 
       if (!opts.readOnly) {
         setupMobileInput(term, containerRef.current!);
@@ -564,10 +572,38 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       ws.onerror = () => {};
     }
 
+    async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
+      const ds = new DecompressionStream("gzip");
+      const writer = ds.writable.getWriter();
+      const reader = ds.readable.getReader();
+      writer.write(data as any);
+      writer.close();
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      if (chunks.length === 1) return chunks[0];
+      const total = chunks.reduce((sum, c) => sum + c.length, 0);
+      const result = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        result.set(c, offset);
+        offset += c.length;
+      }
+      return result;
+    }
+
     function handleWsMessage(term: any, type: number, payload: Uint8Array) {
       switch (type) {
         case WS_MSG.BUFFER_REPLAY:
           handleBufferReplay(term, payload);
+          break;
+        case WS_MSG.BUFFER_REPLAY_GZ:
+          decompressGzip(payload).then((decompressed) => {
+            handleBufferReplay(term, decompressed);
+          });
           break;
         case WS_MSG.SYNC:
           if (payload.length >= 8) {
