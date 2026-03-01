@@ -23,6 +23,13 @@ import {
   X,
 } from "lucide-react";
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+}
+
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id!);
   if (!session) {
@@ -63,6 +70,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [textViewerContent, setTextViewerContent] = useState("");
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionActive, setSessionActive] = useState(true);
+  const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
+  const [lastActiveTime, setLastActiveTime] = useState<number>(
+    session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now()
+  );
+  const [idleDisplay, setIdleDisplay] = useState("");
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -129,6 +142,38 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const title = termTitle || session.command;
     new Notification(title, { body: message, tag: `relay-${session.id}` });
   }, [termTitle, session.command, session.id]);
+
+  // Activity update from terminal WS
+  const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number }) => {
+    setSessionActive(update.isActive);
+    setTotalBytes(update.totalBytes);
+    if (update.isActive) {
+      setLastActiveTime(Date.now());
+    }
+  }, []);
+
+  // Idle time ticker: update display every second when idle
+  useEffect(() => {
+    function updateIdleDisplay() {
+      if (sessionActive) {
+        setIdleDisplay("");
+        return;
+      }
+      const elapsed = Date.now() - lastActiveTime;
+      if (elapsed < 1000) {
+        setIdleDisplay("");
+      } else if (elapsed < 60_000) {
+        setIdleDisplay(`${Math.floor(elapsed / 1000)}s`);
+      } else if (elapsed < 3600_000) {
+        setIdleDisplay(`${Math.floor(elapsed / 60_000)}m`);
+      } else {
+        setIdleDisplay(`${Math.floor(elapsed / 3600_000)}h`);
+      }
+    }
+    updateIdleDisplay();
+    const timer = setInterval(updateIdleDisplay, 1000);
+    return () => clearInterval(timer);
+  }, [sessionActive, lastActiveTime]);
 
   // Pinch-to-zoom: adjust font size by delta, clamped to 8–28
   const handleFontSizeChange = useCallback((delta: number) => {
@@ -343,6 +388,23 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
+        {/* Activity indicator */}
+        {session.status === "running" && (
+          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono text-[#64748b]">
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                sessionActive
+                  ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)] animate-pulse"
+                  : "bg-[#64748b]/40"
+              }`}
+            />
+            <span className="text-[#94a3b8]">{formatBytes(totalBytes)}</span>
+            {!sessionActive && idleDisplay && (
+              <span className="text-[#64748b]">idle {idleDisplay}</span>
+            )}
+          </div>
+        )}
+
         <div className="dropdown dropdown-end shrink-0">
           <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" aria-label="Font size">
             <Type className="w-4 h-4" />
@@ -411,6 +473,30 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                     </span>
                   </div>
                 )}
+                {session.status === "running" && (
+                  <>
+                    <div className="border-t border-[#2d2d44] my-1.5" />
+                    <div className="flex justify-between gap-4">
+                      <span className="text-[#64748b]">Output</span>
+                      <span className="text-[#e2e8f0]">{formatBytes(totalBytes)}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-[#64748b]">Activity</span>
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            sessionActive
+                              ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)]"
+                              : "bg-[#64748b]/40"
+                          }`}
+                        />
+                        <span className={sessionActive ? "text-[#22c55e]" : "text-[#64748b]"}>
+                          {sessionActive ? "active" : idleDisplay ? `idle ${idleDisplay}` : "idle"}
+                        </span>
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -431,6 +517,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onNotification={handleNotification}
             onFontSizeChange={handleFontSizeChange}
             onCopy={handleCopy}
+            onActivityUpdate={handleActivityUpdate}
           />
         )}
 

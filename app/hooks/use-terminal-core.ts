@@ -34,6 +34,8 @@ export interface TerminalCoreOpts {
   onFontSizeChange?: (delta: number) => void;
   /** Called when text is auto-copied to clipboard (desktop selection or explicit copy) */
   onCopy?: () => void;
+  /** Called when session activity state changes (idle/active) or byte counter updates */
+  onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
 }
 
 export interface TerminalCoreRef {
@@ -77,6 +79,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
     let byteOffset = 0;
+    let lastActivityActive = false; // track last known session state
+    let lastActivityEmit = 0; // throttle DATA-driven activity updates
     const scrollState = { momentumActive: false };
 
     // Extract session ID from wsPath for buffer caching (only for /ws/sessions/<id>)
@@ -541,6 +545,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             const view = new DataView(payload.buffer, payload.byteOffset);
             byteOffset = view.getFloat64(0, false);
             cacheWriter?.setOffset(byteOffset);
+            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: byteOffset });
           }
           break;
         case WS_MSG.DATA:
@@ -551,6 +556,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           }
           byteOffset += payload.length;
           cacheWriter?.append(payload);
+          // Throttled activity update: emit at most every 500ms during data flow
+          if (opts.onActivityUpdate) {
+            const now = Date.now();
+            if (now - lastActivityEmit > 500) {
+              lastActivityEmit = now;
+              lastActivityActive = true;
+              opts.onActivityUpdate({ isActive: true, totalBytes: byteOffset });
+            }
+          }
           break;
         case WS_MSG.EXIT: {
           const view = new DataView(payload.buffer, payload.byteOffset);
@@ -574,8 +588,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         }
         case WS_MSG.SESSION_STATE: {
           // 1-byte payload: 0x00 = idle, 0x01 = active
-          // Prep for future UI (idle indicator, notifications, etc.)
-          // const isActive = payload.length > 0 && payload[0] === 0x01;
+          const isActive = payload.length > 0 && payload[0] === 0x01;
+          lastActivityActive = isActive;
+          opts.onActivityUpdate?.({ isActive, totalBytes: byteOffset });
           break;
         }
       }

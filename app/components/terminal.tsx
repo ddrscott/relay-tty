@@ -21,9 +21,10 @@ interface TerminalProps {
   onNotification?: (message: string) => void;
   onFontSizeChange?: (delta: number) => void;
   onCopy?: () => void;
+  onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onActivityUpdate }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
 
@@ -37,6 +38,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onNotification,
     onFontSizeChange,
     onCopy,
+    onActivityUpdate,
   });
 
   const sendText = useCallback((text: string) => {
