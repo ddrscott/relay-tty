@@ -1,47 +1,15 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import type { Command } from "commander";
-import type { Session } from "../../shared/types.js";
-import { resolveHost } from "../config.js";
-
-const SESSIONS_DIR = path.join(os.homedir(), ".relay-tty", "sessions");
-const SOCKETS_DIR = path.join(os.homedir(), ".relay-tty", "sockets");
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
-}
-
-function listFromDisk(): Session[] {
-  if (!fs.existsSync(SESSIONS_DIR)) return [];
-  const sessions: Session[] = [];
-  for (const file of fs.readdirSync(SESSIONS_DIR)) {
-    if (!file.endsWith(".json")) continue;
-    try {
-      const meta = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8")) as Session;
-      if (!meta.cwd) meta.cwd = os.homedir();
-      // Check if socket still exists for "running" sessions
-      if (meta.status === "running") {
-        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
-        if (!fs.existsSync(socketPath)) {
-          meta.status = "exited";
-          (meta as any).exitCode = -1;
-        }
-      }
-      sessions.push(meta);
-    } catch {
-      // skip corrupted files
-    }
-  }
-  return sessions.sort((a, b) => b.createdAt - a.createdAt);
-}
+import {
+  loadSessions,
+  timeAgo,
+  formatBytes,
+  formatRate,
+  shortCwd,
+  truncate,
+  dim,
+  green,
+  bold,
+} from "../sessions.js";
 
 export function registerListCommand(program: Command) {
   program
@@ -49,23 +17,13 @@ export function registerListCommand(program: Command) {
     .alias("ls")
     .description("list all sessions")
     .option("-H, --host <url>", "server URL")
+    .option("--json", "output as JSON")
     .action(async (opts) => {
-      const host = resolveHost(opts.host);
+      const sessions = await loadSessions(opts.host);
 
-      let sessions: Session[];
-
-      // Try server first
-      try {
-        const res = await fetch(`${host}/api/sessions`);
-        if (res.ok) {
-          const data = (await res.json()) as { sessions: Session[] };
-          sessions = data.sessions;
-        } else {
-          sessions = listFromDisk();
-        }
-      } catch {
-        // Server unreachable — read from disk
-        sessions = listFromDisk();
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(sessions, null, 2) + "\n");
+        return;
       }
 
       if (sessions.length === 0) {
@@ -73,19 +31,48 @@ export function registerListCommand(program: Command) {
         return;
       }
 
-      const home = os.homedir();
-      const header = `${"ID".padEnd(10)} ${"COMMAND".padEnd(20)} ${"CWD".padEnd(30)} ${"STATUS".padEnd(12)} ${"AGE".padEnd(6)}`;
-      console.log(header);
       for (const s of sessions) {
-        const cmd = [s.command, ...s.args].join(" ").slice(0, 19);
-        const cwd = (s.cwd || home).startsWith(home)
-          ? "~" + (s.cwd || home).slice(home.length)
-          : (s.cwd || home);
-        const status = s.status === "running" ? "running" : `exited(${s.exitCode})`;
+        const isRunning = s.status === "running";
+        const isActive = isRunning && (s.bytesPerSecond ?? 0) >= 1;
+        const cmd = truncate([s.command, ...s.args].join(" "), 24);
+        const cwd = truncate(shortCwd(s.cwd), 24);
         const age = timeAgo(s.createdAt);
-        console.log(
-          `${s.id.padEnd(10)} ${cmd.padEnd(20)} ${cwd.slice(0, 29).padEnd(30)} ${status.padEnd(12)} ${age.padEnd(6)}`
-        );
+
+        // Status indicator
+        let statusText: string;
+        let dot: string;
+        if (isActive) {
+          dot = green("\u25cf");
+          statusText = green("running");
+        } else if (isRunning) {
+          dot = dim(green("\u25cf"));
+          statusText = dim(green("running"));
+        } else {
+          dot = dim("\u00b7");
+          statusText = dim(`exited(${s.exitCode ?? "?"})`);
+        }
+
+        // Rate + total
+        let rateStr = "";
+        let totalStr = "";
+        if (isRunning && s.bytesPerSecond != null) {
+          rateStr = isActive ? green(formatRate(s.bytesPerSecond)) : dim(formatRate(s.bytesPerSecond));
+        }
+        if (s.totalBytesWritten != null) {
+          totalStr = dim(formatBytes(s.totalBytesWritten) + " total");
+        }
+
+        // Line 1: dot  ID  command  cwd  status  rate  age
+        // Pad using raw (non-ANSI) lengths — ANSI escapes are invisible but consume string length
+        const rateField = rateStr ? `  ${rateStr}` : "";
+        console.log(`  ${dot} ${bold(s.id)}  ${cmd.padEnd(24)}  ${dim(cwd.padEnd(24))}  ${statusText}${rateField}  ${dim(age)}`);
+
+        // Line 2: title + total bytes (indented under command column)
+        if (s.title || totalStr) {
+          const indent = " ".repeat(14); // 2 + dot + space + 8-char id + 2 spaces
+          const parts = [s.title ? dim(s.title) : "", totalStr].filter(Boolean);
+          console.log(`${indent}${parts.join("  ")}`);
+        }
       }
     });
 }

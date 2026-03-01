@@ -7,6 +7,7 @@ import { registerListCommand } from "./commands/list.js";
 import { registerStopCommand } from "./commands/stop.js";
 import { registerServerCommand } from "./commands/server.js";
 import { registerShareCommand } from "./commands/share.js";
+import { registerTuiCommand } from "./commands/tui.js";
 
 const program = new Command();
 
@@ -25,6 +26,7 @@ registerAttachCommand(program);
 registerListCommand(program);
 registerStopCommand(program);
 registerShareCommand(program);
+registerTuiCommand(program);
 registerServerCommand(program);
 
 program.parse();
