@@ -40,20 +40,161 @@ const WS_MSG_SESSION_METRICS: u8 = 0x14;
 // ── Constants ────────────────────────────────────────────────────────
 
 const BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10MB ring buffer
+const ALT_BUFFER_CAP: usize = 2 * 1024 * 1024; // 2MB alt screen cap
 const GZIP_THRESHOLD: usize = 4096;
 const IDLE_TIMEOUT_MS: u64 = 60_000;
 const JSON_WRITE_INTERVAL_MS: u64 = 5_000;
 const METRICS_INTERVAL_MS: u64 = 3_000;
 const RESUME_TIMEOUT_MS: u64 = 100;
 
+// ── Alt screen mode numbers ─────────────────────────────────────────
+const ALT_SCREEN_MODES: &[u16] = &[1049, 47, 1047];
+
+// ── AltScreenScanner ────────────────────────────────────────────────
+
+/// Scanning state for detecting CSI private mode sequences that
+/// enter/exit the alternate screen buffer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ScanState {
+    Normal,
+    Esc,      // saw ESC (0x1b)
+    Bracket,  // saw ESC [
+    Question, // saw ESC [ ?
+    Params,   // accumulating digit/semicolon param bytes
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AltScreenEvent {
+    Enter,
+    Exit,
+}
+
+struct AltScreenScanner {
+    state: ScanState,
+    param_buf: Vec<u8>, // accumulates param bytes (digits + semicolons)
+}
+
+impl AltScreenScanner {
+    fn new() -> Self {
+        Self {
+            state: ScanState::Normal,
+            param_buf: Vec::with_capacity(32),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.state = ScanState::Normal;
+        self.param_buf.clear();
+    }
+
+    /// Feed a single byte. Returns Some(event) if an alt screen transition
+    /// was detected, along with the number of bytes in the escape sequence
+    /// (not counting this final byte, since the caller already has it).
+    fn feed(&mut self, byte: u8) -> Option<AltScreenEvent> {
+        match self.state {
+            ScanState::Normal => {
+                if byte == 0x1b {
+                    self.state = ScanState::Esc;
+                }
+                None
+            }
+            ScanState::Esc => {
+                if byte == b'[' {
+                    self.state = ScanState::Bracket;
+                } else {
+                    self.reset();
+                    // Re-check: the byte itself might be ESC
+                    if byte == 0x1b {
+                        self.state = ScanState::Esc;
+                    }
+                }
+                None
+            }
+            ScanState::Bracket => {
+                if byte == b'?' {
+                    self.state = ScanState::Question;
+                    self.param_buf.clear();
+                } else {
+                    self.reset();
+                    if byte == 0x1b {
+                        self.state = ScanState::Esc;
+                    }
+                }
+                None
+            }
+            ScanState::Question => {
+                if byte.is_ascii_digit() || byte == b';' {
+                    self.state = ScanState::Params;
+                    self.param_buf.clear();
+                    self.param_buf.push(byte);
+                } else {
+                    self.reset();
+                    if byte == 0x1b {
+                        self.state = ScanState::Esc;
+                    }
+                }
+                None
+            }
+            ScanState::Params => {
+                if byte.is_ascii_digit() || byte == b';' {
+                    self.param_buf.push(byte);
+                    None
+                } else if byte == b'h' || byte == b'l' {
+                    let event = self.check_alt_mode(byte == b'h');
+                    self.reset();
+                    event
+                } else {
+                    // Not a recognized terminator
+                    self.reset();
+                    if byte == 0x1b {
+                        self.state = ScanState::Esc;
+                    }
+                    None
+                }
+            }
+        }
+    }
+
+    /// Check if the accumulated params contain an alt screen mode number.
+    fn check_alt_mode(&self, is_set: bool) -> Option<AltScreenEvent> {
+        let params_str = std::str::from_utf8(&self.param_buf).unwrap_or("");
+        for part in params_str.split(';') {
+            if let Ok(mode) = part.parse::<u16>() {
+                if ALT_SCREEN_MODES.contains(&mode) {
+                    return Some(if is_set {
+                        AltScreenEvent::Enter
+                    } else {
+                        AltScreenEvent::Exit
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    /// Whether we're mid-sequence (need to buffer bytes).
+    fn is_mid_sequence(&self) -> bool {
+        self.state != ScanState::Normal
+    }
+}
+
 // ── Ring buffer (OutputBuffer equivalent) ────────────────────────────
 
 struct OutputBuffer {
+    // Main ring buffer (normal screen content)
     buffer: Vec<u8>,
     write_pos: usize,
     filled: bool,
-    total_written: f64,
     max_size: usize,
+    // Alt screen capture
+    alt_buf: Vec<u8>,
+    in_alt_screen: bool,
+    alt_content_start: f64, // total_written at start of current alt content
+    // Monotonic byte counter across both buffers
+    total_written: f64,
+    // Escape sequence scanner
+    scanner: AltScreenScanner,
+    pending_seq: Vec<u8>, // bytes held during mid-sequence scanning
 }
 
 impl OutputBuffer {
@@ -62,16 +203,114 @@ impl OutputBuffer {
             buffer: vec![0u8; max_size],
             write_pos: 0,
             filled: false,
-            total_written: 0.0,
             max_size,
+            alt_buf: Vec::new(),
+            in_alt_screen: false,
+            alt_content_start: 0.0,
+            total_written: 0.0,
+            scanner: AltScreenScanner::new(),
+            pending_seq: Vec::with_capacity(32),
         }
     }
 
+    /// Write data to the appropriate buffer, scanning for alt screen transitions.
     fn write(&mut self, data: &[u8]) {
-        self.total_written += data.len() as f64;
+        if data.is_empty() {
+            return;
+        }
+
+        // Fast path: no ESC in data and scanner not mid-sequence
+        if !self.scanner.is_mid_sequence() && !data.contains(&0x1b) {
+            self.total_written += data.len() as f64;
+            if self.in_alt_screen {
+                self.write_alt_slice(data);
+            } else {
+                self.write_main_slice(data);
+            }
+            return;
+        }
+
+        // Slow path: scan byte-by-byte for alt screen transitions
+        let mut chunk_start = 0;
+
+        for i in 0..data.len() {
+            let byte = data[i];
+
+            // If we're starting a potential sequence, buffer it
+            if self.scanner.is_mid_sequence() || byte == 0x1b {
+                // Flush any pending plain bytes first
+                if chunk_start < i {
+                    let chunk = &data[chunk_start..i];
+                    self.total_written += chunk.len() as f64;
+                    if self.in_alt_screen {
+                        self.write_alt_slice(chunk);
+                    } else {
+                        self.write_main_slice(chunk);
+                    }
+                }
+
+                self.pending_seq.push(byte);
+
+                if let Some(event) = self.scanner.feed(byte) {
+                    match event {
+                        AltScreenEvent::Enter => {
+                            // Write the enter sequence to main buffer
+                            let seq = std::mem::take(&mut self.pending_seq);
+                            self.total_written += seq.len() as f64;
+                            self.write_main_slice(&seq);
+                            self.in_alt_screen = true;
+                            self.alt_buf.clear();
+                            self.alt_content_start = self.total_written;
+                        }
+                        AltScreenEvent::Exit => {
+                            // Discard alt content, write exit sequence to main
+                            self.alt_buf.clear();
+                            let seq = std::mem::take(&mut self.pending_seq);
+                            self.total_written += seq.len() as f64;
+                            self.in_alt_screen = false;
+                            self.write_main_slice(&seq);
+                            self.alt_content_start = self.total_written;
+                        }
+                    }
+                    chunk_start = i + 1;
+                } else if !self.scanner.is_mid_sequence() {
+                    // Sequence aborted (not an alt screen sequence) — flush pending
+                    let seq = std::mem::take(&mut self.pending_seq);
+                    self.total_written += seq.len() as f64;
+                    if self.in_alt_screen {
+                        self.write_alt_slice(&seq);
+                    } else {
+                        self.write_main_slice(&seq);
+                    }
+                    chunk_start = i + 1;
+                } else {
+                    // Still mid-sequence, keep buffering
+                    chunk_start = i + 1;
+                }
+            }
+        }
+
+        // Flush remaining plain bytes
+        if chunk_start < data.len() && !self.scanner.is_mid_sequence() {
+            let chunk = &data[chunk_start..];
+            self.total_written += chunk.len() as f64;
+            if self.in_alt_screen {
+                self.write_alt_slice(chunk);
+            } else {
+                self.write_main_slice(chunk);
+            }
+        }
+        // If scanner is mid-sequence, bytes are in pending_seq and will be
+        // flushed when the sequence completes or aborts on next write().
+    }
+
+    /// Write a slice to the main ring buffer.
+    fn write_main_slice(&mut self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
 
         if data.len() >= self.max_size {
-            // Data larger than buffer -- keep the tail
             let start = data.len() - self.max_size;
             self.buffer[..self.max_size].copy_from_slice(&data[start..]);
             self.write_pos = 0;
@@ -84,7 +323,6 @@ impl OutputBuffer {
             self.buffer[self.write_pos..self.write_pos + data.len()].copy_from_slice(data);
             self.write_pos += data.len();
         } else {
-            // Wrap around
             self.buffer[self.write_pos..self.write_pos + space_left]
                 .copy_from_slice(&data[..space_left]);
             let remaining = data.len() - space_left;
@@ -99,17 +337,46 @@ impl OutputBuffer {
         }
     }
 
-    /// Read the entire buffer contents (for full replay).
-    fn read(&self) -> Vec<u8> {
-        if !self.filled {
-            return self.buffer[..self.write_pos].to_vec();
+    /// Write a slice to the alt screen buffer, enforcing the 2MB cap.
+    fn write_alt_slice(&mut self, data: &[u8]) {
+        self.alt_buf.extend_from_slice(data);
+
+        // Enforce cap: truncate from front if exceeded
+        if self.alt_buf.len() > ALT_BUFFER_CAP {
+            let excess = self.alt_buf.len() - ALT_BUFFER_CAP;
+            self.alt_buf.drain(..excess);
+            self.alt_content_start += excess as f64;
         }
-        // Buffer has wrapped -- linearize
-        let mut result =
-            Vec::with_capacity(self.max_size);
-        result.extend_from_slice(&self.buffer[self.write_pos..]);
-        result.extend_from_slice(&self.buffer[..self.write_pos]);
-        sanitize_start(result)
+    }
+
+    /// Called on resize — discards old alt screen content that will be redrawn.
+    fn notify_resize(&mut self) {
+        if self.in_alt_screen {
+            self.alt_buf.clear();
+            self.alt_content_start = self.total_written;
+        }
+    }
+
+    /// Read the entire buffer contents (for full replay).
+    /// Returns main buffer + alt buffer (if in alt screen).
+    fn read(&self) -> Vec<u8> {
+        let main = if !self.filled {
+            self.buffer[..self.write_pos].to_vec()
+        } else {
+            let mut result = Vec::with_capacity(self.max_size);
+            result.extend_from_slice(&self.buffer[self.write_pos..]);
+            result.extend_from_slice(&self.buffer[..self.write_pos]);
+            sanitize_start(result)
+        };
+
+        if self.in_alt_screen && !self.alt_buf.is_empty() {
+            let mut combined = Vec::with_capacity(main.len() + self.alt_buf.len());
+            combined.extend_from_slice(&main);
+            combined.extend_from_slice(&self.alt_buf);
+            combined
+        } else {
+            main
+        }
     }
 
     /// Read bytes from a global offset to the current write position.
@@ -119,18 +386,66 @@ impl OutputBuffer {
             return Some(Vec::new()); // fully caught up
         }
 
-        let size = self.size();
-        let buffer_start = self.total_written - size as f64;
-        if offset < buffer_start {
+        if self.in_alt_screen && !self.alt_buf.is_empty() {
+            // Dual-buffer mode: main content ends at alt_content_start,
+            // alt content spans [alt_content_start, total_written)
+            if offset >= self.alt_content_start {
+                // Offset is within alt buffer
+                let skip = (offset - self.alt_content_start) as usize;
+                if skip < self.alt_buf.len() {
+                    return Some(self.alt_buf[skip..].to_vec());
+                }
+                return Some(Vec::new());
+            }
+
+            // Offset is in main buffer — need main delta + all alt content
+            let main_delta = self.read_from_main(offset)?;
+            let mut result = Vec::with_capacity(main_delta.len() + self.alt_buf.len());
+            result.extend_from_slice(&main_delta);
+            result.extend_from_slice(&self.alt_buf);
+            Some(result)
+        } else {
+            // Normal mode: only main buffer
+            self.read_from_main(offset)
+        }
+    }
+
+    /// Read from main ring buffer only, using offset math.
+    fn read_from_main(&self, offset: f64) -> Option<Vec<u8>> {
+        let main_end = if self.in_alt_screen {
+            self.alt_content_start
+        } else {
+            self.total_written
+        };
+
+        if offset >= main_end {
+            return Some(Vec::new());
+        }
+
+        let main_size = self.main_size();
+        let main_start = main_end - main_size as f64;
+
+        if offset < main_start {
             return None; // too old, data overwritten
         }
 
-        let skip_bytes = (offset - buffer_start) as usize;
-        let raw = self.read_raw();
-        Some(raw[skip_bytes..].to_vec())
+        let skip_bytes = (offset - main_start) as usize;
+        let raw = self.read_main_raw();
+        if skip_bytes < raw.len() {
+            Some(raw[skip_bytes..].to_vec())
+        } else {
+            Some(Vec::new())
+        }
     }
 
+    /// Total logical size across both buffers.
+    #[cfg(test)]
     fn size(&self) -> usize {
+        self.main_size() + if self.in_alt_screen { self.alt_buf.len() } else { 0 }
+    }
+
+    /// Size of main ring buffer content.
+    fn main_size(&self) -> usize {
         if self.filled {
             self.max_size
         } else {
@@ -138,8 +453,8 @@ impl OutputBuffer {
         }
     }
 
-    /// Read raw linearized buffer without sanitization.
-    fn read_raw(&self) -> Vec<u8> {
+    /// Read raw linearized main buffer without sanitization.
+    fn read_main_raw(&self) -> Vec<u8> {
         if !self.filled {
             return self.buffer[..self.write_pos].to_vec();
         }
@@ -147,6 +462,12 @@ impl OutputBuffer {
         result.extend_from_slice(&self.buffer[self.write_pos..]);
         result.extend_from_slice(&self.buffer[..self.write_pos]);
         result
+    }
+
+    /// Read raw linearized buffer without sanitization (backward compat).
+    #[cfg(test)]
+    fn read_raw(&self) -> Vec<u8> {
+        self.read_main_raw()
     }
 }
 
@@ -847,6 +1168,7 @@ async fn main() {
             let mut s = state_resize.write().await;
             s.meta.cols = new_cols;
             s.meta.rows = new_rows;
+            s.output_buffer.notify_resize();
         }
     });
 
@@ -1909,5 +2231,394 @@ mod tests {
         // 2026-03-01 is 20,513 days from epoch
         let (y, m, d) = days_to_date(20_513);
         assert_eq!((y, m, d), (2026, 3, 1));
+    }
+
+    // ── AltScreenScanner tests ──────────────────────────────────────
+
+    #[test]
+    fn scanner_detects_alt_enter_1049() {
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?1049h";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Enter));
+    }
+
+    #[test]
+    fn scanner_detects_alt_exit_1049() {
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?1049l";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Exit));
+    }
+
+    #[test]
+    fn scanner_detects_mode_47() {
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?47h";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Enter));
+    }
+
+    #[test]
+    fn scanner_detects_mode_1047() {
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?1047l";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Exit));
+    }
+
+    #[test]
+    fn scanner_compound_params() {
+        // ESC[?1049;25h — compound params, 1049 is alt screen
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?1049;25h";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Enter));
+    }
+
+    #[test]
+    fn scanner_ignores_non_alt_mode() {
+        // ESC[?25h — show cursor, not alt screen
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?25h";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, None);
+    }
+
+    #[test]
+    fn scanner_ignores_non_private_csi() {
+        // ESC[1m — SGR bold, not a private mode
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[1m";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, None);
+    }
+
+    #[test]
+    fn scanner_resets_on_non_sequence() {
+        let mut scanner = AltScreenScanner::new();
+        // Feed some plain text
+        for &b in b"hello" {
+            assert_eq!(scanner.feed(b), None);
+        }
+        assert_eq!(scanner.state, ScanState::Normal);
+    }
+
+    #[test]
+    fn scanner_cross_boundary() {
+        // Split ESC[?1049h across two "writes"
+        let mut scanner = AltScreenScanner::new();
+        let part1 = b"\x1b[?10";
+        let part2 = b"49h";
+        let mut event = None;
+        for &b in part1 {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert!(scanner.is_mid_sequence());
+        assert_eq!(event, None);
+        for &b in part2 {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Enter));
+    }
+
+    #[test]
+    fn scanner_aborted_sequence_followed_by_real() {
+        // ESC[?25h (not alt), then ESC[?1049h (alt)
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b[?25h\x1b[?1049h";
+        let mut events = Vec::new();
+        for &b in seq.iter() {
+            if let Some(e) = scanner.feed(b) {
+                events.push(e);
+            }
+        }
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0], AltScreenEvent::Enter);
+    }
+
+    #[test]
+    fn scanner_double_esc_recovery() {
+        // Two ESCs in a row — second should start a new sequence
+        let mut scanner = AltScreenScanner::new();
+        let seq = b"\x1b\x1b[?1049h";
+        let mut event = None;
+        for &b in seq {
+            if let Some(e) = scanner.feed(b) {
+                event = Some(e);
+            }
+        }
+        assert_eq!(event, Some(AltScreenEvent::Enter));
+    }
+
+    // ── Dual-buffer OutputBuffer tests ──────────────────────────────
+
+    #[test]
+    fn alt_screen_enter_exit_basic() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"normal text");
+        buf.write(b"\x1b[?1049h"); // enter alt
+        assert!(buf.in_alt_screen);
+        buf.write(b"alt content");
+        buf.write(b"\x1b[?1049l"); // exit alt
+        assert!(!buf.in_alt_screen);
+        buf.write(b"back to normal");
+
+        let data = buf.read();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("normal text"));
+        assert!(text.contains("back to normal"));
+        // Alt content is discarded on exit
+        assert!(!text.contains("alt content"));
+    }
+
+    #[test]
+    fn alt_screen_read_includes_alt_content() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"main ");
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"alt stuff");
+        // Still in alt screen — read should include both
+        let data = buf.read();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("main "));
+        assert!(text.contains("alt stuff"));
+    }
+
+    #[test]
+    fn alt_screen_notify_resize_clears_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"old redraw content that should be discarded");
+        let old_total = buf.total_written;
+
+        buf.notify_resize();
+
+        assert!(buf.alt_buf.is_empty());
+        assert_eq!(buf.alt_content_start, old_total);
+        assert!(buf.in_alt_screen); // still in alt screen
+
+        buf.write(b"new redraw");
+        let data = buf.read();
+        let text = String::from_utf8_lossy(&data);
+        assert!(!text.contains("old redraw"));
+        assert!(text.contains("new redraw"));
+    }
+
+    #[test]
+    fn alt_screen_notify_resize_noop_when_normal() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"normal text");
+        let before = buf.total_written;
+        buf.notify_resize();
+        assert_eq!(buf.total_written, before);
+        assert_eq!(buf.read(), b"normal text");
+    }
+
+    #[test]
+    fn alt_screen_total_written_monotonic() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"hello"); // 5
+        assert_eq!(buf.total_written, 5.0);
+        buf.write(b"\x1b[?1049h"); // 8 bytes for the sequence
+        let after_enter = buf.total_written;
+        assert!(after_enter > 5.0);
+        buf.write(b"alt"); // 3
+        assert_eq!(buf.total_written, after_enter + 3.0);
+        buf.write(b"\x1b[?1049l"); // 8 bytes
+        let after_exit = buf.total_written;
+        assert!(after_exit > after_enter + 3.0);
+    }
+
+    #[test]
+    fn alt_screen_read_from_delta_in_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"main stuff");
+        let offset = buf.total_written;
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"alt data");
+
+        let delta = buf.read_from(offset).unwrap();
+        let text = String::from_utf8_lossy(&delta);
+        // Should include the enter sequence + alt data
+        assert!(text.contains("alt data"));
+    }
+
+    #[test]
+    fn alt_screen_read_from_within_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"first alt");
+        let offset = buf.total_written;
+        buf.write(b" second alt");
+
+        let delta = buf.read_from(offset).unwrap();
+        assert_eq!(delta, b" second alt");
+    }
+
+    #[test]
+    fn alt_screen_read_from_caught_up() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"content");
+        let delta = buf.read_from(buf.total_written).unwrap();
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn alt_screen_size_includes_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"main"); // 4
+        buf.write(b"\x1b[?1049h"); // 8
+        buf.write(b"alt!"); // 4
+        // size = main_size(12) + alt_buf.len(4) = 16
+        assert_eq!(buf.size(), 16);
+    }
+
+    #[test]
+    fn alt_screen_size_normal_no_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"just normal");
+        assert_eq!(buf.size(), 11);
+        assert_eq!(buf.alt_buf.len(), 0);
+    }
+
+    #[test]
+    fn alt_buffer_cap_enforced() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"\x1b[?1049h");
+        // Write more than ALT_BUFFER_CAP
+        let big = vec![b'X'; ALT_BUFFER_CAP + 1000];
+        buf.write(&big);
+        assert!(buf.alt_buf.len() <= ALT_BUFFER_CAP);
+    }
+
+    #[test]
+    fn alt_screen_multiple_resizes() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"redraw1");
+        buf.notify_resize();
+        buf.write(b"redraw2");
+        buf.notify_resize();
+        buf.write(b"redraw3");
+
+        let data = buf.read();
+        let text = String::from_utf8_lossy(&data);
+        assert!(!text.contains("redraw1"));
+        assert!(!text.contains("redraw2"));
+        assert!(text.contains("redraw3"));
+    }
+
+    #[test]
+    fn alt_screen_enter_exit_enter() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"normal");
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"alt1");
+        buf.write(b"\x1b[?1049l");
+        buf.write(b"normal2");
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"alt2");
+
+        let data = buf.read();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("normal"));
+        assert!(text.contains("normal2"));
+        assert!(!text.contains("alt1")); // discarded on exit
+        assert!(text.contains("alt2")); // still in alt screen
+    }
+
+    #[test]
+    fn alt_screen_cross_write_boundary() {
+        // Split the ESC[?1049h sequence across two writes
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"before\x1b[?10");
+        assert!(buf.scanner.is_mid_sequence());
+        buf.write(b"49hafter");
+        assert!(buf.in_alt_screen);
+        // "after" should be in alt buffer
+        let text = String::from_utf8_lossy(&buf.alt_buf);
+        assert_eq!(text, "after");
+    }
+
+    #[test]
+    fn fast_path_no_esc_bytes() {
+        // Plain text with no ESC bytes should take fast path
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"plain text no escapes here");
+        assert_eq!(buf.total_written, 26.0);
+        assert_eq!(buf.read(), b"plain text no escapes here");
+        assert!(!buf.in_alt_screen);
+    }
+
+    #[test]
+    fn existing_ring_buffer_unchanged_without_alt() {
+        // Verify existing ring buffer behavior is preserved
+        let mut buf = OutputBuffer::new(16);
+        buf.write(b"AAAAAAAAAA"); // 10
+        buf.write(b"BBBBBBBBBB"); // 10 more, wraps
+        let data = buf.read_raw();
+        assert_eq!(data.len(), 16);
+        assert_eq!(buf.total_written, 20.0);
+        assert!(buf.filled);
+    }
+
+    #[test]
+    fn existing_read_from_delta_without_alt() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"first chunk ");
+        let offset = buf.total_written;
+        buf.write(b"second chunk");
+        let delta = buf.read_from(offset).unwrap();
+        assert_eq!(delta, b"second chunk");
+    }
+
+    #[test]
+    fn existing_read_from_overwritten() {
+        let mut buf = OutputBuffer::new(32);
+        buf.write(b"first write that fills buffer!!");
+        let early = 5.0;
+        buf.write(b"second write that overwrites everything!!!");
+        assert!(buf.read_from(early).is_none());
     }
 }
