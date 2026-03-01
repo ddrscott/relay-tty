@@ -10,6 +10,11 @@ export function registerAttachCommand(program: Command) {
     .description("attach to an existing session")
     .option("-H, --host <url>", "server URL")
     .action(async (id: string, opts) => {
+      if (process.env.RELAY_SESSION_ID === id) {
+        process.stderr.write(`Error: cannot attach to own session (${id})\n`);
+        process.exit(1);
+      }
+
       const host = resolveHost(opts.host);
 
       // Try server first

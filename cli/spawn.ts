@@ -42,7 +42,7 @@ export function spawnDirect(
   const child = cpSpawn(spawnCmd, spawnArgs, {
     detached: true,
     stdio: "ignore",
-    env: process.env,
+    env: { ...process.env, RELAY_SESSION_ID: id },
   });
   child.unref();
 

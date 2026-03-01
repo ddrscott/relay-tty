@@ -61,6 +61,7 @@ interface TuiState {
   rows: number;
   host: string;
   running: boolean;
+  attached: boolean; // true while attached to a session (suppress TUI rendering)
   confirmStop: boolean; // showing stop confirmation
   statusMessage: string;
   statusTimeout: ReturnType<typeof setTimeout> | null;
@@ -80,6 +81,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     rows: process.stdout.rows || 24,
     host,
     running: true,
+    attached: false,
     confirmStop: false,
     statusMessage: "",
     statusTimeout: null,
@@ -98,7 +100,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
 
   // Live refresh timer
   const refreshInterval = setInterval(async () => {
-    if (!state.running) return;
+    if (!state.running || state.attached) return;
     state.sessions = await loadSessions(opts.host);
     // Preserve selection by ID
     if (state.selectedId) {
@@ -114,13 +116,14 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
 
   // Input handling
   const onData = (data: Buffer) => {
-    if (!state.running) return;
+    if (!state.running || state.attached) return;
     handleInput(data, state);
   };
   process.stdin.on("data", onData);
 
   // Resize
   const onResize = () => {
+    if (state.attached) return; // attach.ts handles resize while attached
     state.cols = process.stdout.columns || 80;
     state.rows = process.stdout.rows || 24;
     render(state);
@@ -308,6 +311,14 @@ function setStatus(state: TuiState, msg: string) {
 // ── Actions ─────────────────────────────────────────────────────────────
 
 async function doAttach(session: Session, state: TuiState) {
+  if (process.env.RELAY_SESSION_ID === session.id) {
+    setStatus(state, `Cannot attach to own session`);
+    return;
+  }
+
+  // Suppress TUI rendering while attached
+  state.attached = true;
+
   // Leave TUI temporarily
   process.stdout.write(MOUSE_OFF + CURSOR_SHOW + ALT_SCREEN_OFF);
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
@@ -327,6 +338,7 @@ async function doAttach(session: Session, state: TuiState) {
 
   const onDetach = async () => {
     // Re-enter TUI
+    state.attached = false;
     state.sessions = await loadSessions();
     if (state.selectedId) {
       const idx = state.sessions.findIndex(s => s.id === state.selectedId);
