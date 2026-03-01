@@ -91,14 +91,7 @@ CLI: relay htop ────POST /api/sessions──▶│
 
 ### WebSocket Protocol
 
-Binary frames, first byte = message type:
-
-| Byte | Direction | Meaning |
-|------|-----------|---------|
-| `0x00` | bidirectional | Terminal data |
-| `0x01` | client→server | Resize (2x uint16 BE: cols, rows) |
-| `0x02` | server→client | Exit code (int32 BE) |
-| `0x03` | server→client | Buffer replay (on connect) |
+Binary frames over WS and length-prefixed frames over Unix sockets. See [docs/protocol.md](docs/protocol.md) for the full message type reference, connection flow, and delta resume protocol.
 
 ### Key Design Decisions
 
@@ -164,10 +157,27 @@ relay server uninstall   # remove and stop the service
 ## Development
 
 ```bash
-npm run dev          # dev server with Vite HMR
-npm run build        # production build (React Router + CLI)
+npm run dev          # dev server with Vite HMR (auto-builds Rust if toolchain present)
+npm run build        # production build (React Router + CLI + Rust pty-host)
 npm start            # production server
 ```
+
+### Rust pty-host (optional but recommended)
+
+The PTY session host is written in Rust for reliability. Without a Rust toolchain, relay-tty falls back to the Node.js implementation automatically.
+
+```bash
+# Install Rust (if needed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Build the pty-host binary
+cargo build --release --manifest-path crates/pty-host/Cargo.toml
+
+# Run tests (53 unit + 19 integration)
+cargo test --manifest-path crates/pty-host/Cargo.toml
+```
+
+The Rust binary provides 1/5/15-minute throughput metrics (like `top` load averages), lower memory usage (~2MB vs ~40MB per session), and eliminates the node-pty native addon as a crash risk.
 
 ## Tech Stack
 

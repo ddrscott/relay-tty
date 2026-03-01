@@ -2,6 +2,7 @@
 
 ## Stack
 - Express + React Router v7 SSR + Tailwind v4 + DaisyUI v5
+- Rust pty-host (`crates/pty-host/`) — tokio + libc::forkpty, ~700KB binary
 - xterm.js v5.5.0 (NOT v6 — v6 breaks mobile touch scrolling)
 - lucide-react for icons
 - `npm run dev` on port 18701, public URL via Cloudflare tunnel
@@ -26,10 +27,10 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 - iOS: `.xterm-rows span { pointer-events: none }` fixes touch-on-text-span issue
 
 ## Process Architecture
-Each session runs in a detached `pty-host` process that survives server restarts. The Rust binary (`crates/pty-host/`) is preferred when available, with automatic fallback to Node.js (`server/pty-host.ts`). Code changes to either implementation require restarting the pty-host process (or creating new sessions) -- running sessions use the old binary.
+Each session runs in a detached pty-host process (per-process isolation — one crash can't kill other sessions). Rust binary preferred (`crates/pty-host/`), auto-fallback to Node.js (`server/pty-host.ts`). Binary lookup: `bin/relay-pty-host` → `crates/pty-host/target/release/relay-pty-host` → `node dist/server/pty-host.js`.
 
-**Rust pty-host**: `crates/pty-host/src/main.rs` -- compiled to `crates/pty-host/target/release/relay-pty-host` (~700KB). Uses tokio + forkpty. Includes 1/5/15-minute throughput metrics (bps1/bps5/bps15) and `SESSION_METRICS` (0x14) broadcast.
+Rust pty-host adds `bps1`/`bps5`/`bps15` throughput metrics (1/5/15m windows) and `SESSION_METRICS` (0x14) broadcasts. Node fallback only has single `bytesPerSecond` (30s window). Build: `cargo build --release --manifest-path crates/pty-host/Cargo.toml`. Test: `cargo test` (53 unit + 19 integration).
 
-**Fallback**: Both `pty-manager.ts` and `cli/spawn.ts` check for the Rust binary first (at `bin/relay-pty-host` or `crates/pty-host/target/release/relay-pty-host`), falling back to `node dist/server/pty-host.js`. The Unix socket protocol is identical.
+Code changes require restarting pty-host or creating new sessions — running sessions use the old binary.
 
-**Critical: The CLI spawns processes, not the server.** `relay <command>` always calls `spawnDirect()` so pty-host inherits the *user's* environment. The server is only a WebSocket bridge -- it discovers sessions from disk via `discoverOne()`. Never route process creation through the server; whoever spawns the process determines the child's env, and the server's env is whatever launched it (could be Claude Code, tmux, systemd, etc.).
+**Critical: The CLI spawns processes, not the server.** `relay <command>` calls `spawnDirect()` so pty-host inherits the user's env. The server is only a WS bridge — discovers sessions from disk via `discoverOne()`.
