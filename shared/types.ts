@@ -17,8 +17,14 @@ export interface Session {
   totalBytesWritten?: number;
   /** ISO timestamp of last PTY output */
   lastActiveAt?: string;
-  /** Rolling average bytes/sec over last 30s window */
+  /** Rolling average bytes/sec over last 30s window (legacy, prefer bps1) */
   bytesPerSecond?: number;
+  /** 1-minute bytes/sec rolling average */
+  bps1?: number;
+  /** 5-minute bytes/sec rolling average */
+  bps5?: number;
+  /** 15-minute bytes/sec rolling average */
+  bps15?: number;
 }
 
 export const WS_MSG = {
@@ -35,6 +41,10 @@ export const WS_MSG = {
   SYNC: 0x11,
   /** Server→client: session activity state [1B: 0x00=idle, 0x01=active]. */
   SESSION_STATE: 0x12,
+  /** Server→client: gzip-compressed BUFFER_REPLAY [gzipped bytes]. */
+  BUFFER_REPLAY_GZ: 0x13,
+  /** Server→client: throughput metrics [bps1(f64) + bps5(f64) + bps15(f64) + totalBytes(f64)]. */
+  SESSION_METRICS: 0x14,
 } as const;
 
 export interface CreateSessionRequest {

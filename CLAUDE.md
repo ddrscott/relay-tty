@@ -26,6 +26,10 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 - iOS: `.xterm-rows span { pointer-events: none }` fixes touch-on-text-span issue
 
 ## Process Architecture
-Each session runs in a detached `pty-host` process (compiled JS) that survives server restarts. Code changes to `pty-host.ts` require restarting the pty-host process (or creating new sessions) — running sessions use the old compiled code.
+Each session runs in a detached `pty-host` process that survives server restarts. The Rust binary (`crates/pty-host/`) is preferred when available, with automatic fallback to Node.js (`server/pty-host.ts`). Code changes to either implementation require restarting the pty-host process (or creating new sessions) -- running sessions use the old binary.
 
-**Critical: The CLI spawns processes, not the server.** `relay <command>` always calls `spawnDirect()` so pty-host inherits the *user's* environment. The server is only a WebSocket bridge — it discovers sessions from disk via `discoverOne()`. Never route process creation through the server; whoever spawns the process determines the child's env, and the server's env is whatever launched it (could be Claude Code, tmux, systemd, etc.).
+**Rust pty-host**: `crates/pty-host/src/main.rs` -- compiled to `crates/pty-host/target/release/relay-pty-host` (~700KB). Uses tokio + forkpty. Includes 1/5/15-minute throughput metrics (bps1/bps5/bps15) and `SESSION_METRICS` (0x14) broadcast.
+
+**Fallback**: Both `pty-manager.ts` and `cli/spawn.ts` check for the Rust binary first (at `bin/relay-pty-host` or `crates/pty-host/target/release/relay-pty-host`), falling back to `node dist/server/pty-host.js`. The Unix socket protocol is identical.
+
+**Critical: The CLI spawns processes, not the server.** `relay <command>` always calls `spawnDirect()` so pty-host inherits the *user's* environment. The server is only a WebSocket bridge -- it discovers sessions from disk via `discoverOne()`. Never route process creation through the server; whoever spawns the process determines the child's env, and the server's env is whatever launched it (could be Claude Code, tmux, systemd, etc.).

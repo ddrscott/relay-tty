@@ -16,6 +16,7 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { gzipSync } from "node:zlib";
 import * as pty from "node-pty";
 import { WS_MSG } from "../shared/types.js";
 import { OutputBuffer } from "./output-buffer.js";
@@ -342,13 +343,89 @@ ptyProcess.onExit(({ exitCode: code, signal }: { exitCode: number; signal?: numb
   }, 1000);
 });
 
+/** Minimum payload size to bother compressing (below this, overhead isn't worth it). */
+const GZIP_THRESHOLD = 4096;
+
+/**
+ * Strip terminal query sequences from replay data that would trigger
+ * client-side responses (CPR, DA) if re-processed by the terminal emulator.
+ *
+ * Without this, replayed ESC[6n (DSR) causes xterm.js/iTerm to generate
+ * ESC[row;colR (CPR) which gets sent back to the PTY as stdin garbage
+ * (visible as "[25;1R" in the terminal).
+ *
+ * Strips: ESC[6n (DSR/CPR), ESC[c / ESC[>c (DA1/DA2), ESC[=c (DA3)
+ */
+function stripTerminalQueries(data: Buffer): Buffer {
+  // Common query sequences that trigger terminal responses:
+  //   ESC[6n    — Device Status Report (cursor position query)
+  //   ESC[c     — Device Attributes (DA1)
+  //   ESC[>c    — Secondary Device Attributes (DA2)
+  //   ESC[=c    — Tertiary Device Attributes (DA3)
+  //   ESC[?6n   — DECRQM variant of DSR
+  // These are all short sequences, so a simple scan is efficient.
+  const ESC = 0x1b;
+  const result: number[] = [];
+  let i = 0;
+
+  while (i < data.length) {
+    if (data[i] === ESC && i + 1 < data.length && data[i + 1] === 0x5b /* '[' */) {
+      // Potential CSI sequence — scan to find the final byte
+      let j = i + 2;
+      // Skip parameter and intermediate bytes (0x20-0x3f)
+      while (j < data.length && data[j] >= 0x20 && data[j] <= 0x3f) j++;
+
+      if (j < data.length) {
+        const finalByte = data[j];
+        const params = data.subarray(i + 2, j).toString("ascii");
+
+        // Check if this is a query we should strip
+        if (
+          (finalByte === 0x6e /* 'n' */ && (params === "6" || params === "?6")) || // DSR
+          (finalByte === 0x63 /* 'c' */ && (params === "" || params === ">" || params === "=" || params === "0")) // DA1/DA2/DA3
+        ) {
+          // Skip this sequence entirely
+          i = j + 1;
+          continue;
+        }
+      }
+    }
+
+    result.push(data[i]);
+    i++;
+  }
+
+  // Fast path: if nothing was stripped, return original buffer
+  if (result.length === data.length) return data;
+  return Buffer.from(result);
+}
+
 /** Send BUFFER_REPLAY + SYNC + TITLE + SESSION_STATE to a socket. */
 function sendReplay(socket: net.Socket, bufData: Buffer): void {
-  if (bufData.length > 0) {
-    const msg = Buffer.alloc(1 + bufData.length);
-    msg[0] = WS_MSG.BUFFER_REPLAY;
-    bufData.copy(msg, 1);
-    writeFrame(socket, msg);
+  // Strip terminal query sequences that would cause phantom CPR/DA
+  // responses when the client terminal re-processes the replay data.
+  const cleaned = bufData.length > 0 ? stripTerminalQueries(bufData) : bufData;
+  if (cleaned.length > 0) {
+    if (cleaned.length >= GZIP_THRESHOLD) {
+      const compressed = gzipSync(cleaned);
+      if (compressed.length < cleaned.length) {
+        const msg = Buffer.alloc(1 + compressed.length);
+        msg[0] = WS_MSG.BUFFER_REPLAY_GZ;
+        compressed.copy(msg, 1);
+        writeFrame(socket, msg);
+      } else {
+        // Compressed is larger — send uncompressed
+        const msg = Buffer.alloc(1 + cleaned.length);
+        msg[0] = WS_MSG.BUFFER_REPLAY;
+        cleaned.copy(msg, 1);
+        writeFrame(socket, msg);
+      }
+    } else {
+      const msg = Buffer.alloc(1 + cleaned.length);
+      msg[0] = WS_MSG.BUFFER_REPLAY;
+      cleaned.copy(msg, 1);
+      writeFrame(socket, msg);
+    }
   }
   sendSync(socket);
 

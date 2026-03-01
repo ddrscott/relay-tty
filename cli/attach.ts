@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import * as os from "node:os";
+import { gunzipSync } from "node:zlib";
 import { WS_MSG } from "../shared/types.js";
 import { parseFrames } from "../shared/framing.js";
 
@@ -103,6 +104,10 @@ function handleMessage(type: number, payload: Buffer, s: RawSession, opts: Attac
     case WS_MSG.DATA:
     case WS_MSG.BUFFER_REPLAY:
       process.stdout.write(payload);
+      s.reconnecting = false;
+      break;
+    case WS_MSG.BUFFER_REPLAY_GZ:
+      process.stdout.write(gunzipSync(payload));
       s.reconnecting = false;
       break;
     case WS_MSG.EXIT: {

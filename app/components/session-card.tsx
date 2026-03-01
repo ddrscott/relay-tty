@@ -30,7 +30,8 @@ function formatRate(bps: number): string {
 
 export function SessionCard({ session, showCwd = true }: { session: Session; showCwd?: boolean }) {
   const isRunning = session.status === "running";
-  const isActive = isRunning && (session.bytesPerSecond ?? 0) >= 1;
+  const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
+  const isActive = isRunning && bps >= 1;
   const displayCommand = [session.command, ...session.args].join(" ");
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -65,10 +66,10 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
             </code>
             {loading ? (
               <Loader size={14} className="shrink-0 text-[#64748b] animate-spin" />
-            ) : isRunning && session.bytesPerSecond != null ? (
+            ) : isRunning && (session.bps1 != null || session.bytesPerSecond != null) ? (
               <div className="shrink-0 flex items-center gap-2 text-xs font-mono">
                 <span className={isActive ? "text-[#22c55e]" : "text-[#64748b]"}>
-                  {formatRate(session.bytesPerSecond)}
+                  {formatRate(bps)}
                 </span>
                 {session.totalBytesWritten != null && (
                   <span className="text-[#64748b]">{formatBytes(session.totalBytesWritten)}</span>

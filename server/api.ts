@@ -140,7 +140,7 @@ export function createApiRouter(
 
   // GET /api/sessions/:id/files/* — serve files relative to session CWD
   // Security: resolves symlinks and verifies the real path is under session CWD.
-  router.get("/sessions/:id/files/*", async (req, res) => {
+  router.get("/sessions/:id/files/*filepath", async (req, res) => {
     const session = sessionStore.get(req.params.id)
       || await ptyManager.discoverOne(req.params.id);
     if (!session) {
@@ -148,8 +148,8 @@ export function createApiRouter(
       return;
     }
 
-    // Express 5 puts the wildcard in params[0]
-    const filePath = (req.params as any)[0] as string | undefined;
+    // Express 5 / path-to-regexp v8: named wildcard *filepath
+    const filePath = (req.params as any).filepath as string | undefined;
     if (!filePath) {
       res.status(400).json({ error: "File path required" });
       return;

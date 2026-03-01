@@ -38,7 +38,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
 
-  const { termRef, status, contentReady, fit, sendBinary } = useTerminalCore(containerRef, {
+  const { termRef, status, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
     onExit,
@@ -125,6 +125,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     if (!term) return;
 
     const disposable = term.onData((data: string) => {
+      // During buffer replay, xterm generates CPR/DA responses to replayed
+      // DSR queries. Suppress them so they don't leak to the PTY as stdin.
+      if (replayingRef.current) return;
       const transform = inputTransformRef.current;
       const out = transform ? transform(data) : data;
       if (out === null) return;

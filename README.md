@@ -80,7 +80,7 @@ CLI: relay htop ────POST /api/sessions──▶│
 
                             ┌──────────────────────────────────┐
                             │ pty-host (detached process)      │
-                            │   ├─ node-pty (owns the PTY)     │
+                            │   ├─ Rust binary (or Node.js)    │
                             │   ├─ OutputBuffer (10MB ring)    │
                             │   └─ Unix socket server          │
                             │       ~/.relay-tty/sockets/<id>  │
@@ -102,7 +102,7 @@ Binary frames, first byte = message type:
 
 ### Key Design Decisions
 
-- **Process separation** — each session runs in a detached `pty-host` process that owns the PTY. The server can crash, restart, or be upgraded without killing sessions. Session metadata is persisted to `~/.relay-tty/sessions/` and sockets live at `~/.relay-tty/sockets/`. On restart, the server discovers and reconnects to surviving sessions.
+- **Process separation** — each session runs in a detached `pty-host` process that owns the PTY. The Rust implementation (`crates/pty-host/`) is preferred when available (~700KB, ~2MB RSS), with automatic fallback to Node.js. The server can crash, restart, or be upgraded without killing sessions. Session metadata is persisted to `~/.relay-tty/sessions/` and sockets live at `~/.relay-tty/sockets/`. On restart, the server discovers and reconnects to surviving sessions.
 - **CLI attaches by default** — `relay bash` creates a session and enters raw TTY mode. `--detach` for fire-and-forget.
 - **10MB output ring buffer** — new clients replay recent output on connect (buffer lives in pty-host). This is a session replay buffer for reconnecting viewers, not a logging system. relay-tty is built for interactive sessions, not permanent workloads — use proper log infrastructure if you need durable output retention.
 - **Per-client socket connections** — each WS client gets its own Unix socket to the pty-host, so each gets independent buffer replay.
@@ -173,6 +173,7 @@ npm start            # production server
 
 - **Frontend**: React Router v7 (SSR) + Tailwind v4 + DaisyUI v5 + xterm.js
 - **Backend**: Express 5 + node-pty + ws
+- **PTY Host**: Rust (tokio + forkpty) with Node.js fallback
 - **CLI**: Commander
 - **Service**: launchd (macOS) / systemd (Linux)
 - **Mobile**: PWA (standalone, no browser chrome) + Web Speech API for voice input

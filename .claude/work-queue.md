@@ -20,3 +20,5 @@
 - [x] Show live session activity stats in web view (bytes/sec, total bytes, idle time) ([detail](work-queue/session-activity-dashboard.md))
 - [x] Clickable file paths in terminal with browser-based file viewer panel ([detail](work-queue/file-viewer-panel.md))
 - [x] Diagnose and fix slow session switching — full buffer replay on navigate ([detail](work-queue/session-switch-replay.md))
+- [x] Rewrite pty-host in Rust with 1/5/15m metrics and idle notifications ([detail](work-queue/rust-pty-host.md))
+- [ ] Add pty-host test suite: Rust unit tests + Unix socket integration tests ([detail](work-queue/pty-host-test-suite.md))

@@ -4,3 +4,9 @@ build/
 .react-router/
 .env
 *.log
+
+# Rust build artifacts
+crates/pty-host/target/
+
+# Pre-built binary (downloaded by postinstall or CI)
+bin/relay-pty-host

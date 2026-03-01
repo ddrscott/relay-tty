@@ -36,7 +36,7 @@ export interface TerminalCoreOpts {
   /** Called when text is auto-copied to clipboard (desktop selection or explicit copy) */
   onCopy?: () => void;
   /** Called when session activity state changes (idle/active) or byte counter updates */
-  onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
+  onActivityUpdate?: (update: { isActive: boolean; totalBytes: number; bps1?: number; bps5?: number; bps15?: number }) => void;
   /** Called when a file path link is clicked in terminal output */
   onFileLink?: (link: FileLink) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
@@ -56,6 +56,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const webglRef = useRef<any>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [contentReady, setContentReady] = useState(false);
+  // True during buffer replay — suppresses onData forwarding so xterm's
+  // CPR/DA responses to replayed DSR queries don't leak to the PTY as stdin.
+  const replayingRef = useRef(false);
 
   // After a resize, apps like Claude Code redraw their TUI. That output
   // arrives over WS and can scroll xterm away from the bottom. This ref
@@ -229,11 +232,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // Write cached buffer into xterm before WS connect.
             // This gives near-instant display; the WS RESUME will
             // fetch only the delta since the cached offset.
+            replayingRef.current = true;
             await new Promise<void>((resolve) => {
               const syncAndScroll = () => {
                 const core = (term as any)._core;
                 if (core?.viewport) core.viewport.syncScrollArea(true);
                 term.scrollToBottom();
+                replayingRef.current = false;
                 markContentReady();
                 resolve();
               };
@@ -663,6 +668,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           opts.onActivityUpdate?.({ isActive, totalBytes: byteOffset });
           break;
         }
+        case WS_MSG.SESSION_METRICS: {
+          // 32-byte payload: bps1(f64) + bps5(f64) + bps15(f64) + totalBytesWritten(f64)
+          if (payload.length >= 32) {
+            const mv = new DataView(payload.buffer, payload.byteOffset);
+            const bps1 = mv.getFloat64(0, false);
+            const bps5 = mv.getFloat64(8, false);
+            const bps15 = mv.getFloat64(16, false);
+            const totalBytes = mv.getFloat64(24, false);
+            lastActivityActive = bps1 >= 1;
+            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes, bps1, bps5, bps15 });
+          }
+          break;
+        }
       }
     }
 
@@ -679,10 +697,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         cacheWriter?.append(payload);
       }
 
+      // Suppress onData forwarding during replay so xterm's CPR/DA
+      // responses to replayed DSR queries don't leak to the PTY.
+      replayingRef.current = true;
+
       const syncAndScroll = () => {
         const core = (term as any)._core;
         if (core?.viewport) core.viewport.syncScrollArea(true);
         term.scrollToBottom();
+      };
+
+      const finishReplay = () => {
+        replayingRef.current = false;
+        markContentReady();
       };
 
       if (isReconnect) {
@@ -690,7 +717,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         // just append the small delta and mark ready
         term.write(payload, () => {
           syncAndScroll();
-          markContentReady();
+          finishReplay();
         });
         return;
       }
@@ -702,7 +729,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (payload.length <= REPLAY_CHUNK_SIZE) {
         term.write(payload, () => {
           syncAndScroll();
-          markContentReady();
+          finishReplay();
         });
         return;
       }
@@ -721,7 +748,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           if (isLast) {
             syncAndScroll();
             opts.onReplayProgress?.(null);
-            markContentReady();
+            finishReplay();
           } else {
             chunkOffset = end;
             opts.onReplayProgress?.(chunkOffset / total);
@@ -761,5 +788,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     };
   }, [opts.wsPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, status, contentReady, fit, sendBinary };
+  return { termRef, wsRef, fitAddonRef, status, contentReady, fit, sendBinary, replayingRef };
 }

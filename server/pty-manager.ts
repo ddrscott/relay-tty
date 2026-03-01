@@ -127,17 +127,36 @@ export class PtyManager extends EventEmitter {
     const fullCmd = args.length > 0
       ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
       : `exec ${shellEscape(command)}`;
-    const wrappedArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+
+    const spawnEnv = {
+      ...process.env,
+      RELAY_ORIG_COMMAND: command,
+      RELAY_ORIG_ARGS: JSON.stringify(args),
+    };
+
+    // Prefer Rust binary, fall back to Node pty-host.js
+    const rustBinaryPath = this.resolveRustBinaryPath();
+    const useRust = rustBinaryPath !== null;
+
+    let spawnCmd: string;
+    let spawnArgs: string[];
+
+    if (useRust) {
+      // Rust binary: relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]
+      // Wrap in login shell same as Node path
+      spawnCmd = rustBinaryPath;
+      spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+    } else {
+      // Node fallback: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
+      spawnCmd = "node";
+      spawnArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+    }
 
     // Spawn pty-host as detached process — survives server death
-    const child = cpSpawn("node", wrappedArgs, {
+    const child = cpSpawn(spawnCmd, spawnArgs, {
       detached: true,
       stdio: "ignore",
-      env: {
-        ...process.env,
-        RELAY_ORIG_COMMAND: command,
-        RELAY_ORIG_ARGS: JSON.stringify(args),
-      },
+      env: spawnEnv,
     });
     child.unref();
 
@@ -274,6 +293,36 @@ export class PtyManager extends EventEmitter {
     }
     // Dev mode (loaded via Vite SSR) — use pre-compiled dist
     return path.resolve(__dirname, "..", "dist", "server", "pty-host.js");
+  }
+
+  /**
+   * Look for the Rust relay-pty-host binary.
+   * Returns the path if found and executable, null otherwise.
+   */
+  private resolveRustBinaryPath(): string | null {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const projectRoot = __dirname.includes("/dist/")
+      ? path.resolve(__dirname, "..", "..")
+      : path.resolve(__dirname, "..");
+
+    // Check locations in order of preference:
+    // 1. Pre-built binary at bin/relay-pty-host (npm distribution)
+    // 2. Cargo build output at crates/pty-host/target/release/relay-pty-host
+    const candidates = [
+      path.join(projectRoot, "bin", "relay-pty-host"),
+      path.join(projectRoot, "crates", "pty-host", "target", "release", "relay-pty-host"),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // Not found or not executable
+      }
+    }
+
+    return null;
   }
 
   private async waitForSocket(id: string, socketPath: string, retries = 30): Promise<void> {

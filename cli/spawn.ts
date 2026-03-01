@@ -20,10 +20,26 @@ export function spawnDirect(
   cwd?: string
 ): { id: string; socketPath: string } {
   const id = randomBytes(4).toString("hex");
-  const ptyHostPath = resolvePtyHostPath();
   const effectiveCwd = cwd || process.cwd();
 
-  const child = cpSpawn("node", [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args], {
+  // Prefer Rust binary, fall back to Node pty-host.js
+  const rustBinary = resolveRustBinaryPath();
+
+  let spawnCmd: string;
+  let spawnArgs: string[];
+
+  if (rustBinary) {
+    // Rust binary: relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]
+    spawnCmd = rustBinary;
+    spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, ...args];
+  } else {
+    // Node fallback: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
+    const ptyHostPath = resolvePtyHostPath();
+    spawnCmd = "node";
+    spawnArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args];
+  }
+
+  const child = cpSpawn(spawnCmd, spawnArgs, {
     detached: true,
     stdio: "ignore",
     env: process.env,
@@ -74,4 +90,34 @@ function resolvePtyHostPath(): string {
     return path.join(__dirname, "..", "server", "pty-host.js");
   }
   return path.resolve(__dirname, "..", "dist", "server", "pty-host.js");
+}
+
+/**
+ * Look for the Rust relay-pty-host binary.
+ * Returns the path if found and executable, null otherwise.
+ */
+function resolveRustBinaryPath(): string | null {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const projectRoot = __dirname.includes("/dist/")
+    ? path.resolve(__dirname, "..", "..")
+    : path.resolve(__dirname, "..");
+
+  // Check locations in order of preference:
+  // 1. Pre-built binary at bin/relay-pty-host (npm distribution)
+  // 2. Cargo build output at crates/pty-host/target/release/relay-pty-host
+  const candidates = [
+    path.join(projectRoot, "bin", "relay-pty-host"),
+    path.join(projectRoot, "crates", "pty-host", "target", "release", "relay-pty-host"),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Not found or not executable
+    }
+  }
+
+  return null;
 }
