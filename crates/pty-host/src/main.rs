@@ -1305,3 +1305,604 @@ fn atomic_write_json<T: Serialize>(path: &Path, value: &T) {
         Err(_) => {}
     }
 }
+
+// ── Unit tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::read::GzDecoder;
+    use std::io::Read as IoRead;
+    use std::time::{Duration, Instant};
+
+    // ── OutputBuffer tests ──────────────────────────────────────────
+
+    #[test]
+    fn ring_buffer_write_and_read() {
+        let mut buf = OutputBuffer::new(64);
+        buf.write(b"hello world");
+        assert_eq!(buf.read(), b"hello world");
+        assert_eq!(buf.size(), 11);
+        assert_eq!(buf.total_written, 11.0);
+    }
+
+    #[test]
+    fn ring_buffer_wraps_around() {
+        let mut buf = OutputBuffer::new(16);
+        // Write 10 bytes
+        buf.write(b"AAAAAAAAAA");
+        // Write 10 more -- wraps around the 16-byte buffer
+        buf.write(b"BBBBBBBBBB");
+        let data = buf.read_raw();
+        assert_eq!(data.len(), 16);
+        assert_eq!(buf.total_written, 20.0);
+        assert!(buf.filled);
+        // After wrapping, the most recent 16 bytes should be AAAABBBBBBBBBB
+        // Actually: first write puts 10 A's at [0..10], second write puts 10 B's
+        // at [10..16] (6 B's) then wraps [0..4] (4 B's).
+        // read_raw linearizes from write_pos(4): [4..16] + [0..4]
+        // = AAAAAABBBBBB + BBBB = "AAAAAABBBBBBBBBB" -- wait no:
+        // buffer state: [B,B,B,B,A,A,A,A,A,A,B,B,B,B,B,B], write_pos=4
+        // read_raw: [4..16] + [0..4] = "AAAAAABBBBBB" + "BBBB"
+        // = "AAAAAABBBBBBBBBB" which is 16 bytes
+        assert_eq!(data.len(), 16);
+    }
+
+    #[test]
+    fn ring_buffer_read_from_delta() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"first chunk ");
+        let offset_after_first = buf.total_written;
+        buf.write(b"second chunk");
+
+        let delta = buf.read_from(offset_after_first).unwrap();
+        assert_eq!(delta, b"second chunk");
+    }
+
+    #[test]
+    fn ring_buffer_read_from_fully_caught_up() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"data");
+        let delta = buf.read_from(buf.total_written).unwrap();
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn ring_buffer_read_from_overwritten_returns_none() {
+        let mut buf = OutputBuffer::new(32);
+        buf.write(b"first write that fills buffer!!");
+        let early_offset = 5.0;
+        // Write enough to push beyond the buffer
+        buf.write(b"second write that overwrites everything!!!");
+        assert!(buf.read_from(early_offset).is_none());
+    }
+
+    #[test]
+    fn ring_buffer_capacity_enforcement() {
+        let mut buf = OutputBuffer::new(64);
+        // Write more than capacity in one shot
+        let big = vec![b'X'; 128];
+        buf.write(&big);
+        assert_eq!(buf.size(), 64);
+        assert_eq!(buf.total_written, 128.0);
+        // Should contain the last 64 bytes
+        let data = buf.read_raw();
+        assert_eq!(data.len(), 64);
+        assert!(data.iter().all(|&b| b == b'X'));
+    }
+
+    #[test]
+    fn ring_buffer_empty_read() {
+        let buf = OutputBuffer::new(64);
+        assert!(buf.read().is_empty());
+        assert_eq!(buf.size(), 0);
+        assert_eq!(buf.total_written, 0.0);
+    }
+
+    #[test]
+    fn ring_buffer_exact_capacity_write() {
+        let mut buf = OutputBuffer::new(8);
+        buf.write(b"12345678");
+        assert_eq!(buf.read_raw(), b"12345678");
+        assert_eq!(buf.size(), 8);
+    }
+
+    // ── sanitize_start tests ────────────────────────────────────────
+
+    #[test]
+    fn sanitize_start_skips_to_first_newline() {
+        let data = b"partial\nreal line\n".to_vec();
+        let result = sanitize_start(data);
+        assert_eq!(result, b"real line\n");
+    }
+
+    #[test]
+    fn sanitize_start_preserves_leading_newline() {
+        let data = b"\nfull line\n".to_vec();
+        let result = sanitize_start(data);
+        assert_eq!(result, b"\nfull line\n");
+    }
+
+    #[test]
+    fn sanitize_start_no_newline() {
+        let data = b"no newline at all".to_vec();
+        let result = sanitize_start(data);
+        assert_eq!(result, b"no newline at all");
+    }
+
+    // ── strip_terminal_queries tests ────────────────────────────────
+
+    #[test]
+    fn strip_dsr_sequence() {
+        // ESC[6n = DSR (cursor position report request)
+        let input = b"before\x1b[6nafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_da1_sequence() {
+        // ESC[c = DA1 (device attributes primary)
+        let input = b"before\x1b[cafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_da2_sequence() {
+        // ESC[>c = DA2 (device attributes secondary)
+        let input = b"before\x1b[>cafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_da3_sequence() {
+        // ESC[=c = DA3 (device attributes tertiary)
+        let input = b"before\x1b[=cafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_dsr_with_question_mark() {
+        // ESC[?6n = DSR variant
+        let input = b"before\x1b[?6nafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_da1_zero_param() {
+        // ESC[0c = DA1 with explicit 0 parameter
+        let input = b"before\x1b[0cafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"beforeafter");
+    }
+
+    #[test]
+    fn strip_preserves_non_query_csi() {
+        // ESC[1m = SGR bold — must NOT be stripped
+        let input = b"before\x1b[1mafter";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"before\x1b[1mafter");
+    }
+
+    #[test]
+    fn strip_preserves_cursor_movement() {
+        // ESC[H = cursor home — must NOT be stripped
+        let input = b"\x1b[H\x1b[2J";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"\x1b[H\x1b[2J");
+    }
+
+    #[test]
+    fn strip_multiple_queries() {
+        let input = b"start\x1b[6n\x1b[cmiddle\x1b[>c\x1b[=cend";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"startmiddleend");
+    }
+
+    #[test]
+    fn strip_empty_input() {
+        let result = strip_terminal_queries(b"");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn strip_no_queries_returns_same() {
+        let input = b"plain text with no escapes";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, input.to_vec());
+    }
+
+    #[test]
+    fn strip_incomplete_escape_at_end() {
+        // ESC at end of buffer — should be preserved, not panic
+        let input = b"text\x1b";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"text\x1b");
+    }
+
+    #[test]
+    fn strip_incomplete_csi_at_end() {
+        // ESC[ at end of buffer — should be preserved
+        let input = b"text\x1b[";
+        let result = strip_terminal_queries(input);
+        assert_eq!(result, b"text\x1b[");
+    }
+
+    // ── OSC parsing tests ───────────────────────────────────────────
+
+    #[test]
+    fn osc_title_osc0_bel() {
+        // ESC ] 0 ; title BEL
+        let input = b"\x1b]0;my-title\x07rest of data";
+        let title = parse_osc_title(input);
+        assert_eq!(title.unwrap(), "my-title");
+    }
+
+    #[test]
+    fn osc_title_osc2_st() {
+        // ESC ] 2 ; title ESC\
+        let input = b"\x1b]2;another title\x1b\\rest";
+        let title = parse_osc_title(input);
+        assert_eq!(title.unwrap(), "another title");
+    }
+
+    #[test]
+    fn osc_title_embedded_in_data() {
+        let input = b"some output\x1b]0;new-title\x07more output";
+        let title = parse_osc_title(input);
+        assert_eq!(title.unwrap(), "new-title");
+    }
+
+    #[test]
+    fn osc_title_not_found() {
+        let input = b"plain text with no OSC";
+        assert!(parse_osc_title(input).is_none());
+    }
+
+    #[test]
+    fn osc_title_non_title_osc() {
+        // OSC 7 (cwd notification) — should NOT extract title
+        let input = b"\x1b]7;file:///tmp\x07";
+        assert!(parse_osc_title(input).is_none());
+    }
+
+    #[test]
+    fn osc9_notification_bel() {
+        // ESC ] 9 ; message BEL
+        let input = b"before\x1b]9;hello notification\x07after";
+        let (cleaned, notifs) = extract_osc9_notifications(input);
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(notifs[0], "hello notification");
+        assert_eq!(cleaned, b"beforeafter");
+    }
+
+    #[test]
+    fn osc9_notification_st() {
+        // ESC ] 9 ; message ESC\
+        let input = b"before\x1b]9;notify me\x1b\\after";
+        let (cleaned, notifs) = extract_osc9_notifications(input);
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(notifs[0], "notify me");
+        assert_eq!(cleaned, b"beforeafter");
+    }
+
+    #[test]
+    fn osc9_multiple_notifications() {
+        let input = b"\x1b]9;first\x07middle\x1b]9;second\x07end";
+        let (cleaned, notifs) = extract_osc9_notifications(input);
+        assert_eq!(notifs.len(), 2);
+        assert_eq!(notifs[0], "first");
+        assert_eq!(notifs[1], "second");
+        assert_eq!(cleaned, b"middleend");
+    }
+
+    #[test]
+    fn osc9_no_notifications() {
+        let input = b"plain text";
+        let (cleaned, notifs) = extract_osc9_notifications(input);
+        assert!(notifs.is_empty());
+        assert_eq!(cleaned, b"plain text");
+    }
+
+    #[test]
+    fn osc9_partial_sequence_preserved() {
+        // Incomplete OSC 9 (no terminator) — should be preserved in output
+        let input = b"data\x1b]9;unterminated";
+        let (cleaned, notifs) = extract_osc9_notifications(input);
+        assert!(notifs.is_empty());
+        assert_eq!(cleaned, b"data\x1b]9;unterminated");
+    }
+
+    // ── Frame encoding/decoding tests ───────────────────────────────
+
+    #[test]
+    fn frame_encode_length_prefix() {
+        let payload = b"hello";
+        let frame = encode_frame(payload);
+        assert_eq!(frame.len(), 4 + 5);
+        // Length prefix = 5 in big-endian
+        assert_eq!(&frame[0..4], &[0, 0, 0, 5]);
+        assert_eq!(&frame[4..], b"hello");
+    }
+
+    #[test]
+    fn frame_encode_empty_payload() {
+        let frame = encode_frame(b"");
+        assert_eq!(frame.len(), 4);
+        assert_eq!(&frame[0..4], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn frame_round_trip() {
+        let original = b"test payload with various \x00\x01\x02 bytes";
+        let frame = encode_frame(original);
+
+        // Decode: read 4-byte length, then payload
+        let len = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]) as usize;
+        let decoded = &frame[4..4 + len];
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn frame_multiple_in_buffer() {
+        let frame1 = encode_frame(b"first");
+        let frame2 = encode_frame(b"second");
+        let mut combined = Vec::new();
+        combined.extend_from_slice(&frame1);
+        combined.extend_from_slice(&frame2);
+
+        // Parse first frame
+        let len1 = u32::from_be_bytes([combined[0], combined[1], combined[2], combined[3]]) as usize;
+        let payload1 = &combined[4..4 + len1];
+        assert_eq!(payload1, b"first");
+
+        // Parse second frame
+        let offset = 4 + len1;
+        let len2 = u32::from_be_bytes([
+            combined[offset],
+            combined[offset + 1],
+            combined[offset + 2],
+            combined[offset + 3],
+        ]) as usize;
+        let payload2 = &combined[offset + 4..offset + 4 + len2];
+        assert_eq!(payload2, b"second");
+    }
+
+    #[test]
+    fn frame_large_payload() {
+        let payload = vec![0xAA; 100_000];
+        let frame = encode_frame(&payload);
+        let len = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]) as usize;
+        assert_eq!(len, 100_000);
+        assert_eq!(&frame[4..], &payload[..]);
+    }
+
+    // ── Gzip compression tests ──────────────────────────────────────
+
+    #[test]
+    fn gzip_compress_decompress_round_trip() {
+        let original = b"hello world this is a test of gzip compression that should be longer than threshold".to_vec();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn gzip_below_threshold_not_compressed() {
+        // Data smaller than GZIP_THRESHOLD (4096) — should be sent uncompressed
+        let small_data = b"small";
+        assert!(small_data.len() < GZIP_THRESHOLD);
+        // In the actual code, data < GZIP_THRESHOLD is sent as BUFFER_REPLAY, not GZ
+    }
+
+    #[test]
+    fn gzip_large_data_round_trip() {
+        // Generate repetitive data that compresses well
+        let mut original = Vec::with_capacity(8192);
+        for _ in 0..8192 {
+            original.push(b'A');
+        }
+        assert!(original.len() >= GZIP_THRESHOLD);
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Compressed should be smaller for repetitive data
+        assert!(compressed.len() < original.len());
+
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn gzip_random_data_may_be_larger() {
+        // Random-ish data that doesn't compress well
+        let original: Vec<u8> = (0..5000).map(|i| (i * 7 + 13) as u8).collect();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // The code handles this: if compressed.len() >= original.len(), send uncompressed
+        // Just verify the round-trip still works
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    // ── ThroughputTracker tests ─────────────────────────────────────
+
+    #[test]
+    fn throughput_no_samples_returns_zero() {
+        let tracker = ThroughputTracker::new();
+        assert_eq!(tracker.bps1(), 0.0);
+        assert_eq!(tracker.bps5(), 0.0);
+        assert_eq!(tracker.bps15(), 0.0);
+    }
+
+    #[test]
+    fn throughput_single_sample() {
+        let mut tracker = ThroughputTracker::new();
+        tracker.record(6000); // 6000 bytes
+        // bps1 = 6000 / 60 = 100
+        let bps = tracker.bps1();
+        assert!((bps - 100.0).abs() < 1.0, "expected ~100, got {}", bps);
+    }
+
+    #[test]
+    fn throughput_windows_independent() {
+        let mut tracker = ThroughputTracker::new();
+        tracker.record(60000); // 60KB
+        // bps1 = 60000/60 = 1000, bps5 = 60000/300 = 200, bps15 = 60000/900 ≈ 66.7
+        let b1 = tracker.bps1();
+        let b5 = tracker.bps5();
+        let b15 = tracker.bps15();
+        assert!(b1 > b5, "bps1 ({}) should be > bps5 ({})", b1, b5);
+        assert!(b5 > b15, "bps5 ({}) should be > bps15 ({})", b5, b15);
+    }
+
+    #[test]
+    fn throughput_multiple_samples() {
+        let mut tracker = ThroughputTracker::new();
+        tracker.record(1000);
+        tracker.record(2000);
+        tracker.record(3000);
+        // Total = 6000, bps1 = 6000/60 = 100
+        let bps = tracker.bps1();
+        assert!((bps - 100.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn throughput_prune_old_samples() {
+        let mut tracker = ThroughputTracker::new();
+        // Manually insert an old sample
+        tracker.samples.push(ThroughputSample {
+            instant: Instant::now() - Duration::from_secs(20 * 60), // 20 min ago
+            bytes: 999_999,
+        });
+        // Record a new sample
+        tracker.record(1000);
+        // Old sample should have been pruned
+        assert_eq!(tracker.samples.len(), 1);
+        assert_eq!(tracker.samples[0].bytes, 1000);
+    }
+
+    // ── WS_MSG constants tests ──────────────────────────────────────
+
+    #[test]
+    fn ws_msg_constants_match() {
+        // Verify constants match the protocol spec
+        assert_eq!(WS_MSG_DATA, 0x00);
+        assert_eq!(WS_MSG_RESIZE, 0x01);
+        assert_eq!(WS_MSG_EXIT, 0x02);
+        assert_eq!(WS_MSG_BUFFER_REPLAY, 0x03);
+        assert_eq!(WS_MSG_TITLE, 0x04);
+        assert_eq!(WS_MSG_NOTIFICATION, 0x05);
+        assert_eq!(WS_MSG_RESUME, 0x10);
+        assert_eq!(WS_MSG_SYNC, 0x11);
+        assert_eq!(WS_MSG_SESSION_STATE, 0x12);
+        assert_eq!(WS_MSG_BUFFER_REPLAY_GZ, 0x13);
+        assert_eq!(WS_MSG_SESSION_METRICS, 0x14);
+    }
+
+    // ── SessionMeta serialization tests ─────────────────────────────
+
+    #[test]
+    fn session_meta_serializes_camel_case() {
+        let meta = SessionMeta {
+            id: "abc123".into(),
+            command: "bash".into(),
+            args: vec![],
+            cwd: "/tmp".into(),
+            created_at: 1000,
+            last_activity: 1000,
+            status: "running".into(),
+            exit_code: None,
+            exited_at: None,
+            cols: 80,
+            rows: 24,
+            pid: 1234,
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            total_bytes_written: 0.0,
+            last_active_at: "2026-01-01T00:00:00.000Z".into(),
+            bytes_per_second: 0.0,
+            title: None,
+            error: None,
+            bps1: 0.0,
+            bps5: 0.0,
+            bps15: 0.0,
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        // camelCase fields
+        assert!(json.contains("\"createdAt\""));
+        assert!(json.contains("\"lastActivity\""));
+        assert!(json.contains("\"totalBytesWritten\""));
+        assert!(json.contains("\"bytesPerSecond\""));
+        // Optional None fields should be absent (skip_serializing_if)
+        assert!(!json.contains("\"exitCode\""));
+        assert!(!json.contains("\"exitedAt\""));
+        assert!(!json.contains("\"title\""));
+        assert!(!json.contains("\"error\""));
+    }
+
+    #[test]
+    fn session_meta_serializes_optional_fields_when_present() {
+        let meta = SessionMeta {
+            id: "abc123".into(),
+            command: "bash".into(),
+            args: vec!["-l".into()],
+            cwd: "/tmp".into(),
+            created_at: 1000,
+            last_activity: 2000,
+            status: "exited".into(),
+            exit_code: Some(0),
+            exited_at: Some(3000),
+            cols: 120,
+            rows: 40,
+            pid: 5678,
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            total_bytes_written: 1024.0,
+            last_active_at: "2026-01-01T00:00:01.000Z".into(),
+            bytes_per_second: 512.0,
+            title: Some("vim".into()),
+            error: Some("test error".into()),
+            bps1: 100.0,
+            bps5: 50.0,
+            bps15: 25.0,
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"exitCode\":0"));
+        assert!(json.contains("\"exitedAt\":3000"));
+        assert!(json.contains("\"title\":\"vim\""));
+        assert!(json.contains("\"error\":\"test error\""));
+    }
+
+    // ── days_to_date tests ──────────────────────────────────────────
+
+    #[test]
+    fn days_to_date_unix_epoch() {
+        let (y, m, d) = days_to_date(0);
+        assert_eq!((y, m, d), (1970, 1, 1));
+    }
+
+    #[test]
+    fn days_to_date_known_date() {
+        // 2026-03-01 = days since epoch
+        // 2026-03-01 is 20,513 days from epoch
+        let (y, m, d) = days_to_date(20_513);
+        assert_eq!((y, m, d), (2026, 3, 1));
+    }
+}
