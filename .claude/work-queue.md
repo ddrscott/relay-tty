@@ -29,4 +29,4 @@
 - [x] Redesign mobile input UX: hide input bar, show floating toolbar on tap, keyboard-on-demand ([detail](work-queue/mobile-input-redesign.md))
 - [x] Prevent `relay attach` and `relay tui` from attaching to own session (hangs the process)
 - [x] CI cross-compilation + postinstall binary download for Rust pty-host ([detail](work-queue/rust-binary-distribution.md))
-- [ ] Display npm package version in `relay --version` instead of hardcoded value
+- [x] Display npm package version in `relay --version` instead of hardcoded value
