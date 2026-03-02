@@ -60,7 +60,7 @@ jobs:
 
       - name: Run tests (cross, unit only)
         if: matrix.cross
-        run: cross test --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }} --lib
+        run: cross test --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }} --bin relay-pty-host
 
       - name: Build release binary
         if: ${{ !matrix.cross }}
