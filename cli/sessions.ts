@@ -59,28 +59,62 @@ export function truncate(s: string, maxLen: number): string {
   return s.slice(0, maxLen - 1) + "\u2026";
 }
 
+// ── Process liveness ────────────────────────────────────────────────────
+
+function isPidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
 // ── Session loading ─────────────────────────────────────────────────────
 
 export function listFromDisk(): Session[] {
   if (!fs.existsSync(SESSIONS_DIR)) return [];
+
+  // Collect IDs that have session files so we can clean orphan sockets
+  const knownIds = new Set<string>();
   const sessions: Session[] = [];
+
   for (const file of fs.readdirSync(SESSIONS_DIR)) {
     if (!file.endsWith(".json")) continue;
+    const id = file.replace(".json", "");
+    knownIds.add(id);
+
     try {
-      const meta = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8")) as Session;
+      const metaPath = path.join(SESSIONS_DIR, file);
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as Session;
       if (!meta.cwd) meta.cwd = os.homedir();
+
+      // Reality check: if metadata says running, verify with the OS
       if (meta.status === "running") {
-        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
-        if (!fs.existsSync(socketPath)) {
+        const alive = meta.pid ? isPidAlive(meta.pid) : false;
+        if (!alive) {
           meta.status = "exited";
-          (meta as any).exitCode = -1;
+          meta.exitCode = -1;
+          meta.exitedAt = Date.now();
+          try { fs.writeFileSync(metaPath, JSON.stringify(meta)); } catch {}
+          // Clean up stale socket
+          try { fs.unlinkSync(path.join(SOCKETS_DIR, `${id}.sock`)); } catch {}
         }
       }
+
       sessions.push(meta);
     } catch {
-      // skip corrupted files
+      // Corrupted JSON — remove it
+      try { fs.unlinkSync(path.join(SESSIONS_DIR, file)); } catch {}
     }
   }
+
+  // Clean orphan sockets (no matching session file)
+  try {
+    for (const sock of fs.readdirSync(SOCKETS_DIR)) {
+      if (!sock.endsWith(".sock")) continue;
+      const id = sock.replace(".sock", "");
+      if (!knownIds.has(id)) {
+        try { fs.unlinkSync(path.join(SOCKETS_DIR, sock)); } catch {}
+      }
+    }
+  } catch {}
+
   return sessions.sort((a, b) => b.createdAt - a.createdAt);
 }
 

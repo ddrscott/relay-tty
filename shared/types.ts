@@ -10,6 +10,7 @@ export interface Session {
   exitedAt?: number;
   cols: number;
   rows: number;
+  pid?: number;
   title?: string;
   /** ISO timestamp of session creation */
   startedAt?: string;

@@ -15,6 +15,10 @@ const DATA_DIR = path.join(os.homedir(), ".relay-tty");
 const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 
+function isPidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
 /**
  * Manages pty-host processes. Each session runs in an independent detached process
  * that owns the PTY and survives server restarts.
@@ -38,26 +42,29 @@ export class PtyManager extends EventEmitter {
   /**
    * Discover existing pty-host processes from disk and reconnect.
    * Called on server startup to recover sessions from previous run.
+   *
+   * Reality-first: check PID liveness before attempting socket probe.
+   * Also cleans up orphan sockets with no matching session file.
    */
   async discover(): Promise<void> {
     if (!fs.existsSync(SESSIONS_DIR)) return;
 
     const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json"));
+    const knownIds = new Set<string>();
     const reconnected: string[] = [];
 
     for (const file of files) {
+      const id = file.replace(".json", "");
+      knownIds.add(id);
       const sessionPath = path.join(SESSIONS_DIR, file);
       try {
         const raw = fs.readFileSync(sessionPath, "utf-8");
-        const meta = JSON.parse(raw) as Session & { pid?: number };
-        // Backfill cwd for sessions created before cwd was tracked
+        const meta = JSON.parse(raw) as Session;
         if (!meta.cwd) meta.cwd = process.env.HOME || "/";
 
         if (meta.status === "exited") {
-          // Load exited sessions for display (cleanup old ones)
           const age = Date.now() - (meta.exitedAt || meta.createdAt);
           if (age > 60 * 60 * 1000) {
-            // Older than 1 hour — remove from disk
             fs.unlinkSync(sessionPath);
             continue;
           }
@@ -65,41 +72,40 @@ export class PtyManager extends EventEmitter {
           continue;
         }
 
-        // Running session — verify socket is connectable
-        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
-        if (!fs.existsSync(socketPath)) {
-          // No socket — pty-host died without cleanup
-          meta.status = "exited";
-          (meta as any).exitCode = -1;
-          (meta as any).exitedAt = Date.now();
-          fs.writeFileSync(sessionPath, JSON.stringify(meta));
+        // Reality check: is the process actually alive?
+        if (meta.pid && !isPidAlive(meta.pid)) {
+          this.markDead(meta, sessionPath);
           this.sessionStore.create(meta);
           continue;
         }
 
-        // Try to connect
+        // PID is alive (or unknown) — verify socket is connectable
+        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
+        if (!fs.existsSync(socketPath)) {
+          this.markDead(meta, sessionPath);
+          this.sessionStore.create(meta);
+          continue;
+        }
+
         const alive = await this.probeSocket(socketPath);
         if (alive) {
           this.sessionStore.create(meta);
           this.startMonitor(meta.id, socketPath);
           reconnected.push(meta.command);
         } else {
-          // Stale socket file
           try { fs.unlinkSync(socketPath); } catch {}
-          meta.status = "exited";
-          (meta as any).exitCode = -1;
-          (meta as any).exitedAt = Date.now();
-          fs.writeFileSync(sessionPath, JSON.stringify(meta));
+          this.markDead(meta, sessionPath);
           this.sessionStore.create(meta);
         }
       } catch {
-        // Corrupted file — remove it
         try { fs.unlinkSync(sessionPath); } catch {}
       }
     }
 
+    // Clean orphan sockets (no matching session file)
+    this.cleanOrphanSockets(knownIds);
+
     if (reconnected.length > 0) {
-      // Summarize: "zsh, claude ×3, bash"
       const counts = new Map<string, number>();
       for (const cmd of reconnected) counts.set(cmd, (counts.get(cmd) || 0) + 1);
       const parts = [...counts.entries()].map(([cmd, n]) => n > 1 ? `${cmd} ×${n}` : cmd);
@@ -226,7 +232,6 @@ export class PtyManager extends EventEmitter {
    * Returns the session if found and alive, null otherwise.
    */
   async discoverOne(id: string): Promise<Session | null> {
-    // Already known
     const existing = this.sessionStore.get(id);
     if (existing) return existing;
 
@@ -235,7 +240,7 @@ export class PtyManager extends EventEmitter {
 
     try {
       const raw = fs.readFileSync(sessionPath, "utf-8");
-      const meta = JSON.parse(raw) as Session & { pid?: number };
+      const meta = JSON.parse(raw) as Session;
       if (!meta.cwd) meta.cwd = process.env.HOME || "/";
 
       if (meta.status === "exited") {
@@ -243,12 +248,17 @@ export class PtyManager extends EventEmitter {
         return meta;
       }
 
+      // Reality check: PID alive?
+      if (meta.pid && !isPidAlive(meta.pid)) {
+        this.markDead(meta, sessionPath);
+        this.sessionStore.create(meta);
+        return meta;
+      }
+
+      // Socket connectable?
       const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
       if (!fs.existsSync(socketPath)) {
-        meta.status = "exited";
-        (meta as any).exitCode = -1;
-        (meta as any).exitedAt = Date.now();
-        fs.writeFileSync(sessionPath, JSON.stringify(meta));
+        this.markDead(meta, sessionPath);
         this.sessionStore.create(meta);
         return meta;
       }
@@ -260,12 +270,8 @@ export class PtyManager extends EventEmitter {
         return meta;
       }
 
-      // Stale socket
       try { fs.unlinkSync(socketPath); } catch {}
-      meta.status = "exited";
-      (meta as any).exitCode = -1;
-      (meta as any).exitedAt = Date.now();
-      fs.writeFileSync(sessionPath, JSON.stringify(meta));
+      this.markDead(meta, sessionPath);
       this.sessionStore.create(meta);
       return meta;
     } catch {
@@ -284,6 +290,28 @@ export class PtyManager extends EventEmitter {
   }
 
   // --- Private ---
+
+  /** Mark a session as dead on disk and clean up its socket. */
+  private markDead(meta: Session, sessionPath: string): void {
+    meta.status = "exited";
+    meta.exitCode = -1;
+    meta.exitedAt = Date.now();
+    try { fs.writeFileSync(sessionPath, JSON.stringify(meta)); } catch {}
+    try { fs.unlinkSync(path.join(SOCKETS_DIR, `${meta.id}.sock`)); } catch {}
+  }
+
+  /** Remove socket files that have no matching session JSON. */
+  private cleanOrphanSockets(knownIds: Set<string>): void {
+    try {
+      for (const sock of fs.readdirSync(SOCKETS_DIR)) {
+        if (!sock.endsWith(".sock")) continue;
+        const id = sock.replace(".sock", "");
+        if (!knownIds.has(id)) {
+          try { fs.unlinkSync(path.join(SOCKETS_DIR, sock)); } catch {}
+        }
+      }
+    } catch {}
+  }
 
   private resolvePtyHostPath(): string {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
