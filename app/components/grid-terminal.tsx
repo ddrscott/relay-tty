@@ -8,9 +8,9 @@ interface GridTerminalProps {
 }
 
 /**
- * Compact read-only terminal cell for the grid dashboard.
- * Each cell establishes its own WS connection for live output.
- * Click to navigate to the full interactive session view.
+ * Portrait-oriented read-only terminal cell for the grid dashboard.
+ * Uses CSS transform: scale() to fit cells below min terminal width.
+ * Throttled rendering at 4fps to keep CPU reasonable with many cells.
  */
 export function GridTerminal({ session, onClick }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -19,17 +19,21 @@ export function GridTerminal({ session, onClick }: GridTerminalProps) {
 
   const { status, contentReady } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
-    fontSize: 9,
+    fontSize: 10,
     readOnly: true,
+    skipWebGL: true,
+    throttleFps: 4,
   });
 
   return (
     <div
-      className="relative rounded-lg border border-[#1e1e2e] hover:border-[#3d3d5c] bg-[#19191f] overflow-hidden cursor-pointer transition-colors group"
+      className="relative rounded-lg border border-[#1e1e2e] hover:border-[#3d3d5c] bg-[#19191f] overflow-hidden cursor-pointer transition-colors group flex flex-col"
       onClick={onClick}
     >
-      {/* Terminal content */}
-      <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
+      {/* Terminal content — fills the cell */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
+      </div>
 
       {/* Status overlays */}
       {(!contentReady || status === "connecting") && (
@@ -38,8 +42,8 @@ export function GridTerminal({ session, onClick }: GridTerminalProps) {
         </div>
       )}
 
-      {/* Session label overlay — bottom-left */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 px-2 py-1 bg-gradient-to-t from-[#0a0a0f]/90 to-transparent pointer-events-none">
+      {/* Session label overlay — bottom */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 px-2 py-1.5 bg-gradient-to-t from-[#0a0a0f]/95 via-[#0a0a0f]/70 to-transparent pointer-events-none">
         <div className="flex items-center gap-1.5">
           <span
             className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${

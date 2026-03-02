@@ -43,6 +43,10 @@ export interface TerminalCoreOpts {
   onTap?: () => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
+  /** Skip WebGL renderer for lightweight grid cells */
+  skipWebGL?: boolean;
+  /** Throttle terminal writes to this many fps (0 = unlimited) */
+  throttleFps?: number;
 }
 
 export interface TerminalCoreRef {
@@ -93,6 +97,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
     const scrollState = { momentumActive: false };
+
+    // Throttle: accumulate DATA writes and flush at throttleFps
+    const throttleInterval = opts.throttleFps ? Math.floor(1000 / opts.throttleFps) : 0;
+    let throttleBuffer: Uint8Array[] = [];
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastFlush = 0;
 
     // Track whether initial content (cache or first BUFFER_REPLAY) has been
     // written to xterm. Until this is true the container stays invisible so
@@ -164,13 +174,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       term.open(containerRef.current!);
 
       // WebGL renderer — must be loaded after term.open()
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => { webgl.dispose(); });
-        term.loadAddon(webgl);
-        webglRef.current = webgl;
-      } catch {
-        // WebGL unavailable — falls back to default canvas renderer
+      // Skip for lightweight grid cells to save GPU contexts
+      if (!opts.skipWebGL) {
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => { webgl.dispose(); });
+          term.loadAddon(webgl);
+          webglRef.current = webgl;
+        } catch {
+          // WebGL unavailable — falls back to default canvas renderer
+        }
       }
 
       termRef.current = term;
@@ -647,15 +660,33 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             markContentReady();
           }
           break;
-        case WS_MSG.DATA:
-          if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
-            term.write(payload, () => term.scrollToBottom());
-          } else {
-            term.write(payload);
-          }
+        case WS_MSG.DATA: {
           byteOffset += payload.length;
           cacheWriter?.append(payload);
           cacheWriter?.setOffset(byteOffset);
+
+          // Throttled rendering for grid cells
+          if (throttleInterval > 0) {
+            throttleBuffer.push(payload);
+            const now = Date.now();
+            if (now - lastFlush >= throttleInterval) {
+              flushThrottleBuffer(term);
+              lastFlush = now;
+            } else if (!throttleTimer) {
+              throttleTimer = setTimeout(() => {
+                throttleTimer = null;
+                flushThrottleBuffer(term);
+                lastFlush = Date.now();
+              }, throttleInterval - (now - lastFlush));
+            }
+          } else {
+            if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
+              term.write(payload, () => term.scrollToBottom());
+            } else {
+              term.write(payload);
+            }
+          }
+
           // Throttled activity update: emit at most every 500ms during data flow
           if (opts.onActivityUpdate) {
             const now = Date.now();
@@ -666,6 +697,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             }
           }
           break;
+        }
         case WS_MSG.EXIT: {
           const view = new DataView(payload.buffer, payload.byteOffset);
           const exitCode = view.getInt32(0, false);
@@ -708,6 +740,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           break;
         }
       }
+    }
+
+    function flushThrottleBuffer(term: any) {
+      if (throttleBuffer.length === 0) return;
+      // Merge all buffered chunks into a single write
+      const total = throttleBuffer.reduce((sum, c) => sum + c.length, 0);
+      const merged = new Uint8Array(total);
+      let off = 0;
+      for (const c of throttleBuffer) {
+        merged.set(c, off);
+        off += c.length;
+      }
+      throttleBuffer = [];
+      term.write(merged);
     }
 
     function handleBufferReplay(term: any, payload: Uint8Array) {
@@ -805,6 +851,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (throttleTimer) clearTimeout(throttleTimer);
       observer.disconnect();
       wsRef.current?.close();
       try { webglRef.current?.dispose(); } catch {}

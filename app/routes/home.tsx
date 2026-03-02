@@ -4,7 +4,7 @@ import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
-import { LayoutGrid, List, ArrowDownUp } from "lucide-react";
+import { LayoutGrid, List, ArrowDownUp, Eye, EyeOff } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -15,7 +15,7 @@ export function meta({}: Route.MetaArgs) {
 
 export async function loader({ context }: Route.LoaderArgs) {
   const sessions = context.sessionStore.list();
-  return { sessions };
+  return { sessions, version: context.version };
 }
 
 const SHELL_OPTIONS = [
@@ -43,17 +43,28 @@ function getStoredSort(): SortKey {
   return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
 }
 
+function getStoredShowInactive(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("relay-tty-show-inactive") === "true";
+}
+
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { sessions } = loaderData as { sessions: Session[] };
+  const { sessions, version } = loaderData as { sessions: Session[]; version: string };
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredView);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
+  const [showInactive, setShowInactive] = useState(getStoredShowInactive);
 
-  // Dynamic import of GridTerminal (xterm.js is client-only)
+  // Modal state: which session is open in the modal (null = no modal)
+  const [modalSessionId, setModalSessionId] = useState<string | null>(null);
+
+  // Dynamic imports for grid and modal components (xterm.js is client-only)
   const [GridTerminalComponent, setGridTerminalComponent] =
+    useState<React.ComponentType<any> | null>(null);
+  const [SessionModalComponent, setSessionModalComponent] =
     useState<React.ComponentType<any> | null>(null);
 
   if (typeof window !== "undefined" && viewMode === "grid" && !GridTerminalComponent) {
@@ -62,9 +73,55 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }
 
-  const sortedSessions = useMemo(() => sortSessions(sessions, sortKey), [sessions, sortKey]);
+  if (typeof window !== "undefined" && modalSessionId && !SessionModalComponent) {
+    import("../components/session-modal").then((mod) => {
+      setSessionModalComponent(() => mod.SessionModal);
+    });
+  }
+
+  // Filter sessions for grid view: optionally hide inactive/exited
+  const gridSessions = useMemo(() => {
+    if (showInactive) return sessions;
+    return sessions.filter((s) => s.status === "running");
+  }, [sessions, showInactive]);
+
+  const sortedGridSessions = useMemo(() => sortSessions(gridSessions, sortKey), [gridSessions, sortKey]);
   const groups = useMemo(() => groupByCwd(sessions, sortKey), [sessions, sortKey]);
   const isSingleGroup = groups.length === 1;
+  const exitedCount = useMemo(() => sessions.filter((s) => s.status !== "running").length, [sessions]);
+
+  // The modal session object
+  const modalSession = useMemo(
+    () => (modalSessionId ? sessions.find((s) => s.id === modalSessionId) : null),
+    [modalSessionId, sessions]
+  );
+
+  // Read ?session= from URL on mount to support deep-linking
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionParam = params.get("session");
+    if (sessionParam && sessions.some((s) => s.id === sessionParam)) {
+      setModalSessionId(sessionParam);
+      // Switch to grid view if not already
+      if (viewMode !== "grid") {
+        setViewMode("grid");
+        localStorage.setItem("relay-tty-view", "grid");
+      }
+    }
+  }, []); // Only on mount
+
+  // Update URL when modal opens/closes (client-side only, no navigation)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (modalSessionId) {
+      url.searchParams.set("session", modalSessionId);
+    } else {
+      url.searchParams.delete("session");
+    }
+    window.history.replaceState({}, "", url.toString());
+  }, [modalSessionId]);
 
   useEffect(() => {
     const interval = setInterval(revalidate, 3000);
@@ -113,21 +170,34 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     localStorage.setItem("relay-tty-sort", key);
   }, []);
 
-  // Compute grid column count based on session count
-  const gridCols = useMemo(() => {
-    const n = sessions.length;
-    if (n <= 1) return 1;
-    if (n <= 2) return 2;
-    if (n <= 4) return 2;
-    if (n <= 6) return 3;
-    return 4;
-  }, [sessions.length]);
+  const toggleShowInactive = useCallback(() => {
+    setShowInactive((prev) => {
+      const next = !prev;
+      localStorage.setItem("relay-tty-show-inactive", String(next));
+      return next;
+    });
+  }, []);
+
+  // Open modal for a session (grid cell click)
+  const openModal = useCallback((sessionId: string) => {
+    setModalSessionId(sessionId);
+  }, []);
+
+  // Close modal
+  const closeModal = useCallback(() => {
+    setModalSessionId(null);
+  }, []);
+
+  // Navigate to different session within modal
+  const navigateModal = useCallback((sessionId: string) => {
+    setModalSessionId(sessionId);
+  }, []);
 
   const isGrid = viewMode === "grid";
 
   return (
     <main className={`h-screen bg-[#0a0a0f] ${isGrid ? "flex flex-col p-4" : "overflow-auto container mx-auto p-4 max-w-2xl"}`}>
-      <div className={`flex items-center justify-between mb-4 shrink-0 ${isGrid ? "max-w-7xl mx-auto w-full" : ""}`}>
+      <div className={`flex items-center justify-between mb-4 shrink-0 ${isGrid ? "w-full" : ""}`}>
         <h1 className="text-2xl font-bold font-mono text-[#64748b]">relay-tty</h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-[#64748b]">
@@ -163,6 +233,22 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 ))}
               </ul>
             </div>
+          )}
+
+          {/* Show inactive toggle — grid mode only, desktop only */}
+          {isGrid && exitedCount > 0 && (
+            <button
+              className={`hidden lg:flex items-center gap-1 text-xs font-mono transition-colors px-2 py-1 rounded-lg border ${
+                showInactive
+                  ? "text-[#e2e8f0] border-[#3d3d5c] bg-[#1a1a2e]"
+                  : "text-[#64748b] border-[#2d2d44] hover:text-[#e2e8f0] hover:border-[#3d3d5c]"
+              }`}
+              onClick={toggleShowInactive}
+              aria-label={showInactive ? "Hide inactive sessions" : "Show inactive sessions"}
+            >
+              {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {showInactive ? `All (${sessions.length})` : `Active (${gridSessions.length})`}
+            </button>
           )}
 
           {/* Grid/list toggle — desktop only */}
@@ -224,33 +310,49 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </code>
         </div>
       ) : isGrid ? (
-        /* ── Grid view ─────────────────────────────────────────── */
-        <div
-          className="max-w-7xl mx-auto w-full grid gap-3 flex-1 min-h-0"
-          style={{
-            gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-            gridTemplateRows: `repeat(${Math.ceil(sessions.length / gridCols)}, 1fr)`,
-          }}
-        >
-          {sortedSessions.map((session) => (
-            GridTerminalComponent ? (
-              <GridTerminalComponent
-                key={session.id}
-                session={session}
-                onClick={() => navigate(`/sessions/${session.id}`)}
-              />
-            ) : (
-              <div
-                key={session.id}
-                className="rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
-              >
-                <span className="loading loading-spinner loading-sm" />
+        /* -- Grid view ------------------------------------------------- */
+        <>
+          {sortedGridSessions.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-[#64748b] mb-2">No active sessions</p>
+                <button
+                  className="text-sm text-[#94a3b8] hover:text-[#e2e8f0] transition-colors"
+                  onClick={toggleShowInactive}
+                >
+                  Show {exitedCount} inactive session{exitedCount !== 1 ? "s" : ""}
+                </button>
               </div>
-            )
-          ))}
-        </div>
+            </div>
+          ) : (
+            <div
+              className="w-full grid gap-3 flex-1 min-h-0 justify-center"
+              style={{
+                gridTemplateColumns: `repeat(auto-fill, minmax(min(260px, 100%), 360px))`,
+                gridAutoRows: "minmax(300px, 1fr)",
+              }}
+            >
+              {sortedGridSessions.map((session) => (
+                GridTerminalComponent ? (
+                  <GridTerminalComponent
+                    key={session.id}
+                    session={session}
+                    onClick={() => openModal(session.id)}
+                  />
+                ) : (
+                  <div
+                    key={session.id}
+                    className="rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
+                  >
+                    <span className="loading loading-spinner loading-sm" />
+                  </div>
+                )
+              ))}
+            </div>
+          )}
+        </>
       ) : (
-        /* ── List view ─────────────────────────────────────────── */
+        /* -- List view ------------------------------------------------- */
         <div className="flex flex-col gap-4">
           {groups.map((group) => {
             const isCollapsed = collapsed.has(group.cwd);
@@ -294,7 +396,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      <footer className={`pb-4 text-center shrink-0 ${isGrid ? "mt-3 max-w-7xl mx-auto w-full" : "mt-8"}`}>
+      {/* Session modal overlay — grid stays live behind it */}
+      {modalSession && SessionModalComponent && (
+        <SessionModalComponent
+          session={modalSession}
+          allSessions={sessions}
+          version={version}
+          onClose={closeModal}
+          onNavigate={navigateModal}
+        />
+      )}
+
+      <footer className={`pb-4 text-center shrink-0 ${isGrid ? "mt-3 w-full" : "mt-8"}`}>
         <a
           href="https://relaytty.com"
           target="_blank"
