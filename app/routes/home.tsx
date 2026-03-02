@@ -1,10 +1,10 @@
-import { useEffect, useCallback, useState, useMemo } from "react";
+import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator, useNavigate } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
-import { LayoutGrid, List, ArrowDownUp, Eye, EyeOff } from "lucide-react";
+import { LayoutGrid, List, ArrowDownUp, Eye, EyeOff, Minus, Plus } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -50,6 +50,193 @@ function getStoredShowInactive(): boolean {
   return localStorage.getItem("relay-tty-show-inactive") === "true";
 }
 
+const DEFAULT_GRID_FONT_SIZE = 12;
+
+function getStoredGridFontSize(): number {
+  if (typeof window === "undefined") return DEFAULT_GRID_FONT_SIZE;
+  const stored = localStorage.getItem("relay-tty-grid-font-size");
+  return stored ? Number(stored) : DEFAULT_GRID_FONT_SIZE;
+}
+
+/** Gap between grid cells in pixels */
+const GRID_GAP = 4;
+
+/**
+ * Deterministic column-first packing: given cell sizes (at scale=1) and a
+ * viewport, binary-search for the largest uniform scale where all cells
+ * fit without scrolling.
+ *
+ * At each candidate scale, cells are placed top-to-bottom in columns.
+ * When a cell doesn't fit vertically, a new column starts. If total
+ * column width exceeds viewport width, the scale is too large.
+ */
+function computeFitScale(
+  cells: { w: number; h: number }[],
+  vpW: number,
+  vpH: number,
+): number {
+  if (cells.length === 0 || vpW <= 0 || vpH <= 0) return 1;
+
+  const tryScale = (s: number): boolean => {
+    let colX = 0;     // x position of current column
+    let colW = 0;     // width of widest cell in current column
+    let colY = 0;     // y cursor in current column
+
+    for (const cell of cells) {
+      const cw = cell.w * s + GRID_GAP;
+      const ch = cell.h * s + GRID_GAP;
+
+      // If this cell doesn't fit vertically, start a new column
+      if (colY > 0 && colY + ch > vpH) {
+        colX += colW;
+        colW = 0;
+        colY = 0;
+      }
+
+      colW = Math.max(colW, cw);
+      colY += ch;
+    }
+    // Total width including the last column
+    return colX + colW <= vpW;
+  };
+
+  // Binary search for optimal scale
+  let lo = 0.01;
+  let hi = 2;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (tryScale(mid)) lo = mid;
+    else hi = mid;
+  }
+  return Math.min(lo, 1); // never scale up
+}
+
+/**
+ * Grid viewport: computes a deterministic scale so all cells fit in the
+ * viewport without scrolling, then renders with absolute positioning.
+ */
+function GridViewport({
+  sessions,
+  selectedCellId,
+  gridFontSize,
+  GridTerminalComponent,
+  onDeselectCell,
+  onSelectCell,
+  onOpenModal,
+}: {
+  sessions: Session[];
+  selectedCellId: string | null;
+  gridFontSize: number;
+  GridTerminalComponent: React.ComponentType<any> | null;
+  onDeselectCell: () => void;
+  onSelectCell: (id: string) => void;
+  onOpenModal: (id: string) => void;
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
+
+  // Track viewport size
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const measure = () => setVpSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Approximate char metrics for cell sizing
+  const charW = gridFontSize * 0.6;
+  const lineH = gridFontSize * 1.2;
+
+  // Compute natural cell sizes and optimal scale
+  const cellSizes = useMemo(
+    () => sessions.map((s) => ({
+      w: (s.cols || 80) * charW,
+      h: (s.rows || 24) * lineH,
+    })),
+    [sessions, charW, lineH]
+  );
+
+  const scale = useMemo(
+    () => computeFitScale(cellSizes, vpSize.w, vpSize.h),
+    [cellSizes, vpSize.w, vpSize.h]
+  );
+
+  // Compute absolute positions using the same column-first packing
+  const positions = useMemo(() => {
+    const pos: { x: number; y: number; w: number; h: number }[] = [];
+    let colX = 0;
+    let colW = 0;
+    let colY = 0;
+
+    for (const cell of cellSizes) {
+      const cw = cell.w * scale;
+      const ch = cell.h * scale;
+
+      if (colY > 0 && colY + ch + GRID_GAP > vpSize.h) {
+        colX += colW + GRID_GAP;
+        colW = 0;
+        colY = 0;
+      }
+
+      pos.push({ x: colX, y: colY, w: cw, h: ch });
+      colW = Math.max(colW, cw);
+      colY += ch + GRID_GAP;
+    }
+    return pos;
+  }, [cellSizes, scale, vpSize.h]);
+
+  return (
+    <div
+      ref={viewportRef}
+      className="flex-1 min-h-0 overflow-hidden relative"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onDeselectCell();
+      }}
+    >
+      {sessions.map((session, i) => {
+        const p = positions[i];
+        if (!p) return null;
+        return GridTerminalComponent ? (
+          <div
+            key={session.id}
+            className="absolute"
+            style={{
+              left: `${p.x}px`,
+              top: `${p.y}px`,
+              width: `${p.w}px`,
+              height: `${p.h}px`,
+            }}
+          >
+            <GridTerminalComponent
+              session={session}
+              selected={selectedCellId === session.id}
+              fontSize={gridFontSize}
+              onSelect={() => onSelectCell(session.id)}
+              onExpand={() => onOpenModal(session.id)}
+            />
+          </div>
+        ) : (
+          <div
+            key={session.id}
+            className="absolute rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
+            style={{
+              left: `${p.x}px`,
+              top: `${p.y}px`,
+              width: `${p.w}px`,
+              height: `${p.h}px`,
+            }}
+          >
+            <span className="loading loading-spinner loading-sm" />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Home({ loaderData }: Route.ComponentProps) {
   const { sessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
@@ -59,6 +246,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredView);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
+  const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
 
   // Modal state: which session is open in the modal (null = no modal)
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
@@ -184,6 +372,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
+  const adjustGridFontSize = useCallback((delta: number) => {
+    setGridFontSize((prev) => {
+      const next = Math.max(4, Math.min(20, prev + delta));
+      localStorage.setItem("relay-tty-grid-font-size", String(next));
+      return next;
+    });
+  }, []);
+
   // Select a grid cell (click to focus for keyboard input)
   const selectCell = useCallback((sessionId: string) => {
     setSelectedCellId(sessionId);
@@ -294,6 +490,27 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             </button>
           )}
 
+          {/* Font size picker — grid mode only, desktop only */}
+          {isGrid && (
+            <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
+              <button
+                className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+                onClick={() => adjustGridFontSize(-1)}
+                aria-label="Decrease font size"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{gridFontSize}</span>
+              <button
+                className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+                onClick={() => adjustGridFontSize(1)}
+                aria-label="Increase font size"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           {/* Grid/list toggle — desktop only */}
           {sessions.length > 0 && (
             <div className="hidden lg:flex items-center border border-[#2d2d44] rounded-lg overflow-hidden">
@@ -368,42 +585,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               </div>
             </div>
           ) : (
-            <div
-              className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden"
-              onClick={(e) => {
-                // Click on background deselects active cell
-                if (e.target === e.currentTarget) deselectCell();
-              }}
-            >
-              <div
-                className="flex flex-col flex-wrap gap-3 h-full content-start"
-              >
-                {sortedGridSessions.map((session) => (
-                  GridTerminalComponent ? (
-                    <div
-                      key={session.id}
-                      className="shrink-0"
-                      style={{ width: "min(360px, 45vw)", height: "min(340px, 48vh)" }}
-                    >
-                      <GridTerminalComponent
-                        session={session}
-                        selected={selectedCellId === session.id}
-                        onSelect={() => selectCell(session.id)}
-                        onExpand={() => openModal(session.id)}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      key={session.id}
-                      className="shrink-0 rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
-                      style={{ width: "min(360px, 45vw)", height: "min(340px, 48vh)" }}
-                    >
-                      <span className="loading loading-spinner loading-sm" />
-                    </div>
-                  )
-                ))}
-              </div>
-            </div>
+            <GridViewport
+              sessions={sortedGridSessions}
+              selectedCellId={selectedCellId}
+              gridFontSize={gridFontSize}
+              GridTerminalComponent={GridTerminalComponent}
+              onDeselectCell={deselectCell}
+              onSelectCell={selectCell}
+              onOpenModal={openModal}
+            />
           )}
         </>
       ) : (
