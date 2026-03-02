@@ -1,10 +1,10 @@
-import { useEffect, useCallback, useState, useMemo, useRef } from "react";
-import { useRevalidator, useNavigate } from "react-router";
+import { useEffect, useCallback, useState, useMemo } from "react";
+import { useRevalidator, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
-import { LayoutGrid, List, ArrowDownUp, Eye, EyeOff, Minus, Plus } from "lucide-react";
+import { LayoutGrid, ArrowDownUp } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -26,8 +26,6 @@ const SHELL_OPTIONS = [
   { label: "zsh", command: "zsh" },
 ];
 
-type ViewMode = "list" | "grid";
-
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "recent", label: "Recent" },
   { key: "active", label: "Active" },
@@ -35,287 +33,165 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "name", label: "Name" },
 ];
 
-function getStoredView(): ViewMode {
-  if (typeof window === "undefined") return "list";
-  return (localStorage.getItem("relay-tty-view") as ViewMode) || "list";
-}
-
 function getStoredSort(): SortKey {
   if (typeof window === "undefined") return "recent";
   return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
 }
 
-function getStoredShowInactive(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem("relay-tty-show-inactive") === "true";
+function timeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-const DEFAULT_GRID_FONT_SIZE = 12;
-
-function getStoredGridFontSize(): number {
-  if (typeof window === "undefined") return DEFAULT_GRID_FONT_SIZE;
-  const stored = localStorage.getItem("relay-tty-grid-font-size");
-  return stored ? Number(stored) : DEFAULT_GRID_FONT_SIZE;
-}
-
-/** Gap between grid cells in pixels */
-const GRID_GAP = 4;
-
-/**
- * Deterministic column-first packing: given cell sizes (at scale=1) and a
- * viewport, binary-search for the largest uniform scale where all cells
- * fit without scrolling.
- *
- * At each candidate scale, cells are placed top-to-bottom in columns.
- * When a cell doesn't fit vertically, a new column starts. If total
- * column width exceeds viewport width, the scale is too large.
- */
-function computeFitScale(
-  cells: { w: number; h: number }[],
-  vpW: number,
-  vpH: number,
-): number {
-  if (cells.length === 0 || vpW <= 0 || vpH <= 0) return 1;
-
-  const tryScale = (s: number): boolean => {
-    let colX = 0;     // x position of current column
-    let colW = 0;     // width of widest cell in current column
-    let colY = 0;     // y cursor in current column
-
-    for (const cell of cells) {
-      const cw = cell.w * s + GRID_GAP;
-      const ch = cell.h * s + GRID_GAP;
-
-      // If this cell doesn't fit vertically, start a new column
-      if (colY > 0 && colY + ch > vpH) {
-        colX += colW;
-        colW = 0;
-        colY = 0;
-      }
-
-      colW = Math.max(colW, cw);
-      colY += ch;
-    }
-    // Total width including the last column
-    return colX + colW <= vpW;
-  };
-
-  // Binary search for optimal scale
-  let lo = 0.01;
-  let hi = 2;
-  for (let i = 0; i < 30; i++) {
-    const mid = (lo + hi) / 2;
-    if (tryScale(mid)) lo = mid;
-    else hi = mid;
-  }
-  return Math.min(lo, 1); // never scale up
+function formatRate(bps: number): string {
+  if (bps < 1) return "idle";
+  if (bps < 1024) return `${Math.round(bps)}B/s`;
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)}KB/s`;
+  return `${(bps / (1024 * 1024)).toFixed(1)}MB/s`;
 }
 
 /**
- * Grid viewport: computes a deterministic scale so all cells fit in the
- * viewport without scrolling, then renders with absolute positioning.
+ * Compact session list item for the sidebar — clickable, highlights when selected.
  */
-function GridViewport({
-  sessions,
-  selectedCellId,
-  gridFontSize,
-  GridTerminalComponent,
-  onDeselectCell,
-  onSelectCell,
-  onOpenModal,
+function SidebarItem({
+  session,
+  selected,
+  onSelect,
 }: {
-  sessions: Session[];
-  selectedCellId: string | null;
-  gridFontSize: number;
-  GridTerminalComponent: React.ComponentType<any> | null;
-  onDeselectCell: () => void;
-  onSelectCell: (id: string) => void;
-  onOpenModal: (id: string) => void;
+  session: Session;
+  selected: boolean;
+  onSelect: () => void;
 }) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
-
-  // Track viewport size
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const measure = () => setVpSize({ w: el.clientWidth, h: el.clientHeight });
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // Approximate char metrics for cell sizing
-  const charW = gridFontSize * 0.6;
-  const lineH = gridFontSize * 1.2;
-
-  // Compute natural cell sizes and optimal scale
-  const cellSizes = useMemo(
-    () => sessions.map((s) => ({
-      w: (s.cols || 80) * charW,
-      h: (s.rows || 24) * lineH,
-    })),
-    [sessions, charW, lineH]
-  );
-
-  const scale = useMemo(
-    () => computeFitScale(cellSizes, vpSize.w, vpSize.h),
-    [cellSizes, vpSize.w, vpSize.h]
-  );
-
-  // Compute absolute positions using the same column-first packing
-  const positions = useMemo(() => {
-    const pos: { x: number; y: number; w: number; h: number }[] = [];
-    let colX = 0;
-    let colW = 0;
-    let colY = 0;
-
-    for (const cell of cellSizes) {
-      const cw = cell.w * scale;
-      const ch = cell.h * scale;
-
-      if (colY > 0 && colY + ch + GRID_GAP > vpSize.h) {
-        colX += colW + GRID_GAP;
-        colW = 0;
-        colY = 0;
-      }
-
-      pos.push({ x: colX, y: colY, w: cw, h: ch });
-      colW = Math.max(colW, cw);
-      colY += ch + GRID_GAP;
-    }
-    return pos;
-  }, [cellSizes, scale, vpSize.h]);
+  const isRunning = session.status === "running";
+  const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
+  const isActive = isRunning && bps >= 1;
+  const displayCommand = [session.command, ...session.args].join(" ");
 
   return (
-    <div
-      ref={viewportRef}
-      className="flex-1 min-h-0 overflow-hidden relative"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onDeselectCell();
-      }}
+    <button
+      className={`w-full text-left px-3 py-2.5 rounded-lg transition-all duration-100 cursor-pointer border ${
+        selected
+          ? "bg-[#1a1a2e] border-[#3d3d5c]"
+          : "bg-[#0f0f1a] hover:bg-[#1a1a2e] border-[#1e1e2e] hover:border-[#2d2d44]"
+      }`}
+      onClick={onSelect}
     >
-      {sessions.map((session, i) => {
-        const p = positions[i];
-        if (!p) return null;
-        return GridTerminalComponent ? (
-          <div
-            key={session.id}
-            className="absolute"
-            style={{
-              left: `${p.x}px`,
-              top: `${p.y}px`,
-              width: `${p.w}px`,
-              height: `${p.h}px`,
-            }}
-          >
-            <GridTerminalComponent
-              session={session}
-              selected={selectedCellId === session.id}
-              fontSize={gridFontSize}
-              onSelect={() => onSelectCell(session.id)}
-              onExpand={() => onOpenModal(session.id)}
-            />
-          </div>
-        ) : (
-          <div
-            key={session.id}
-            className="absolute rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
-            style={{
-              left: `${p.x}px`,
-              top: `${p.y}px`,
-              width: `${p.w}px`,
-              height: `${p.h}px`,
-            }}
-          >
-            <span className="loading loading-spinner loading-sm" />
-          </div>
-        );
-      })}
+      <div className="flex items-center gap-2">
+        <span
+          className={`shrink-0 inline-block w-2 h-2 rounded-full ${
+            isActive
+              ? "bg-[#22c55e] shadow-[0_0_6px_#22c55e] animate-pulse"
+              : isRunning
+                ? "bg-[#22c55e] shadow-[0_0_4px_#22c55e80]"
+                : "bg-[#64748b]/50"
+          }`}
+        />
+        <code className="text-sm font-mono truncate text-[#e2e8f0] flex-1 min-w-0">
+          {session.title || displayCommand}
+        </code>
+        {isRunning && (session.bps1 != null || session.bytesPerSecond != null) ? (
+          <span className={`shrink-0 text-xs font-mono ${isActive ? "text-[#22c55e]" : "text-[#64748b]"}`}>
+            {formatRate(bps)}
+          </span>
+        ) : !isRunning ? (
+          <span className="text-xs font-mono shrink-0 text-[#64748b]">
+            exit {session.exitCode}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1 mt-1 ml-4 text-xs font-mono text-[#64748b]">
+        <span className="truncate flex-1 min-w-0">
+          {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
+        </span>
+        <span className="shrink-0">{session.id}</span>
+        <span className="shrink-0 ml-1">
+          {isRunning && session.lastActiveAt
+            ? timeAgo(new Date(session.lastActiveAt).getTime())
+            : timeAgo(session.createdAt)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Phone frame component — renders a CSS-only mock device bezel
+ * containing an iframe of the session view.
+ */
+function PhoneFrame({ sessionId }: { sessionId: string }) {
+  return (
+    <div className="flex items-center justify-center h-full w-full p-4">
+      <div
+        className="relative flex flex-col bg-[#1a1a2e] rounded-[2.5rem] border-[3px] border-[#2d2d44] shadow-2xl overflow-hidden"
+        style={{ width: "min(400px, 100%)", height: "min(820px, 100%)" }}
+      >
+        {/* Notch / dynamic island */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#0a0a0f] rounded-full z-10" />
+
+        {/* Inner bezel padding */}
+        <div className="flex-1 m-2 mt-0 rounded-[2rem] overflow-hidden bg-[#0a0a0f]">
+          <iframe
+            key={sessionId}
+            src={`/sessions/${sessionId}`}
+            className="w-full h-full border-0"
+            title="Session preview"
+            allow="clipboard-write"
+          />
+        </div>
+
+        {/* Home indicator */}
+        <div className="flex justify-center pb-2">
+          <div className="w-28 h-1 bg-[#64748b]/30 rounded-full" />
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { sessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
+  const { sessions, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<ViewMode>(getStoredView);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
-  const [showInactive, setShowInactive] = useState(getStoredShowInactive);
-  const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
 
-  // Modal state: which session is open in the modal (null = no modal)
-  const [modalSessionId, setModalSessionId] = useState<string | null>(null);
+  // Desktop preview: which session is shown in the phone frame
+  const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
 
-  // Grid cell selection: which cell is active/focused (receives keyboard input)
-  const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
+  // Desktop detection
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const check = () => setIsDesktop(window.innerWidth > 1024);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
-  // Dynamic imports for grid and modal components (xterm.js is client-only)
-  const [GridTerminalComponent, setGridTerminalComponent] =
-    useState<React.ComponentType<any> | null>(null);
-  const [SessionModalComponent, setSessionModalComponent] =
-    useState<React.ComponentType<any> | null>(null);
-
-  if (typeof window !== "undefined" && viewMode === "grid" && !GridTerminalComponent) {
-    import("../components/grid-terminal").then((mod) => {
-      setGridTerminalComponent(() => mod.GridTerminal);
-    });
-  }
-
-  // Pre-load modal component when grid view is active so expand is instant
-  if (typeof window !== "undefined" && (modalSessionId || viewMode === "grid") && !SessionModalComponent) {
-    import("../components/session-modal").then((mod) => {
-      setSessionModalComponent(() => mod.SessionModal);
-    });
-  }
-
-  // Filter sessions for grid view: optionally hide inactive/exited
-  const gridSessions = useMemo(() => {
-    if (showInactive) return sessions;
-    return sessions.filter((s) => s.status === "running");
-  }, [sessions, showInactive]);
-
-  const sortedGridSessions = useMemo(() => sortSessions(gridSessions, sortKey), [gridSessions, sortKey]);
+  const sortedSessions = useMemo(() => sortSessions(sessions, sortKey), [sessions, sortKey]);
   const groups = useMemo(() => groupByCwd(sessions, sortKey), [sessions, sortKey]);
   const isSingleGroup = groups.length === 1;
-  const exitedCount = useMemo(() => sessions.filter((s) => s.status !== "running").length, [sessions]);
 
-  // The modal session object
-  const modalSession = useMemo(
-    () => (modalSessionId ? sessions.find((s) => s.id === modalSessionId) : null),
-    [modalSessionId, sessions]
-  );
-
-  // Read ?session= from URL on mount to support deep-linking
+  // Auto-select first session on desktop when no preview is set
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const sessionParam = params.get("session");
-    if (sessionParam && sessions.some((s) => s.id === sessionParam)) {
-      setModalSessionId(sessionParam);
-      // Switch to grid view if not already
-      if (viewMode !== "grid") {
-        setViewMode("grid");
-        localStorage.setItem("relay-tty-view", "grid");
-      }
-    }
-  }, []); // Only on mount
-
-  // Update URL when modal opens/closes (client-side only, no navigation)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (modalSessionId) {
-      url.searchParams.set("session", modalSessionId);
+    if (!isDesktop) return;
+    if (previewSessionId && sessions.some((s) => s.id === previewSessionId)) return;
+    // Select first running session, or first session overall
+    const firstRunning = sortedSessions.find((s) => s.status === "running");
+    const first = firstRunning || sortedSessions[0];
+    if (first) {
+      setPreviewSessionId(first.id);
     } else {
-      url.searchParams.delete("session");
+      setPreviewSessionId(null);
     }
-    window.history.replaceState({}, "", url.toString());
-  }, [modalSessionId]);
+  }, [isDesktop, sessions, sortedSessions, previewSessionId]);
 
   useEffect(() => {
     const interval = setInterval(revalidate, 3000);
@@ -351,206 +227,46 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  const toggleView = useCallback(() => {
-    setViewMode((prev) => {
-      const next = prev === "list" ? "grid" : "list";
-      localStorage.setItem("relay-tty-view", next);
-      return next;
-    });
-  }, []);
-
   const setSort = useCallback((key: SortKey) => {
     setSortKey(key);
     localStorage.setItem("relay-tty-sort", key);
   }, []);
 
-  const toggleShowInactive = useCallback(() => {
-    setShowInactive((prev) => {
-      const next = !prev;
-      localStorage.setItem("relay-tty-show-inactive", String(next));
-      return next;
-    });
-  }, []);
+  // Header bar — shared between mobile and desktop
+  const headerBar = (
+    <div className="flex items-center justify-between mb-4 shrink-0">
+      <h1 className="text-2xl font-bold font-mono text-[#64748b]">
+        relay-tty
+        {hostname && (
+          <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>
+        )}
+      </h1>
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-[#64748b]">
+          {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+        </span>
 
-  const adjustGridFontSize = useCallback((delta: number) => {
-    setGridFontSize((prev) => {
-      const next = Math.max(4, Math.min(20, prev + delta));
-      localStorage.setItem("relay-tty-grid-font-size", String(next));
-      return next;
-    });
-  }, []);
-
-  // Select a grid cell (click to focus for keyboard input)
-  const selectCell = useCallback((sessionId: string) => {
-    setSelectedCellId(sessionId);
-  }, []);
-
-  // Deselect all grid cells (Escape or click background)
-  const deselectCell = useCallback(() => {
-    setSelectedCellId(null);
-  }, []);
-
-  // Open modal for a session (expand button)
-  const openModal = useCallback((sessionId: string) => {
-    setModalSessionId(sessionId);
-  }, []);
-
-  // Close modal
-  const closeModal = useCallback(() => {
-    setModalSessionId(null);
-  }, []);
-
-  // Navigate to different session within modal
-  const navigateModal = useCallback((sessionId: string) => {
-    setModalSessionId(sessionId);
-  }, []);
-
-  // Escape key deselects the active grid cell (when no modal is open).
-  // Only deselects when Escape is NOT targeted at the xterm textarea —
-  // in-terminal Escape (vim, etc.) should not deselect.
-  useEffect(() => {
-    if (!selectedCellId || modalSessionId) return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        const target = e.target as HTMLElement;
-        if (target.classList.contains("xterm-helper-textarea")) return;
-        e.preventDefault();
-        setSelectedCellId(null);
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [selectedCellId, modalSessionId]);
-
-  // Clear selected cell when switching away from grid view
-  useEffect(() => {
-    if (viewMode !== "grid") setSelectedCellId(null);
-  }, [viewMode]);
-
-  const isGrid = viewMode === "grid";
-
-  return (
-    <main className={`h-screen bg-[#0a0a0f] ${isGrid ? "flex flex-col p-4" : "overflow-auto container mx-auto p-4 max-w-2xl"}`}>
-      <div className={`flex items-center justify-between mb-4 shrink-0 ${isGrid ? "w-full" : ""}`}>
-        <h1 className="text-2xl font-bold font-mono text-[#64748b]">
-          relay-tty
-          {hostname && (
-            <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>
-          )}
-        </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-[#64748b]">
-            {sessions.length} session{sessions.length !== 1 ? "s" : ""}
-          </span>
-
-          {/* Sort dropdown */}
-          {sessions.length > 1 && (
-            <div className="dropdown dropdown-end">
-              <button
-                tabIndex={0}
-                className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
-              >
-                <ArrowDownUp className="w-3.5 h-3.5" />
-                {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
-              </button>
-              <ul
-                tabIndex={0}
-                className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-10 w-32 p-1 shadow-lg"
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <li key={opt.key}>
-                    <button
-                      className={`font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
-                      onClick={() => {
-                        setSort(opt.key);
-                        (document.activeElement as HTMLElement)?.blur();
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Show inactive toggle — grid mode only, desktop only */}
-          {isGrid && exitedCount > 0 && (
-            <button
-              className={`hidden lg:flex items-center gap-1 text-xs font-mono transition-colors px-2 py-1 rounded-lg border ${
-                showInactive
-                  ? "text-[#e2e8f0] border-[#3d3d5c] bg-[#1a1a2e]"
-                  : "text-[#64748b] border-[#2d2d44] hover:text-[#e2e8f0] hover:border-[#3d3d5c]"
-              }`}
-              onClick={toggleShowInactive}
-              aria-label={showInactive ? "Hide inactive sessions" : "Show inactive sessions"}
-            >
-              {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              {showInactive ? `All (${sessions.length})` : `Active (${gridSessions.length})`}
-            </button>
-          )}
-
-          {/* Font size picker — grid mode only, desktop only */}
-          {isGrid && (
-            <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
-              <button
-                className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-                onClick={() => adjustGridFontSize(-1)}
-                aria-label="Decrease font size"
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-              <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{gridFontSize}</span>
-              <button
-                className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-                onClick={() => adjustGridFontSize(1)}
-                aria-label="Increase font size"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-
-          {/* Grid/list toggle — desktop only */}
-          {sessions.length > 0 && (
-            <div className="hidden lg:flex items-center border border-[#2d2d44] rounded-lg overflow-hidden">
-              <button
-                className={`p-1.5 transition-colors ${!isGrid ? "bg-[#1a1a2e] text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-                onClick={() => { if (isGrid) toggleView(); }}
-                aria-label="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                className={`p-1.5 transition-colors ${isGrid ? "bg-[#1a1a2e] text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-                onClick={() => { if (!isGrid) toggleView(); }}
-                aria-label="Grid view"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
+        {/* Sort dropdown */}
+        {sessions.length > 1 && (
           <div className="dropdown dropdown-end">
             <button
               tabIndex={0}
-              className="btn btn-sm btn-circle btn-ghost text-lg text-[#64748b] hover:text-[#e2e8f0]"
-              disabled={creating}
-              aria-label="New session"
+              className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
             >
-              +
+              <ArrowDownUp className="w-3.5 h-3.5" />
+              {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
             </button>
             <ul
               tabIndex={0}
-              className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-10 w-44 p-1 shadow-lg"
+              className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-10 w-32 p-1 shadow-lg"
             >
-              {SHELL_OPTIONS.map((opt) => (
-                <li key={opt.command}>
+              {SORT_OPTIONS.map((opt) => (
+                <li key={opt.key}>
                   <button
-                    className="font-mono text-sm text-[#e2e8f0] hover:bg-[#0f0f1a]"
+                    className={`font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
                     onClick={() => {
+                      setSort(opt.key);
                       (document.activeElement as HTMLElement)?.blur();
-                      createSession(opt.command);
                     }}
                   >
                     {opt.label}
@@ -559,101 +275,168 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* Grid dashboard link — desktop only */}
+        {sessions.length > 0 && (
+          <Link
+            to="/grid"
+            className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
+            aria-label="Grid dashboard"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </Link>
+        )}
+
+        <div className="dropdown dropdown-end">
+          <button
+            tabIndex={0}
+            className="btn btn-sm btn-circle btn-ghost text-lg text-[#64748b] hover:text-[#e2e8f0]"
+            disabled={creating}
+            aria-label="New session"
+          >
+            +
+          </button>
+          <ul
+            tabIndex={0}
+            className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-10 w-44 p-1 shadow-lg"
+          >
+            {SHELL_OPTIONS.map((opt) => (
+              <li key={opt.command}>
+                <button
+                  className="font-mono text-sm text-[#e2e8f0] hover:bg-[#0f0f1a]"
+                  onClick={() => {
+                    (document.activeElement as HTMLElement)?.blur();
+                    createSession(opt.command);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
+    </div>
+  );
+
+  // Session list content — used in both mobile and desktop sidebar
+  const sessionList = (
+    <div className="flex flex-col gap-4">
+      {groups.map((group) => {
+        const isCollapsed = collapsed.has(group.cwd);
+        const runningCount = group.sessions.filter((s) => s.status === "running").length;
+
+        return (
+          <div key={group.cwd}>
+            {/* Group header — skip if only one group */}
+            {!isSingleGroup && (
+              <button
+                className="w-full flex items-center gap-2 px-1 mb-2 text-left hover:bg-[#0f0f1a] rounded transition-colors"
+                onClick={() => toggleGroup(group.cwd)}
+              >
+                <span className={`text-xs text-[#64748b] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
+                  &#9654;
+                </span>
+                <code className="text-xs text-[#94a3b8] font-mono truncate flex-1">
+                  {group.label}
+                </code>
+                <span className="text-xs text-[#64748b]">
+                  {runningCount > 0 && (
+                    <span className="text-[#22c55e] mr-1">{runningCount} running</span>
+                  )}
+                  {group.sessions.length - runningCount > 0 && (
+                    <span>{group.sessions.length - runningCount} exited</span>
+                  )}
+                </span>
+              </button>
+            )}
+
+            {!isCollapsed && (
+              <div className="flex flex-col gap-2">
+                {group.sessions.map((session) =>
+                  isDesktop ? (
+                    <SidebarItem
+                      key={session.id}
+                      session={session}
+                      selected={previewSessionId === session.id}
+                      onSelect={() => setPreviewSessionId(session.id)}
+                    />
+                  ) : (
+                    <SessionCard key={session.id} session={session} showCwd={isSingleGroup} />
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ── Desktop layout: sidebar + phone-frame preview ──
+  if (isDesktop) {
+    return (
+      <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
+        {headerBar}
+
+        {sessions.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-[#64748b] mb-2">No active sessions</p>
+            <code className="text-sm text-[#94a3b8]">relay bash</code>
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 flex gap-4">
+            {/* Sidebar: session list */}
+            <div className="w-80 shrink-0 overflow-y-auto pr-1">
+              {sessionList}
+            </div>
+
+            {/* Divider */}
+            <div className="w-px bg-[#1e1e2e] shrink-0" />
+
+            {/* Preview area: phone frame with iframe */}
+            <div className="flex-1 min-w-0">
+              {previewSessionId ? (
+                <PhoneFrame sessionId={previewSessionId} />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-[#64748b] font-mono text-sm">Select a session</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <footer className="pb-4 text-center shrink-0 mt-3 w-full">
+          <a
+            href="https://relaytty.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-[#64748b] hover:text-[#94a3b8] font-mono transition-colors"
+          >
+            relaytty.com
+          </a>
+        </footer>
+      </main>
+    );
+  }
+
+  // ── Mobile layout: list with drill-down ──
+  return (
+    <main className="h-screen bg-[#0a0a0f] overflow-auto container mx-auto p-4 max-w-2xl">
+      {headerBar}
 
       {sessions.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-[#64748b] mb-2">No active sessions</p>
-          <code className="text-sm text-[#94a3b8]">
-            relay bash
-          </code>
+          <code className="text-sm text-[#94a3b8]">relay bash</code>
         </div>
-      ) : isGrid ? (
-        /* -- Grid view: horizontal scroll, column-first flow ------------ */
-        <>
-          {sortedGridSessions.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-[#64748b] mb-2">No active sessions</p>
-                <button
-                  className="text-sm text-[#94a3b8] hover:text-[#e2e8f0] transition-colors"
-                  onClick={toggleShowInactive}
-                >
-                  Show {exitedCount} inactive session{exitedCount !== 1 ? "s" : ""}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <GridViewport
-              sessions={sortedGridSessions}
-              selectedCellId={selectedCellId}
-              gridFontSize={gridFontSize}
-              GridTerminalComponent={GridTerminalComponent}
-              onDeselectCell={deselectCell}
-              onSelectCell={selectCell}
-              onOpenModal={openModal}
-            />
-          )}
-        </>
       ) : (
-        /* -- List view ------------------------------------------------- */
-        <div className="flex flex-col gap-4">
-          {groups.map((group) => {
-            const isCollapsed = collapsed.has(group.cwd);
-            const runningCount = group.sessions.filter((s) => s.status === "running").length;
-
-            return (
-              <div key={group.cwd}>
-                {/* Group header — skip if only one group */}
-                {!isSingleGroup && (
-                  <button
-                    className="w-full flex items-center gap-2 px-1 mb-2 text-left hover:bg-[#0f0f1a] rounded transition-colors"
-                    onClick={() => toggleGroup(group.cwd)}
-                  >
-                    <span className={`text-xs text-[#64748b] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
-                      &#9654;
-                    </span>
-                    <code className="text-xs text-[#94a3b8] font-mono truncate flex-1">
-                      {group.label}
-                    </code>
-                    <span className="text-xs text-[#64748b]">
-                      {runningCount > 0 && (
-                        <span className="text-[#22c55e] mr-1">{runningCount} running</span>
-                      )}
-                      {group.sessions.length - runningCount > 0 && (
-                        <span>{group.sessions.length - runningCount} exited</span>
-                      )}
-                    </span>
-                  </button>
-                )}
-
-                {!isCollapsed && (
-                  <div className="flex flex-col gap-2">
-                    {group.sessions.map((session) => (
-                      <SessionCard key={session.id} session={session} showCwd={isSingleGroup} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        sessionList
       )}
 
-      {/* Session modal overlay — grid stays live behind it */}
-      {modalSession && SessionModalComponent && (
-        <SessionModalComponent
-          session={modalSession}
-          allSessions={sessions}
-          version={version}
-          hostname={hostname}
-          onClose={closeModal}
-          onNavigate={navigateModal}
-        />
-      )}
-
-      <footer className={`pb-4 text-center shrink-0 ${isGrid ? "mt-3 w-full" : "mt-8"}`}>
+      <footer className="pb-4 text-center shrink-0 mt-8">
         <a
           href="https://relaytty.com"
           target="_blank"
