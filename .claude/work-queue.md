@@ -1,7 +1,7 @@
 # Work Queue
 
 - [x] Show server hostname in browser tab title and session header bar for multi-server identification
-- [ ] Fix grid view thumbnail sizing: send resize event to match thumbnail dimensions ([detail](work-queue/grid-thumbnail-resize.md))
+- [x] Fix grid view thumbnail sizing: send resize event to match thumbnail dimensions ([detail](work-queue/grid-thumbnail-resize.md))
 - [x] Redesign desktop grid: portrait cells with CSS scaling, modal session viewer, live background ([detail](work-queue/desktop-grid-redesign.md))
 - [x] Fix ~128s WebSocket timeout causing disconnects ([detail](work-queue/ws-128s-timeout.md))
 - [x] Add immediate tap feedback on session cards ([detail](work-queue/session-card-feedback.md))

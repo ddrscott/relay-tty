@@ -47,6 +47,10 @@ export interface TerminalCoreOpts {
   skipWebGL?: boolean;
   /** Throttle terminal writes to this many fps (0 = unlimited) */
   throttleFps?: number;
+  /** Fixed terminal cols — disables FitAddon auto-fit when set */
+  fixedCols?: number;
+  /** Fixed terminal rows — disables FitAddon auto-fit when set */
+  fixedRows?: number;
 }
 
 export interface TerminalCoreRef {
@@ -133,6 +137,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       if (disposed || !containerRef.current) return;
 
+      const useFixedSize = opts.fixedCols != null && opts.fixedRows != null;
+
       const term = new XTerm({
         fontSize: opts.fontSize ?? 14,
         fontFamily: "ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Noto Sans Mono', monospace",
@@ -163,6 +169,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         disableStdin: opts.readOnly ?? false,
         allowProposedApi: true,
         scrollback: 100_000,
+        ...(useFixedSize ? { cols: opts.fixedCols, rows: opts.fixedRows } : {}),
       });
 
       const fitAddon = new FitAddon();
@@ -188,7 +195,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       termRef.current = term;
       fitAddonRef.current = fitAddon;
-      requestAnimationFrame(() => fitAddon.fit());
+      // Skip auto-fit when using fixed cols/rows (grid thumbnails).
+      // The terminal is rendered at the session's actual dimensions
+      // and CSS-scaled down by the grid cell component.
+      if (!useFixedSize) {
+        requestAnimationFrame(() => fitAddon.fit());
+      }
 
       // Register file path link provider (clickable file paths in terminal output)
       if (opts.onFileLink) {
@@ -845,14 +857,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     initTerminal();
 
-    const observer = new ResizeObserver(() => { if (!scrollState.momentumActive) fit(); });
-    if (containerRef.current) observer.observe(containerRef.current);
+    // Skip resize observer for fixed-size terminals (grid thumbnails) —
+    // they use CSS transform: scale() instead of FitAddon auto-fit.
+    const hasFixedSize = opts.fixedCols != null && opts.fixedRows != null;
+    let observer: ResizeObserver | null = null;
+    if (!hasFixedSize) {
+      observer = new ResizeObserver(() => { if (!scrollState.momentumActive) fit(); });
+      if (containerRef.current) observer.observe(containerRef.current);
+    }
 
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
       if (throttleTimer) clearTimeout(throttleTimer);
-      observer.disconnect();
+      observer?.disconnect();
       wsRef.current?.close();
       try { webglRef.current?.dispose(); } catch {}
       webglRef.current = null;
