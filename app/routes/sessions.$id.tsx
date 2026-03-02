@@ -88,9 +88,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
 
-  // ── Mobile detection + floating toolbar state ──
+  // ── Mobile detection + input bar state ──
   const [isMobile, setIsMobile] = useState(false);
-  const [toolbarVisible, setToolbarVisible] = useState(false);
   const [inputBarOpen, setInputBarOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -101,18 +100,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
-  }, []);
-
-  // Terminal tap handler: show toolbar on mobile tap (hide via chevron only)
-  const handleTerminalTap = useCallback(() => {
-    if (!isMobile) return;
-    if (!toolbarVisible) setToolbarVisible(true);
-  }, [isMobile, toolbarVisible]);
-
-  // Hide toolbar (chevron button handler)
-  const hideToolbar = useCallback(() => {
-    setToolbarVisible(false);
-    setInputBarOpen(false);
   }, []);
 
   // Update document.title when terminal title changes dynamically
@@ -605,7 +592,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onCopy={handleCopy}
             onActivityUpdate={handleActivityUpdate}
             onFileLink={handleFileLink}
-            onTap={handleTerminalTap}
           />
         )}
 
@@ -702,8 +688,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {/* ── Mobile: floating toolbar (hidden by default, appears on tap) ── */}
-      {isMobile && toolbarVisible && (
+      {/* ── Mobile: always-visible toolbar ── */}
+      {isMobile && (
         <div
           ref={toolbarRef}
           className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e]"
@@ -764,22 +750,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             </div>
           )}
 
-          {/* Key row: pinned hide | scrollable keys | pinned keyboard */}
+          {/* Key row: scrollable keys | pinned keyboard */}
           <div className="flex items-center h-10">
-            {/* Pinned left: hide */}
-            <button
-              className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 shrink-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); hideToolbar(); }}
-              onClick={hideToolbar}
-              aria-label="Hide toolbar"
-            >
-              <ChevronDown className="w-5 h-5" />
-            </button>
-            <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-
-            {/* Scrollable middle */}
+            {/* Scrollable keys */}
             <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none">
               <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
               <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>

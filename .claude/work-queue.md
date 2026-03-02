@@ -30,3 +30,4 @@
 - [x] Prevent `relay attach` and `relay tui` from attaching to own session (hangs the process)
 - [x] CI cross-compilation + postinstall binary download for Rust pty-host ([detail](work-queue/rust-binary-distribution.md))
 - [x] Display npm package version in `relay --version` instead of hardcoded value
+- [x] Keep input bar always visible — remove hide/show toggle behavior (users lose the bar and can't get it back)
