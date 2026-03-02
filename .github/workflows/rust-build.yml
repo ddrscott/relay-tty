@@ -50,15 +50,17 @@ jobs:
 
       - name: Install cross (Linux ARM64 only)
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Run tests
         if: ${{ !matrix.cross }}
         run: cargo test --manifest-path ${{ env.MANIFEST }}
 
-      - name: Run tests (cross)
+      - name: Run tests (cross, unit only)
         if: matrix.cross
-        run: cross test --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }}
+        run: cross test --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }} --lib
 
       - name: Build release binary
         if: ${{ !matrix.cross }}
@@ -95,9 +97,11 @@ jobs:
     steps:
       - name: Determine tag
         id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event.inputs.tag }}" != "" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi

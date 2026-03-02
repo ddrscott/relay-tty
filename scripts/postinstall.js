@@ -29,7 +29,7 @@ const PLATFORM_MAP = {
   "linux-arm64": "aarch64-unknown-linux-gnu",
 };
 
-function main() {
+async function main() {
   // Skip if explicitly disabled
   if (process.env.RELAY_SKIP_BINARY_DOWNLOAD === "1") {
     console.log("relay-tty: Skipping binary download (RELAY_SKIP_BINARY_DOWNLOAD=1)");
@@ -67,16 +67,9 @@ function main() {
 
   mkdirSync(BIN_DIR, { recursive: true });
 
-  download(url, BIN_PATH)
-    .then(() => {
-      chmodSync(BIN_PATH, 0o755);
-      console.log("relay-tty: Binary installed to bin/relay-pty-host");
-    })
-    .catch((err) => {
-      // Clean up partial download
-      try { unlinkSync(BIN_PATH); } catch {}
-      console.log(`relay-tty: Binary download failed (${err.message}), using Node.js fallback`);
-    });
+  await download(url, BIN_PATH);
+  chmodSync(BIN_PATH, 0o755);
+  console.log("relay-tty: Binary installed to bin/relay-pty-host");
 }
 
 /**
@@ -114,4 +107,8 @@ function download(url, destPath, redirects = 5) {
   });
 }
 
-main();
+main().catch((err) => {
+  // Clean up partial download
+  try { unlinkSync(BIN_PATH); } catch {}
+  console.log(`relay-tty: Binary download failed (${err.message}), using Node.js fallback`);
+});
