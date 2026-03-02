@@ -1,6 +1,6 @@
 {
   "name": "relay-tty",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Terminal relay — run commands locally, access them from anywhere via browser",
   "type": "module",
   "license": "MIT",
