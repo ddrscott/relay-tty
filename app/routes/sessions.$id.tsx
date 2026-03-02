@@ -678,22 +678,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         >
           {/* Input bar — opens when user taps keyboard button */}
           {inputBarOpen && (
-            <div className="flex items-center gap-1.5 px-2 py-1 border-b border-[#1e1e2e]">
+            <div className="flex items-center gap-1 px-1.5 py-1 border-b border-[#1e1e2e]">
               <button
-                className="btn btn-sm btn-ghost text-[#64748b] hover:text-[#e2e8f0] px-1.5 min-w-0"
+                className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
                 onClick={() => setPadExpanded((v) => !v)}
                 aria-label={padExpanded ? "Single line" : "Multi-line"}
               >
-                {padExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
               </button>
               <textarea
                 ref={padRef}
                 className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
                 rows={padExpanded ? 3 : 1}
-                style={{ height: padExpanded ? undefined : "1.8em", paddingTop: "0.15em", paddingBottom: "0.15em" }}
+                style={{ height: padExpanded ? undefined : "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em" }}
                 value={padText}
                 onChange={(e) => setPadText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
@@ -709,91 +709,91 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 autoFocus
               />
               <button
-                className="btn btn-sm btn-ghost text-[#64748b] hover:text-[#e2e8f0] px-1.5 min-w-0"
+                className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); setPadText(""); padRef.current?.focus(); }}
                 onClick={() => { setPadText(""); padRef.current?.focus(); }}
                 aria-label="Clear"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-5 h-5" />
               </button>
               <button
-                className="btn btn-sm btn-primary px-2 min-w-0"
+                className="btn btn-primary h-10 min-h-0 px-3 min-w-0 rounded-none"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
                 onClick={sendPad}
                 disabled={!padText.trim()}
               >
-                <SendHorizontal className="w-4 h-4" />
+                <SendHorizontal className="w-5 h-5" />
               </button>
             </div>
           )}
 
           {/* Key row: pinned hide | scrollable keys | pinned keyboard */}
-          <div className="flex items-center">
+          <div className="flex items-center h-10">
             {/* Pinned left: hide */}
             <button
-              className="btn btn-sm btn-ghost px-2 min-w-0 shrink-0 text-[#64748b] hover:text-[#e2e8f0]"
+              className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 shrink-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={(e) => { e.preventDefault(); hideToolbar(); }}
               onClick={hideToolbar}
               aria-label="Hide toolbar"
             >
-              <ChevronDown className="w-4 h-4" />
+              <ChevronDown className="w-5 h-5" />
             </button>
-            <div className="w-px h-5 bg-[#2d2d44] shrink-0" />
+            <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
 
             {/* Scrollable middle */}
-            <div className="flex-1 overflow-x-auto flex items-center gap-0.5 px-1 py-0.5 scrollbar-none">
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[A"); }} onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[C"); }} onClick={() => sendKey("\x1b[C")}>&rarr;</button>
-              <div className="w-px h-5 bg-[#2d2d44] shrink-0 mx-0.5" />
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\t"); }} onClick={() => sendKey("\t")}>Tab</button>
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\r"); }} onClick={() => sendKey("\r")}>
-                <CornerDownLeft className="w-4 h-4" />
+            <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none">
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[A"); }} onClick={() => sendKey("\x1b[A")}>&uarr;</button>
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[C"); }} onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+              <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\t"); }} onClick={() => sendKey("\t")}>Tab</button>
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\r"); }} onClick={() => sendKey("\r")}>
+                <CornerDownLeft className="w-5 h-5" />
               </button>
-              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b"); }} onClick={() => sendKey("\x1b")}>Esc</button>
-              <div className="w-px h-5 bg-[#2d2d44] shrink-0 mx-0.5" />
+              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b"); }} onClick={() => sendKey("\x1b")}>Esc</button>
+              <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
               <button
-                className={`btn btn-sm font-mono px-2.5 min-w-0 shrink-0 ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+                className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
                 tabIndex={-1}
                 onTouchEnd={(e) => { e.preventDefault(); setCtrlOn(!ctrlOn); }}
                 onClick={() => setCtrlOn(!ctrlOn)}
               >Ctrl</button>
               <button
-                className={`btn btn-sm font-mono px-2.5 min-w-0 shrink-0 ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+                className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
                 tabIndex={-1}
                 onTouchEnd={(e) => { e.preventDefault(); setAltOn(!altOn); }}
                 onClick={() => setAltOn(!altOn)}
               >Alt</button>
               <button
-                className={`btn btn-sm min-w-0 shrink-0 px-2.5 ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+                className={`btn h-10 min-h-0 min-w-0 shrink-0 px-3 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
                 onClick={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
                 aria-label="Select text for copying"
               >
-                <TextSelect className="w-4 h-4" />
+                <TextSelect className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="w-px h-5 bg-[#2d2d44] shrink-0" />
+            <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
             {/* Pinned right: keyboard */}
             <button
-              className={`btn btn-sm shrink-0 px-2 min-w-0 ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              className={`btn h-10 min-h-0 shrink-0 px-3 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
               onClick={toggleInputBar}
               aria-label="Keyboard input"
             >
-              <KeyboardIcon className="w-4 h-4" />
+              <KeyboardIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
