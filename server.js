@@ -1,12 +1,13 @@
 import { createServer } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import express from "express";
 import compression from "compression";
 import morgan from "morgan";
 
 const PKG_VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8")).version;
+const HOSTNAME = hostname();
 
 const PORT = parseInt(process.env.PORT || "7680", 10);
 const HOST = "0.0.0.0";
@@ -83,7 +84,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
         },
       })
     );
@@ -109,7 +110,7 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
         },
       })
     );

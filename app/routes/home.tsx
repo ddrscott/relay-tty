@@ -6,16 +6,18 @@ import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
 import { LayoutGrid, List, ArrowDownUp, Eye, EyeOff } from "lucide-react";
 
-export function meta({}: Route.MetaArgs) {
+export function meta({ data }: Route.MetaArgs) {
+  const hostname = data?.hostname ?? "";
+  const title = hostname ? `${hostname} — relay-tty` : "relay-tty";
   return [
-    { title: "relay-tty" },
+    { title },
     { name: "description", content: "Terminal relay service" },
   ];
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
   const sessions = context.sessionStore.list();
-  return { sessions, version: context.version };
+  return { sessions, version: context.version, hostname: context.hostname };
 }
 
 const SHELL_OPTIONS = [
@@ -49,7 +51,7 @@ function getStoredShowInactive(): boolean {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { sessions, version } = loaderData as { sessions: Session[]; version: string };
+  const { sessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -198,7 +200,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return (
     <main className={`h-screen bg-[#0a0a0f] ${isGrid ? "flex flex-col p-4" : "overflow-auto container mx-auto p-4 max-w-2xl"}`}>
       <div className={`flex items-center justify-between mb-4 shrink-0 ${isGrid ? "w-full" : ""}`}>
-        <h1 className="text-2xl font-bold font-mono text-[#64748b]">relay-tty</h1>
+        <h1 className="text-2xl font-bold font-mono text-[#64748b]">
+          relay-tty
+          {hostname && (
+            <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>
+          )}
+        </h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-[#64748b]">
             {sessions.length} session{sessions.length !== 1 ? "s" : ""}
@@ -402,6 +409,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           session={modalSession}
           allSessions={sessions}
           version={version}
+          hostname={hostname}
           onClose={closeModal}
           onNavigate={navigateModal}
         />

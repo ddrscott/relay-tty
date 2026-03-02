@@ -4,5 +4,6 @@ declare module "react-router" {
   interface AppLoadContext {
     sessionStore: SessionStore;
     version: string;
+    hostname: string;
   }
 }

@@ -23,11 +23,12 @@ interface SessionModalProps {
   session: Session;
   allSessions: Session[];
   version: string;
+  hostname?: string;
   onClose: () => void;
   onNavigate: (sessionId: string) => void;
 }
 
-export function SessionModal({ session, allSessions, version, onClose, onNavigate }: SessionModalProps) {
+export function SessionModal({ session, allSessions, version, hostname, onClose, onNavigate }: SessionModalProps) {
   const terminalRef = useRef<TerminalHandle>(null);
   const [fontSize, setFontSize] = useState(14);
   const [exitCode, setExitCode] = useState<number | null>(
@@ -199,6 +200,13 @@ export function SessionModal({ session, allSessions, version, onClose, onNavigat
             <X className="w-4 h-4" />
           </button>
 
+          {/* Hostname badge */}
+          {hostname && (
+            <span className="text-xs font-mono text-[#64748b] bg-[#1a1a2e] border border-[#2d2d44] rounded px-1.5 py-0.5 shrink-0 truncate max-w-32" title={hostname}>
+              {hostname}
+            </span>
+          )}
+
           {/* Session title */}
           <div className="flex-1 min-w-0 px-2">
             <code className="text-sm font-mono truncate block text-[#e2e8f0]">
@@ -283,6 +291,12 @@ export function SessionModal({ session, allSessions, version, onClose, onNavigat
               <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
                 <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
                   <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
+                  {hostname && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-[#64748b]">Host</span>
+                      <span className="text-[#e2e8f0]">{hostname}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-4">
                     <span className="text-[#64748b]">Session</span>
                     <span className="text-[#e2e8f0]">{session.id}</span>

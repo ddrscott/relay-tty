@@ -31,20 +31,31 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
 }
 
+export function meta({ data }: Route.MetaArgs) {
+  if (!data) return [{ title: "relay-tty" }];
+  const { session, hostname } = data as { session: Session; hostname: string };
+  const sessionLabel = session.title || `${session.command} ${session.args.join(" ")}`.trim();
+  const parts = [sessionLabel];
+  if (hostname) parts.push(hostname);
+  parts.push("relay-tty");
+  return [{ title: parts.join(" — ") }];
+}
+
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id!);
   if (!session) {
     throw new Response("Session not found", { status: 404 });
   }
   const allSessions = context.sessionStore.list();
-  return { session, allSessions, version: context.version };
+  return { session, allSessions, version: context.version, hostname: context.hostname };
 }
 
 export default function SessionView({ loaderData }: Route.ComponentProps) {
-  const { session, allSessions, version } = loaderData as {
+  const { session, allSessions, version, hostname } = loaderData as {
     session: Session;
     allSessions: Session[];
     version: string;
+    hostname: string;
   };
   const navigate = useNavigate();
   const { revalidate } = useRevalidator();
@@ -103,6 +114,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setToolbarVisible(false);
     setInputBarOpen(false);
   }, []);
+
+  // Update document.title when terminal title changes dynamically
+  useEffect(() => {
+    const sessionLabel = termTitle || session.title || `${session.command} ${session.args.join(" ")}`.trim();
+    const parts = [sessionLabel];
+    if (hostname) parts.push(hostname);
+    parts.push("relay-tty");
+    document.title = parts.join(" \u2014 ");
+  }, [termTitle, session.title, session.command, session.args, hostname]);
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -356,6 +376,13 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <ArrowLeft className="w-4 h-4" />
         </Link>
 
+        {/* Hostname badge */}
+        {hostname && (
+          <span className="hidden sm:inline text-xs font-mono text-[#64748b] bg-[#1a1a2e] border border-[#2d2d44] rounded px-1.5 py-0.5 shrink-0 truncate max-w-32" title={hostname}>
+            {hostname}
+          </span>
+        )}
+
         {/* Session title -- tap to open picker */}
         <div className="relative flex-1 min-w-0" ref={pickerRef}>
           <button
@@ -492,6 +519,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
               <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
                 <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
+                {hostname && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-[#64748b]">Host</span>
+                    <span className="text-[#e2e8f0]">{hostname}</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-4">
                   <span className="text-[#64748b]">Session</span>
                   <span className="text-[#e2e8f0]">{session.id}</span>
