@@ -31,9 +31,10 @@ interface TerminalProps {
   onSelectionModeChange?: (on: boolean) => void;
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
   onFileLink?: (link: FileLink) => void;
+  onTap?: () => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -51,6 +52,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     selectionModeRef,
     onActivityUpdate,
     onFileLink,
+    onTap,
   });
 
   const sendText = useCallback((text: string) => {

@@ -39,6 +39,8 @@ export interface TerminalCoreOpts {
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number; bps1?: number; bps5?: number; bps15?: number }) => void;
   /** Called when a file path link is clicked in terminal output */
   onFileLink?: (link: FileLink) => void;
+  /** Called when the user taps the terminal (touch with no drag) */
+  onTap?: () => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
 }
@@ -351,6 +353,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       let momentumRaf = 0;
       let touching = false;
 
+      // Tap detection: track touchstart position + time
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartTime = 0;
+      const TAP_MAX_DISTANCE = 10; // pixels
+      const TAP_MAX_DURATION = 300; // ms
+
       // ── Pinch-to-zoom state ───────────────────────────────────────
       let pinching = false;
       let lastPinchDist = 0;
@@ -410,6 +419,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         lastTouchTime = performance.now();
         lineVelocity = 0;
         scrollLine = term.buffer.active.viewportY;
+        // Record for tap detection
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = performance.now();
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
@@ -468,6 +481,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         if (!touching) return;
         e.stopPropagation();
         touching = false;
+
+        // Tap detection: short duration, minimal movement
+        if (e.changedTouches.length === 1) {
+          const endX = e.changedTouches[0].clientX;
+          const endY = e.changedTouches[0].clientY;
+          const dx = endX - touchStartX;
+          const dy = endY - touchStartY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const duration = performance.now() - touchStartTime;
+          if (dist < TAP_MAX_DISTANCE && duration < TAP_MAX_DURATION) {
+            opts.onTap?.();
+          }
+        }
 
         // Momentum scrolling. Two oscillation sources are suppressed:
         // 1. Viewport _innerRefresh snaps scrollTop to ydisp × fluctuating

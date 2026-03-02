@@ -22,6 +22,6 @@
 - [x] Diagnose and fix slow session switching — full buffer replay on navigate ([detail](work-queue/session-switch-replay.md))
 - [x] Rewrite pty-host in Rust with 1/5/15m metrics and idle notifications ([detail](work-queue/rust-pty-host.md))
 - [x] Add pty-host test suite: Rust unit tests + Unix socket integration tests ([detail](work-queue/pty-host-test-suite.md))
-- [ ] Redesign mobile input UX: hide input bar, show floating toolbar on tap, keyboard-on-demand ([detail](work-queue/mobile-input-redesign.md))
+- [x] Redesign mobile input UX: hide input bar, show floating toolbar on tap, keyboard-on-demand ([detail](work-queue/mobile-input-redesign.md))
 - [x] Prevent `relay attach` and `relay tui` from attaching to own session (hangs the process)
 - [ ] CI cross-compilation + postinstall binary download for Rust pty-host ([detail](work-queue/rust-binary-distribution.md))
