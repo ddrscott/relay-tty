@@ -141,9 +141,13 @@ export class TunnelClient {
         body = Buffer.from(req.body, "base64");
       }
 
-      // Forward headers, replace Host
+      // Forward headers, replace Host, strip Cloudflare headers so the
+      // local server's isLocalhost() bypass works (--tunnel is secured by slug).
       const headers = new Headers(req.headers);
       headers.set("Host", `localhost:${this.opts.localPort}`);
+      for (const key of [...headers.keys()]) {
+        if (key.startsWith("cf-")) headers.delete(key);
+      }
 
       const res = await fetch(localUrl, {
         method: req.method,

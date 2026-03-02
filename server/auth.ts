@@ -12,15 +12,28 @@ const JWT_SECRET = process.env.JWT_SECRET || "";
  * value, which can be spoofed — allowing remote clients to bypass auth
  * by sending `X-Forwarded-For: 127.0.0.1`. Do NOT set `trust proxy`
  * without also removing or reworking this bypass.
+ *
+ * Cloudflare tunnel detection: cloudflared runs locally so proxied traffic
+ * appears as 127.0.0.1, but Cloudflare edge injects `Cf-Connecting-Ip`.
+ * If that header is present, the request came through a CF tunnel and must
+ * NOT get the localhost bypass. The `--tunnel` relay tunnel strips CF
+ * headers before forwarding, so it still gets the bypass (secured by slug).
  */
 function isLocalhost(req: Request): boolean {
   const ip = req.ip || req.socket.remoteAddress || "";
-  return (
+  const isLocal =
     ip === "127.0.0.1" ||
     ip === "::1" ||
     ip === "::ffff:127.0.0.1" ||
-    ip === "localhost"
-  );
+    ip === "localhost";
+
+  if (!isLocal) return false;
+
+  // cloudflared forwards Cf-Connecting-Ip from the Cloudflare edge —
+  // its presence means this "localhost" request is actually remote.
+  if (req.headers["cf-connecting-ip"]) return false;
+
+  return true;
 }
 
 interface JwtPayload {
@@ -175,7 +188,9 @@ export function verifyWsAuth(req: { headers: Record<string, string | string[] | 
   const ip = req.socket.remoteAddress || "";
   const isLocal = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 
-  if (isLocal) return true;
+  // Same CF tunnel detection as authMiddleware
+  const isCfTunnel = isLocal && !!req.headers["cf-connecting-ip"];
+  if (isLocal && !isCfTunnel) return true;
   if (!JWT_SECRET) return true;
 
   const cookieHeader = req.headers.cookie;
