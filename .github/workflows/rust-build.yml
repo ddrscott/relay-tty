@@ -1,0 +1,124 @@
+name: Build Rust pty-host
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.4.0). Leave blank for dry run (artifacts only, no release).'
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  MANIFEST: crates/pty-host/Cargo.toml
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+            name: macOS ARM64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: macOS x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: Linux x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: Linux ARM64
+            cross: true
+
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64 only)
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Run tests
+        if: ${{ !matrix.cross }}
+        run: cargo test --manifest-path ${{ env.MANIFEST }}
+
+      - name: Run tests (cross)
+        if: matrix.cross
+        run: cross test --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }}
+
+      - name: Build release binary
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }}
+
+      - name: Build release binary (cross)
+        if: matrix.cross
+        run: cross build --release --manifest-path ${{ env.MANIFEST }} --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux ARM64 cross)
+        if: matrix.cross
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+          aarch64-linux-gnu-strip crates/pty-host/target/${{ matrix.target }}/release/relay-pty-host
+
+      - name: Prepare artifact
+        run: |
+          cp crates/pty-host/target/${{ matrix.target }}/release/relay-pty-host relay-pty-host-${{ matrix.target }}
+          chmod +x relay-pty-host-${{ matrix.target }}
+          ls -lh relay-pty-host-${{ matrix.target }}
+          file relay-pty-host-${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-pty-host-${{ matrix.target }}
+          path: relay-pty-host-${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event.inputs.tag }}" != "" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/relay-pty-host-aarch64-apple-darwin/relay-pty-host-aarch64-apple-darwin
+            artifacts/relay-pty-host-x86_64-apple-darwin/relay-pty-host-x86_64-apple-darwin
+            artifacts/relay-pty-host-x86_64-unknown-linux-gnu/relay-pty-host-x86_64-unknown-linux-gnu
+            artifacts/relay-pty-host-aarch64-unknown-linux-gnu/relay-pty-host-aarch64-unknown-linux-gnu

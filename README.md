@@ -179,6 +179,19 @@ cargo test --manifest-path crates/pty-host/Cargo.toml
 
 The Rust binary provides 1/5/15-minute throughput metrics (like `top` load averages), lower memory usage (~2MB vs ~40MB per session), and eliminates the node-pty native addon as a crash risk.
 
+### Binary Distribution
+
+When installed via npm, a postinstall script automatically downloads the pre-built Rust binary for your platform from GitHub releases. Supported platforms:
+
+| Platform | Architecture |
+|----------|-------------|
+| macOS | ARM64 (M1/M2/M3), x86_64 (Intel) |
+| Linux | x86_64, ARM64 |
+
+If the download fails (offline, unsupported platform), it falls back to the Node.js pty-host. Set `RELAY_SKIP_BINARY_DOWNLOAD=1` to skip the download entirely.
+
+Binaries are built via GitHub Actions on each tagged release (`v*`). The workflow cross-compiles for all four targets and attaches stripped binaries to the GitHub release.
+
 ## Tech Stack
 
 - **Frontend**: React Router v7 (SSR) + Tailwind v4 + DaisyUI v5 + xterm.js
