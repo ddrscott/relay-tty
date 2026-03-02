@@ -13,7 +13,7 @@ import { createWriteStream, mkdirSync, chmodSync, existsSync, unlinkSync } from 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { get as httpsGet } from "node:https";
-import { createReadStream, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
