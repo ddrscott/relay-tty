@@ -3,6 +3,7 @@ import type { Session } from "../shared/types.js";
 import { attach, attachSocket } from "./attach.js";
 import { resolveHost } from "./config.js";
 import { getSocketPath } from "./spawn.js";
+import { PreviewConnection } from "./preview.js";
 import {
   loadSessions,
   stopSession,
@@ -65,6 +66,12 @@ interface TuiState {
   confirmStop: boolean; // showing stop confirmation
   statusMessage: string;
   statusTimeout: ReturnType<typeof setTimeout> | null;
+  // Live terminal preview
+  preview: PreviewConnection;
+  previewDebounce: ReturnType<typeof setTimeout> | null;
+  lastPreviewId: string | null;
+  renderThrottle: ReturnType<typeof setTimeout> | null;
+  lastRenderTime: number;
 }
 
 // ── Main entry ──────────────────────────────────────────────────────────
@@ -85,6 +92,11 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     confirmStop: false,
     statusMessage: "",
     statusTimeout: null,
+    preview: new PreviewConnection(),
+    previewDebounce: null,
+    lastPreviewId: null,
+    renderThrottle: null,
+    lastRenderTime: 0,
   };
 
   // Load initial sessions
@@ -95,8 +107,9 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.resume();
 
-  // Render
+  // Render and start initial preview
   render(state);
+  schedulePreview(state);
 
   // Live refresh timer
   const refreshInterval = setInterval(async () => {
@@ -145,6 +158,9 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
   process.stdin.removeListener("data", onData);
   process.removeListener("SIGWINCH", onResize);
   if (state.statusTimeout) clearTimeout(state.statusTimeout);
+  if (state.previewDebounce) clearTimeout(state.previewDebounce);
+  if (state.renderThrottle) clearTimeout(state.renderThrottle);
+  state.preview.disconnect();
   process.stdout.write(MOUSE_OFF + CURSOR_SHOW + ALT_SCREEN_OFF);
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
@@ -179,12 +195,13 @@ function handleInput(data: Buffer, state: TuiState) {
   }
 
   // g = top, G = bottom
-  if (s === "g") { state.selectedIndex = 0; state.scrollOffset = 0; updateSelectedId(state); render(state); return; }
+  if (s === "g") { state.selectedIndex = 0; state.scrollOffset = 0; updateSelectedId(state); render(state); schedulePreview(state); return; }
   if (s === "G") {
     state.selectedIndex = Math.max(0, state.sessions.length - 1);
     updateSelectedId(state);
     clampScroll(state);
     render(state);
+    schedulePreview(state);
     return;
   }
 
@@ -248,8 +265,11 @@ function handleMouse(seq: string, state: TuiState) {
   if (btn === 64) { moveSelection(state, -1); return; }
   if (btn === 65) { moveSelection(state, 1); return; }
 
-  // Left click (btn 0, pressed)
-  if (btn === 0 && pressed) {
+  // Left click (btn 0, pressed) — only in list pane
+  const clickCol = parseInt(match[2], 10);
+  const showPreview = state.cols >= 80;
+  const listWidth = showPreview ? Math.max(20, Math.floor(state.cols * 0.30)) : state.cols;
+  if (btn === 0 && pressed && clickCol <= listWidth) {
     // Map row to session index (row 2 = first session, accounting for header)
     const listStart = 2; // row 1 = header border, row 2 = first item
     const sessionIndex = state.scrollOffset + (row - listStart);
@@ -265,6 +285,7 @@ function handleMouse(seq: string, state: TuiState) {
       state.selectedIndex = sessionIndex;
       updateSelectedId(state);
       render(state);
+      schedulePreview(state);
     }
   }
 }
@@ -277,6 +298,7 @@ function moveSelection(state: TuiState, delta: number) {
   updateSelectedId(state);
   clampScroll(state);
   render(state);
+  schedulePreview(state);
 }
 
 function updateSelectedId(state: TuiState) {
@@ -294,6 +316,55 @@ function clampScroll(state: TuiState) {
 
 function getListHeight(state: TuiState): number {
   return state.rows - 3; // header border + footer border + help line
+}
+
+// ── Preview connection management ────────────────────────────────────────
+
+const PREVIEW_DEBOUNCE = 150;
+const RENDER_INTERVAL = 67; // ~15fps
+
+function schedulePreview(state: TuiState) {
+  if (state.previewDebounce) clearTimeout(state.previewDebounce);
+
+  const session = state.sessions[state.selectedIndex];
+  if (!session || state.cols < 80) {
+    state.preview.disconnect();
+    state.lastPreviewId = null;
+    return;
+  }
+
+  // Already previewing this session
+  if (state.lastPreviewId === session.id) return;
+
+  state.previewDebounce = setTimeout(() => {
+    const s = state.sessions[state.selectedIndex];
+    if (!s) return;
+
+    // Only connect to running sessions with sockets
+    if (s.status !== "running" || !fs.existsSync(getSocketPath(s.id))) {
+      state.preview.disconnect();
+      state.lastPreviewId = s.id;
+      render(state);
+      return;
+    }
+
+    state.preview.connect(s.id, s.cols, s.rows, () => {
+      // onUpdate callback — throttled re-render
+      if (state.attached || !state.running) return;
+      const now = Date.now();
+      if (now - state.lastRenderTime >= RENDER_INTERVAL) {
+        state.lastRenderTime = now;
+        render(state);
+      } else if (!state.renderThrottle) {
+        state.renderThrottle = setTimeout(() => {
+          state.renderThrottle = null;
+          state.lastRenderTime = Date.now();
+          render(state);
+        }, RENDER_INTERVAL - (now - state.lastRenderTime));
+      }
+    });
+    state.lastPreviewId = s.id;
+  }, PREVIEW_DEBOUNCE);
 }
 
 // ── Status messages ─────────────────────────────────────────────────────
@@ -318,6 +389,8 @@ async function doAttach(session: Session, state: TuiState) {
 
   // Suppress TUI rendering while attached
   state.attached = true;
+  state.preview.disconnect();
+  state.lastPreviewId = null;
 
   // Leave TUI temporarily
   process.stdout.write(MOUSE_OFF + CURSOR_SHOW + ALT_SCREEN_OFF);
@@ -356,6 +429,7 @@ async function doAttach(session: Session, state: TuiState) {
       handleInput(data, state);
     });
     render(state);
+    schedulePreview(state);
   };
 
   if (useServer) {
@@ -411,27 +485,24 @@ function render(state: TuiState) {
   const buf: string[] = [];
   buf.push(CLEAR_SCREEN);
 
-  const showDetail = cols >= 80;
-  const listWidth = showDetail ? Math.min(Math.floor(cols * 0.55), cols - 34) : cols;
-  const detailWidth = showDetail ? cols - listWidth - 1 : 0; // -1 for separator
+  const showPreview = cols >= 80;
+  const listWidth = showPreview ? Math.max(20, Math.floor(cols * 0.30)) : cols;
+  const previewWidth = showPreview ? cols - listWidth - 1 : 0; // -1 for separator
 
   // ── Header ──
   const headerLeft = ` Sessions (${sessions.length}) `;
   buf.push(moveTo(1, 1));
   buf.push(boldCyan(truncate(headerLeft, listWidth)));
-  if (showDetail) {
-    const headerRight = ` Details `;
-    buf.push(moveTo(1, listWidth + 2));
-    buf.push(boldCyan(truncate(headerRight, detailWidth)));
-  }
 
   // ── List pane ──
   const listHeight = getListHeight(state);
   const selected = sessions[selectedIndex];
 
   if (sessions.length === 0) {
-    buf.push(moveTo(3, 3));
-    buf.push(dim("No sessions. Run ") + bold("relay <command>") + dim(" to start one."));
+    buf.push(moveTo(3, 2));
+    buf.push(dim("No sessions."));
+    buf.push(moveTo(4, 2));
+    buf.push(dim("Run ") + bold("relay <cmd>"));
   } else {
     for (let i = 0; i < listHeight; i++) {
       const idx = scrollOffset + i;
@@ -446,7 +517,7 @@ function render(state: TuiState) {
       const isRunning = s.status === "running";
       const isActive = isRunning && (s.bytesPerSecond ?? 0) >= 1;
 
-      // Build list item
+      // Build compact list item: ▶ ● id cmd
       const pointer = isSelected ? bold(cyan("\u25b6")) : " ";
       let dot: string;
       if (isActive) dot = green("\u25cf");
@@ -454,17 +525,9 @@ function render(state: TuiState) {
       else dot = dim("\u00b7");
 
       const id = s.id;
-      const label = s.title || truncate([s.command, ...s.args].join(" "), listWidth - 16);
-      const age = timeAgo(s.createdAt);
+      const label = s.title || truncate([s.command, ...s.args].join(" "), listWidth - 14);
 
-      let line = ` ${pointer} ${dot} ${isSelected ? bold(id) : dim(id)}  ${truncate(label, listWidth - 20)}`;
-      const ageStr = dim(age);
-
-      // Right-align age
-      const lineVis = visibleLength(line);
-      const ageVis = visibleLength(ageStr);
-      const gap = Math.max(1, listWidth - lineVis - ageVis - 1);
-      line = line + " ".repeat(gap) + ageStr;
+      const line = ` ${pointer} ${dot} ${isSelected ? bold(id) : dim(id)} ${truncate(label, listWidth - 14)}`;
 
       if (isSelected) {
         buf.push(padAnsi(line, listWidth));
@@ -476,47 +539,10 @@ function render(state: TuiState) {
     }
   }
 
-  // ── Detail pane ──
-  if (showDetail && selected) {
-    const dCol = listWidth + 2;
-    const s = selected;
-    const isRunning = s.status === "running";
-    const isActive = isRunning && (s.bytesPerSecond ?? 0) >= 1;
-    const dw = detailWidth - 2;
-
-    const details: [string, string][] = [];
-    details.push(["Command", truncate([s.command, ...s.args].join(" "), dw - 10)]);
-    details.push(["CWD", truncate(shortCwd(s.cwd), dw - 10)]);
-
-    if (isActive) {
-      details.push(["Status", green("running (active)")]);
-    } else if (isRunning) {
-      details.push(["Status", green("running") + dim(" (idle)")]);
-    } else {
-      details.push(["Status", dim(`exited (${s.exitCode ?? "?"})`)]);
-    }
-
-    if (s.title) {
-      details.push(["Title", s.title]);
-    }
-    details.push(["Age", timeAgo(s.createdAt)]);
-
-    if (s.lastActiveAt) {
-      const lastActive = timeAgo(new Date(s.lastActiveAt).getTime());
-      details.push(["Active", lastActive + " ago"]);
-    }
-
-    if (s.totalBytesWritten != null) {
-      let outputStr = formatBytes(s.totalBytesWritten);
-      if (isRunning && s.bytesPerSecond != null) {
-        outputStr += ` @ ${formatRate(s.bytesPerSecond)}`;
-      }
-      details.push(["Output", outputStr]);
-    }
-
-    if (s.cols && s.rows) {
-      details.push(["Size", `${s.cols}\u00d7${s.rows}`]);
-    }
+  // ── Preview / detail pane ──
+  if (showPreview) {
+    const pCol = listWidth + 2; // first column of preview content
+    const pw = previewWidth - 1; // usable content width (1 col margin)
 
     // Separator
     for (let r = 1; r <= rows - 1; r++) {
@@ -524,17 +550,48 @@ function render(state: TuiState) {
       buf.push(dim("\u2502"));
     }
 
-    // Detail rows
-    for (let i = 0; i < details.length; i++) {
-      const [label, value] = details[i];
-      buf.push(moveTo(i + 3, dCol));
-      buf.push(`${bold(label + ":")}  ${value}`);
-    }
-  } else if (showDetail && sessions.length === 0) {
-    // Separator still
-    for (let r = 1; r <= rows - 1; r++) {
-      buf.push(moveTo(r, listWidth + 1));
-      buf.push(dim("\u2502"));
+    if (selected) {
+      // ── Preview header (row 1): compact metadata ──
+      const s = selected;
+      const isRunning = s.status === "running";
+      const isActive = isRunning && (s.bytesPerSecond ?? 0) >= 1;
+
+      let statusStr: string;
+      if (isActive) statusStr = green("active");
+      else if (isRunning) statusStr = green("idle");
+      else statusStr = dim(`exit:${s.exitCode ?? "?"}`);
+
+      const cmd = s.title || [s.command, ...s.args].join(" ");
+      const headerParts = [
+        bold(s.id),
+        dim(truncate(cmd, pw - 30)),
+        statusStr,
+        dim(timeAgo(s.createdAt)),
+      ];
+      buf.push(moveTo(1, pCol));
+      buf.push(truncate(headerParts.join(dim(" \u00b7 ")), pw));
+
+      // ── Separator line (row 2) ──
+      buf.push(moveTo(2, pCol));
+      buf.push(dim("\u2500".repeat(Math.min(pw, 60))));
+
+      // ── Terminal preview or metadata fallback ──
+      const previewAreaHeight = rows - 4; // rows 3..(rows-2) for content
+      const hasPreview = state.preview.sessionId === s.id && state.preview.hasContent;
+
+      if (hasPreview) {
+        const previewLines = state.preview.getViewportLines(pw, previewAreaHeight);
+        for (let i = 0; i < previewAreaHeight; i++) {
+          buf.push(moveTo(i + 3, pCol));
+          if (i < previewLines.length) {
+            buf.push(previewLines[i]);
+          }
+          buf.push("\x1b[0m"); // reset after each line to prevent color bleed
+        }
+      } else {
+        // Metadata fallback (exited sessions or not yet connected)
+        renderMetadata(buf, s, pCol, pw, isRunning, isActive);
+      }
     }
   }
 
@@ -559,4 +616,54 @@ function render(state: TuiState) {
   }
 
   process.stdout.write(buf.join(""));
+}
+
+/** Render metadata detail rows as fallback when preview unavailable. */
+function renderMetadata(
+  buf: string[],
+  s: Session,
+  col: number,
+  width: number,
+  isRunning: boolean,
+  isActive: boolean,
+): void {
+  const details: [string, string][] = [];
+  details.push(["Command", truncate([s.command, ...s.args].join(" "), width - 12)]);
+  details.push(["CWD", truncate(shortCwd(s.cwd), width - 12)]);
+
+  if (isActive) {
+    details.push(["Status", green("running (active)")]);
+  } else if (isRunning) {
+    details.push(["Status", green("running") + dim(" (idle)")]);
+  } else {
+    details.push(["Status", dim(`exited (${s.exitCode ?? "?"})`)]);
+  }
+
+  if (s.title) {
+    details.push(["Title", s.title]);
+  }
+  details.push(["Age", timeAgo(s.createdAt)]);
+
+  if (s.lastActiveAt) {
+    const lastActive = timeAgo(new Date(s.lastActiveAt).getTime());
+    details.push(["Active", lastActive + " ago"]);
+  }
+
+  if (s.totalBytesWritten != null) {
+    let outputStr = formatBytes(s.totalBytesWritten);
+    if (isRunning && s.bytesPerSecond != null) {
+      outputStr += ` @ ${formatRate(s.bytesPerSecond)}`;
+    }
+    details.push(["Output", outputStr]);
+  }
+
+  if (s.cols && s.rows) {
+    details.push(["Size", `${s.cols}\u00d7${s.rows}`]);
+  }
+
+  for (let i = 0; i < details.length; i++) {
+    const [label, value] = details[i];
+    buf.push(moveTo(i + 3, col));
+    buf.push(`${bold(label + ":")}  ${value}`);
+  }
 }

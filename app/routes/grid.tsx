@@ -175,7 +175,9 @@ function GridViewport({
     return pos;
   }, [cellSizes, scale, vpSize.h]);
 
-  // Compute zoomed cell dimensions: scale up so it fills ~80% of viewport
+  // Compute zoomed cell dimensions: scale up to be readable, expanding
+  // from the cell's original position toward the viewport center.
+  // The cell overlays neighbors — no backdrop or dimming.
   const zoomedInfo = useMemo(() => {
     if (!zoomedCellId) return null;
     const idx = sessions.findIndex((s) => s.id === zoomedCellId);
@@ -184,16 +186,21 @@ function GridViewport({
     const pos = positions[idx];
     if (!cell || !pos) return null;
 
-    // Target: fill 80% of viewport while maintaining aspect ratio
+    // Target: fill ~80% of viewport while maintaining aspect ratio
     const maxW = vpSize.w * 0.85;
     const maxH = vpSize.h * 0.85;
     const zoomScale = Math.min(maxW / cell.w, maxH / cell.h, 1);
     const zw = cell.w * zoomScale;
     const zh = cell.h * zoomScale;
 
-    // Center in viewport
-    const zx = (vpSize.w - zw) / 2;
-    const zy = (vpSize.h - zh) / 2;
+    // Expand from the cell's original center, then clamp to viewport
+    const origCX = pos.x + pos.w / 2;
+    const origCY = pos.y + pos.h / 2;
+    let zx = origCX - zw / 2;
+    let zy = origCY - zh / 2;
+    // Clamp so the zoomed cell stays within the viewport
+    zx = Math.max(0, Math.min(zx, vpSize.w - zw));
+    zy = Math.max(0, Math.min(zy, vpSize.h - zh));
 
     return { idx, x: zx, y: zy, w: zw, h: zh };
   }, [zoomedCellId, sessions, cellSizes, positions, vpSize]);
@@ -216,7 +223,7 @@ function GridViewport({
         return GridTerminalComponent ? (
           <div
             key={session.id}
-            className={`absolute transition-all duration-200 ease-out ${isZoomed ? "z-30" : zoomedCellId ? "z-0 opacity-30" : "z-0"}`}
+            className={`absolute transition-all duration-200 ease-out ${isZoomed ? "z-20" : "z-0"}`}
             style={{
               left: `${isZoomed && zoomedInfo ? zoomedInfo.x : p.x}px`,
               top: `${isZoomed && zoomedInfo ? zoomedInfo.y : p.y}px`,
@@ -251,13 +258,6 @@ function GridViewport({
         );
       })}
 
-      {/* Backdrop when a cell is zoomed */}
-      {zoomedCellId && (
-        <div
-          className="absolute inset-0 z-20 bg-[#0a0a0f]/60"
-          onClick={onUnzoomCell}
-        />
-      )}
     </div>
   );
 }

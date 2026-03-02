@@ -25,7 +25,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onExpand, onZoom, onUnzoom }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -110,18 +110,10 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("[data-expand-btn]")) return;
+      if ((e.target as HTMLElement).closest("[data-zoom-btn]")) return;
       onSelect();
     },
     [onSelect]
-  );
-
-  const handleExpandClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onExpand();
-    },
-    [onExpand]
   );
 
   const handleTitleDoubleClick = useCallback(
@@ -167,6 +159,18 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {session.cols || 80}×{session.rows || 24}
           </span>
+          <button
+            data-zoom-btn
+            className={`shrink-0 p-0.5 rounded transition-colors ${
+              zoomed ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+            }`}
+            onClick={(e) => { e.stopPropagation(); zoomed ? onUnzoom?.() : onZoom?.(); }}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label={zoomed ? "Unzoom" : "Zoom"}
+          >
+            <Maximize2 className="w-3 h-3" />
+          </button>
         </div>
       </div>
 
@@ -190,20 +194,6 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
           <span className="loading loading-spinner loading-sm" />
         </div>
       )}
-
-      {/* Expand button — bottom right corner */}
-      <button
-        data-expand-btn
-        className={`absolute bottom-1.5 right-1.5 z-20 p-1 rounded bg-[#0a0a0f]/70 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-all ${
-          selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-        onClick={handleExpandClick}
-        onMouseDown={(e) => e.preventDefault()}
-        tabIndex={-1}
-        aria-label="Expand session"
-      >
-        <Maximize2 className="w-3.5 h-3.5" />
-      </button>
     </div>
   );
 }

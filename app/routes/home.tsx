@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useMemo } from "react";
+import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
@@ -120,6 +120,30 @@ function SidebarItem({
   );
 }
 
+/** xterm.js font stack — must match use-terminal-core.ts */
+const XTERM_FONT = "ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Noto Sans Mono', monospace";
+
+/**
+ * Measure the actual monospace cell width for the xterm font at a given size.
+ * Uses a hidden DOM element (same technique as xterm's CharSizeService) for
+ * accurate sub-pixel measurement that matches what FitAddon will compute.
+ */
+function measureCellWidth(fontSize: number): number {
+  if (typeof document === "undefined") return fontSize * 0.6;
+  const span = document.createElement("span");
+  span.style.fontFamily = XTERM_FONT;
+  span.style.fontSize = `${fontSize}px`;
+  span.style.position = "absolute";
+  span.style.visibility = "hidden";
+  span.style.whiteSpace = "nowrap";
+  // Measure 80 chars and divide for better sub-pixel accuracy
+  span.textContent = "W".repeat(80);
+  document.body.appendChild(span);
+  const w = span.getBoundingClientRect().width / 80;
+  document.body.removeChild(span);
+  return w;
+}
+
 /**
  * Phone frame component — renders a CSS-only mock device bezel
  * containing an iframe of the session view.
@@ -128,17 +152,22 @@ function SidebarItem({
  * FitAddon lands on exactly the original column count. Height stretches
  * to fill the available space so more text is visible.
  *
- * Pixel width formula: cols * cellWidth + bezel chrome.
- * xterm.js cell width at 14px ≈ fontSize * 0.6 ≈ 8.4px.
+ * The cell width is measured from the actual xterm font (not hardcoded)
+ * so FitAddon computes the correct column count inside the iframe.
  */
 function PhoneFrame({ session }: { session: Session }) {
   const cols = session.cols || 80;
-  // xterm.js cell width ≈ fontSize * 0.6 for standard monospace fonts at 14px
-  const CELL_WIDTH = 8.4;
-  // The session page has no horizontal padding on the terminal area itself,
-  // but the bezel adds inner margin (m-2 = 8px each side) and border (3px each).
-  const BEZEL_CHROME = 2 * (8 + 3); // inner margin + border, both sides
-  const frameWidth = Math.round(cols * CELL_WIDTH) + BEZEL_CHROME;
+
+  // Measure actual cell width once using the real xterm font at 14px
+  const cellWidth = useRef<number | null>(null);
+  if (cellWidth.current === null) {
+    cellWidth.current = measureCellWidth(14);
+  }
+
+  // Bezel chrome: m-2 = 8px inner margin each side + 3px border each side
+  const BEZEL_CHROME = 2 * (8 + 3);
+  // +1px buffer ensures FitAddon's Math.floor lands on exactly `cols`
+  const frameWidth = Math.ceil(cols * cellWidth.current) + BEZEL_CHROME + 1;
 
   return (
     <div className="flex items-center justify-center h-full w-full p-4">
@@ -152,7 +181,6 @@ function PhoneFrame({ session }: { session: Session }) {
         {/* Inner bezel padding */}
         <div className="flex-1 m-2 mt-0 rounded-[2rem] overflow-hidden bg-[#0a0a0f]">
           <iframe
-            key={session.id}
             src={`/sessions/${session.id}`}
             className="w-full h-full border-0"
             title="Session preview"
@@ -413,7 +441,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             {/* Preview area: phone frame with iframe */}
             <div className="flex-1 min-w-0">
               {previewSessionId ? (
-                <PhoneFrame session={sessions.find((s) => s.id === previewSessionId)!} />
+                <PhoneFrame key={previewSessionId} session={sessions.find((s) => s.id === previewSessionId)!} />
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-[#64748b] font-mono text-sm">Select a session</p>
