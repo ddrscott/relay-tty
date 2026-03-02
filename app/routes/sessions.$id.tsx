@@ -81,9 +81,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [inputBarOpen, setInputBarOpen] = useState(false);
-  const toolbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Detect mobile on mount and window resize
   useEffect(() => {
@@ -94,41 +92,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Auto-dismiss toolbar after 4s idle (reset on any toolbar interaction)
-  const resetToolbarTimer = useCallback(() => {
-    if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current);
-    toolbarTimerRef.current = setTimeout(() => {
-      // Don't auto-dismiss if the input bar is open (user is typing)
-      if (!inputBarOpen) {
-        setToolbarVisible(false);
-      }
-    }, 4000);
-  }, [inputBarOpen]);
-
-  // Clear timer on unmount
-  useEffect(() => {
-    return () => { if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current); };
-  }, []);
-
-  // Terminal tap handler: toggle floating toolbar on mobile
+  // Terminal tap handler: show toolbar on mobile tap (hide via chevron only)
   const handleTerminalTap = useCallback(() => {
     if (!isMobile) return;
-    setToolbarVisible((v) => {
-      if (!v) {
-        // Opening — start auto-dismiss timer
-        if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current);
-        toolbarTimerRef.current = setTimeout(() => {
-          if (!inputBarOpen) setToolbarVisible(false);
-        }, 4000);
-        return true;
-      } else {
-        // Closing — also close input bar
-        setInputBarOpen(false);
-        if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current);
-        return false;
-      }
-    });
-  }, [isMobile, inputBarOpen]);
+    if (!toolbarVisible) setToolbarVisible(true);
+  }, [isMobile, toolbarVisible]);
+
+  // Hide toolbar (chevron button handler)
+  const hideToolbar = useCallback(() => {
+    setToolbarVisible(false);
+    setInputBarOpen(false);
+  }, []);
 
   // Request notification permission on mount (no-op if already granted/denied)
   useEffect(() => {
@@ -340,8 +314,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const sendKey = useCallback((key: string) => {
     if (!terminalRef.current) return;
     terminalRef.current.sendText(applyModifiers(key));
-    resetToolbarTimer();
-  }, [applyModifiers, resetToolbarTimer]);
+  }, [applyModifiers]);
 
   // Set input transform on terminal so keyboard input also gets modifiers
   useEffect(() => {
@@ -361,9 +334,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     terminalRef.current.sendText(padText);
     setTimeout(() => terminalRef.current?.sendText("\r"), 50);
     setPadText("");
-    // Keep input bar open for repeated commands
-    resetToolbarTimer();
-  }, [padText, resetToolbarTimer]);
+  }, [padText]);
 
   // Toggle input bar open: shows text input + virtual keyboard
   const toggleInputBar = useCallback(() => {
@@ -371,12 +342,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       if (!v) {
         setPadExpanded(false);
         // Focus the input after it renders
-        setTimeout(() => inputRef.current?.focus(), 50);
+        setTimeout(() => padRef.current?.focus(), 50);
       }
       return !v;
     });
-    resetToolbarTimer();
-  }, [resetToolbarTimer]);
+  }, []);
 
   return (
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
@@ -704,13 +674,13 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         <div
           ref={toolbarRef}
           className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e]"
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
         >
           {/* Input bar — opens when user taps keyboard button */}
           {inputBarOpen && (
-            <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[#1e1e2e]">
+            <div className="flex items-center gap-1.5 px-2 py-1 border-b border-[#1e1e2e]">
               <button
-                className="btn btn-xs btn-ghost text-[#64748b] hover:text-[#e2e8f0]"
+                className="btn btn-sm btn-ghost text-[#64748b] hover:text-[#e2e8f0] px-1.5 min-w-0"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
@@ -719,45 +689,37 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               >
                 {padExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
-              {padExpanded ? (
-                <textarea
-                  ref={padRef}
-                  className="flex-1 px-2 py-1 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b]"
-                  rows={3}
-                  style={{ lineHeight: "1.5" }}
-                  value={padText}
-                  onChange={(e) => { setPadText(e.target.value); resetToolbarTimer(); }}
-                  placeholder="Type a command..."
-                  autoFocus
-                />
-              ) : (
-                <input
-                  ref={inputRef}
-                  type="text"
-                  className="flex-1 px-2 py-1 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b]"
-                  value={padText}
-                  onChange={(e) => { setPadText(e.target.value); resetToolbarTimer(); }}
-                  onKeyDown={(e) => { if (e.key === "Enter" && padText.trim()) { e.preventDefault(); sendPad(); } }}
-                  placeholder="Type a command..."
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  autoFocus
-                />
-              )}
+              <textarea
+                ref={padRef}
+                className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
+                rows={padExpanded ? 3 : 1}
+                style={{ height: padExpanded ? undefined : "1.8em", paddingTop: "0.15em", paddingBottom: "0.15em" }}
+                value={padText}
+                onChange={(e) => setPadText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
+                placeholder="Type a command..."
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                enterKeyHint="send"
+                autoFocus
+              />
               <button
-                className="btn btn-xs btn-ghost text-[#64748b] hover:text-[#e2e8f0]"
+                className="btn btn-sm btn-ghost text-[#64748b] hover:text-[#e2e8f0] px-1.5 min-w-0"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); setPadText(""); (padExpanded ? padRef : inputRef).current?.focus(); }}
-                onClick={() => { setPadText(""); (padExpanded ? padRef : inputRef).current?.focus(); }}
+                onTouchEnd={(e) => { e.preventDefault(); setPadText(""); padRef.current?.focus(); }}
+                onClick={() => { setPadText(""); padRef.current?.focus(); }}
                 aria-label="Clear"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
               <button
-                className="btn btn-xs btn-primary gap-1"
+                className="btn btn-sm btn-primary px-2 min-w-0"
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
@@ -769,37 +731,62 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             </div>
           )}
 
-          {/* Row 1: Navigation keys */}
-          <div className="flex items-center gap-0.5 px-2 py-1 border-b border-[#1e1e2e]/50">
-            <button className="btn btn-sm btn-ghost font-mono px-2 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
-            <button className="btn btn-sm btn-ghost font-mono px-2 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>
-            <button className="btn btn-sm btn-ghost font-mono px-2 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[A"); }} onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-            <button className="btn btn-sm btn-ghost font-mono px-2 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[C"); }} onClick={() => sendKey("\x1b[C")}>&rarr;</button>
-            <div className="w-px h-5 bg-[#2d2d44] mx-0.5" />
-            <button className="btn btn-sm btn-ghost font-mono text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\t"); }} onClick={() => sendKey("\t")}>Tab</button>
-            <button className="btn btn-sm btn-ghost font-mono text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\r"); }} onClick={() => sendKey("\r")}>
-              <CornerDownLeft className="w-4 h-4" />
+          {/* Key row: pinned hide | scrollable keys | pinned keyboard */}
+          <div className="flex items-center">
+            {/* Pinned left: hide */}
+            <button
+              className="btn btn-sm btn-ghost px-2 min-w-0 shrink-0 text-[#64748b] hover:text-[#e2e8f0]"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); hideToolbar(); }}
+              onClick={hideToolbar}
+              aria-label="Hide toolbar"
+            >
+              <ChevronDown className="w-4 h-4" />
             </button>
-            <button className="btn btn-sm btn-ghost font-mono text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b"); }} onClick={() => sendKey("\x1b")}>Esc</button>
-          </div>
+            <div className="w-px h-5 bg-[#2d2d44] shrink-0" />
 
-          {/* Row 2: Modifiers + actions */}
-          <div className="flex items-center gap-0.5 px-2 py-1">
+            {/* Scrollable middle */}
+            <div className="flex-1 overflow-x-auto flex items-center gap-0.5 px-1 py-0.5 scrollbar-none">
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[A"); }} onClick={() => sendKey("\x1b[A")}>&uarr;</button>
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[C"); }} onClick={() => sendKey("\x1b[C")}>&rarr;</button>
+              <div className="w-px h-5 bg-[#2d2d44] shrink-0 mx-0.5" />
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\t"); }} onClick={() => sendKey("\t")}>Tab</button>
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\r"); }} onClick={() => sendKey("\r")}>
+                <CornerDownLeft className="w-4 h-4" />
+              </button>
+              <button className="btn btn-sm btn-ghost font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0]" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b"); }} onClick={() => sendKey("\x1b")}>Esc</button>
+              <div className="w-px h-5 bg-[#2d2d44] shrink-0 mx-0.5" />
+              <button
+                className={`btn btn-sm font-mono px-2.5 min-w-0 shrink-0 ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+                tabIndex={-1}
+                onTouchEnd={(e) => { e.preventDefault(); setCtrlOn(!ctrlOn); }}
+                onClick={() => setCtrlOn(!ctrlOn)}
+              >Ctrl</button>
+              <button
+                className={`btn btn-sm font-mono px-2.5 min-w-0 shrink-0 ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+                tabIndex={-1}
+                onTouchEnd={(e) => { e.preventDefault(); setAltOn(!altOn); }}
+                onClick={() => setAltOn(!altOn)}
+              >Alt</button>
+              <button
+                className={`btn btn-sm min-w-0 shrink-0 px-2.5 ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={(e) => { e.preventDefault(); textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
+                onClick={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
+                aria-label="Select text for copying"
+              >
+                <TextSelect className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="w-px h-5 bg-[#2d2d44] shrink-0" />
+            {/* Pinned right: keyboard */}
             <button
-              className={`btn btn-sm font-mono ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
-              tabIndex={-1}
-              onTouchEnd={(e) => { e.preventDefault(); setCtrlOn(!ctrlOn); resetToolbarTimer(); }}
-              onClick={() => { setCtrlOn(!ctrlOn); resetToolbarTimer(); }}
-            >Ctrl</button>
-            <button
-              className={`btn btn-sm font-mono ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
-              tabIndex={-1}
-              onTouchEnd={(e) => { e.preventDefault(); setAltOn(!altOn); resetToolbarTimer(); }}
-              onClick={() => { setAltOn(!altOn); resetToolbarTimer(); }}
-            >Alt</button>
-            <div className="flex-1" />
-            <button
-              className={`btn btn-sm ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              className={`btn btn-sm shrink-0 px-2 min-w-0 ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
@@ -807,16 +794,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               aria-label="Keyboard input"
             >
               <KeyboardIcon className="w-4 h-4" />
-            </button>
-            <button
-              className={`btn btn-sm ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); resetToolbarTimer(); }}
-              onClick={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); resetToolbarTimer(); }}
-              aria-label="Select text for copying"
-            >
-              <TextSelect className="w-4 h-4" />
             </button>
           </div>
         </div>
