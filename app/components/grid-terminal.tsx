@@ -7,9 +7,12 @@ import { Maximize2 } from "lucide-react";
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
+  zoomed?: boolean;
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
+  onZoom?: () => void;
+  onUnzoom?: () => void;
 }
 
 /**
@@ -22,7 +25,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, fontSize, onSelect, onExpand }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onExpand, onZoom, onUnzoom }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -121,6 +124,19 @@ export function GridTerminal({ session, selected, fontSize, onSelect, onExpand }
     [onExpand]
   );
 
+  const handleTitleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (zoomed) {
+        onUnzoom?.();
+      } else {
+        onZoom?.();
+      }
+    },
+    [zoomed, onZoom, onUnzoom]
+  );
+
   return (
     <div
       className={`relative h-full rounded-lg border-2 bg-[#19191f] overflow-hidden cursor-pointer transition-all group flex flex-col ${
@@ -130,8 +146,11 @@ export function GridTerminal({ session, selected, fontSize, onSelect, onExpand }
       }`}
       onClick={handleClick}
     >
-      {/* Session label — top, solid background */}
-      <div className="px-2 py-1.5 bg-[#0a0a0f] z-10 pointer-events-none shrink-0">
+      {/* Session label — top, solid background, double-click to zoom */}
+      <div
+        className="px-2 py-1.5 bg-[#0a0a0f] z-10 shrink-0 cursor-pointer select-none"
+        onDoubleClick={handleTitleDoubleClick}
+      >
         <div className="flex items-center gap-1.5">
           <span
             className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${
@@ -140,7 +159,9 @@ export function GridTerminal({ session, selected, fontSize, onSelect, onExpand }
                 : "bg-[#64748b]/50"
             }`}
           />
-          <code className="text-[10px] font-mono truncate text-[#94a3b8] group-hover:text-[#e2e8f0] transition-colors">
+          <code className={`text-[10px] font-mono truncate transition-colors ${
+            zoomed ? "text-[#e2e8f0]" : "text-[#94a3b8] group-hover:text-[#e2e8f0]"
+          }`}>
             {displayTitle}
           </code>
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">

@@ -103,19 +103,25 @@ function computeFitScale(
 function GridViewport({
   sessions,
   selectedCellId,
+  zoomedCellId,
   gridFontSize,
   GridTerminalComponent,
   onDeselectCell,
   onSelectCell,
   onOpenModal,
+  onZoomCell,
+  onUnzoomCell,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
+  zoomedCellId: string | null;
   gridFontSize: number;
   GridTerminalComponent: React.ComponentType<any> | null;
   onDeselectCell: () => void;
   onSelectCell: (id: string) => void;
   onOpenModal: (id: string) => void;
+  onZoomCell: (id: string) => void;
+  onUnzoomCell: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -169,34 +175,64 @@ function GridViewport({
     return pos;
   }, [cellSizes, scale, vpSize.h]);
 
+  // Compute zoomed cell dimensions: scale up so it fills ~80% of viewport
+  const zoomedInfo = useMemo(() => {
+    if (!zoomedCellId) return null;
+    const idx = sessions.findIndex((s) => s.id === zoomedCellId);
+    if (idx < 0) return null;
+    const cell = cellSizes[idx];
+    const pos = positions[idx];
+    if (!cell || !pos) return null;
+
+    // Target: fill 80% of viewport while maintaining aspect ratio
+    const maxW = vpSize.w * 0.85;
+    const maxH = vpSize.h * 0.85;
+    const zoomScale = Math.min(maxW / cell.w, maxH / cell.h, 1);
+    const zw = cell.w * zoomScale;
+    const zh = cell.h * zoomScale;
+
+    // Center in viewport
+    const zx = (vpSize.w - zw) / 2;
+    const zy = (vpSize.h - zh) / 2;
+
+    return { idx, x: zx, y: zy, w: zw, h: zh };
+  }, [zoomedCellId, sessions, cellSizes, positions, vpSize]);
+
   return (
     <div
       ref={viewportRef}
       className="flex-1 min-h-0 overflow-hidden relative"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onDeselectCell();
+        if (e.target === e.currentTarget) {
+          if (zoomedCellId) onUnzoomCell();
+          else onDeselectCell();
+        }
       }}
     >
       {sessions.map((session, i) => {
         const p = positions[i];
         if (!p) return null;
+        const isZoomed = session.id === zoomedCellId;
         return GridTerminalComponent ? (
           <div
             key={session.id}
-            className="absolute"
+            className={`absolute transition-all duration-200 ease-out ${isZoomed ? "z-30" : zoomedCellId ? "z-0 opacity-30" : "z-0"}`}
             style={{
-              left: `${p.x}px`,
-              top: `${p.y}px`,
-              width: `${p.w}px`,
-              height: `${p.h}px`,
+              left: `${isZoomed && zoomedInfo ? zoomedInfo.x : p.x}px`,
+              top: `${isZoomed && zoomedInfo ? zoomedInfo.y : p.y}px`,
+              width: `${isZoomed && zoomedInfo ? zoomedInfo.w : p.w}px`,
+              height: `${isZoomed && zoomedInfo ? zoomedInfo.h : p.h}px`,
             }}
           >
             <GridTerminalComponent
               session={session}
               selected={selectedCellId === session.id}
+              zoomed={isZoomed}
               fontSize={gridFontSize}
               onSelect={() => onSelectCell(session.id)}
               onExpand={() => onOpenModal(session.id)}
+              onZoom={() => onZoomCell(session.id)}
+              onUnzoom={onUnzoomCell}
             />
           </div>
         ) : (
@@ -214,6 +250,14 @@ function GridViewport({
           </div>
         );
       })}
+
+      {/* Backdrop when a cell is zoomed */}
+      {zoomedCellId && (
+        <div
+          className="absolute inset-0 z-20 bg-[#0a0a0f]/60"
+          onClick={onUnzoomCell}
+        />
+      )}
     </div>
   );
 }
@@ -230,8 +274,9 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
 
-  // Grid cell selection
+  // Grid cell selection and zoom
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
+  const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
 
   // Dynamic imports for grid and modal components
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -339,6 +384,15 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
 
   const deselectCell = useCallback(() => {
     setSelectedCellId(null);
+    setZoomedCellId(null);
+  }, []);
+
+  const zoomCell = useCallback((sessionId: string) => {
+    setZoomedCellId((prev) => (prev === sessionId ? null : sessionId));
+  }, []);
+
+  const unzoomCell = useCallback(() => {
+    setZoomedCellId(null);
   }, []);
 
   const openModal = useCallback((sessionId: string) => {
@@ -353,20 +407,24 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     setModalSessionId(sessionId);
   }, []);
 
-  // Escape key deselects active grid cell (when no modal)
+  // Escape key: unzoom first, then deselect (when no modal)
   useEffect(() => {
-    if (!selectedCellId || modalSessionId) return;
+    if ((!selectedCellId && !zoomedCellId) || modalSessionId) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         const target = e.target as HTMLElement;
         if (target.classList.contains("xterm-helper-textarea")) return;
         e.preventDefault();
-        setSelectedCellId(null);
+        if (zoomedCellId) {
+          setZoomedCellId(null);
+        } else {
+          setSelectedCellId(null);
+        }
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [selectedCellId, modalSessionId]);
+  }, [selectedCellId, zoomedCellId, modalSessionId]);
 
   return (
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
@@ -513,11 +571,14 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
         <GridViewport
           sessions={sortedGridSessions}
           selectedCellId={selectedCellId}
+          zoomedCellId={zoomedCellId}
           gridFontSize={gridFontSize}
           GridTerminalComponent={GridTerminalComponent}
           onDeselectCell={deselectCell}
           onSelectCell={selectCell}
           onOpenModal={openModal}
+          onZoomCell={zoomCell}
+          onUnzoomCell={unzoomCell}
         />
       )}
 

@@ -32,4 +32,5 @@
 - [x] Display npm package version in `relay --version` instead of hardcoded value
 - [x] Keep input bar always visible — remove hide/show toggle behavior (users lose the bar and can't get it back)
 - [x] Desktop home: TUI-style list+preview layout with phone-frame iframe ([detail](work-queue/desktop-home-preview.md))
-- [ ] Grid view: double-click cell title to zoom/scale up for readability (toggle back with double-click or click elsewhere)
+- [ ] Phone preview iframe: match session's original xterm width exactly (height can grow to fit more text)
+- [x] Grid view: double-click cell title to zoom/scale up for readability (toggle back with double-click or click elsewhere)
