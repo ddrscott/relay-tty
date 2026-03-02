@@ -1,5 +1,6 @@
 # Work Queue
 
+- [x] Grid cells: interactive on click with native PTY dimensions, expand button for modal ([detail](work-queue/grid-interactive-cells.md))
 - [x] Show server hostname in browser tab title and session header bar for multi-server identification
 - [x] Fix grid view thumbnail sizing: send resize event to match thumbnail dimensions ([detail](work-queue/grid-thumbnail-resize.md))
 - [x] Redesign desktop grid: portrait cells with CSS scaling, modal session viewer, live background ([detail](work-queue/desktop-grid-redesign.md))
@@ -28,3 +29,4 @@
 - [x] Redesign mobile input UX: hide input bar, show floating toolbar on tap, keyboard-on-demand ([detail](work-queue/mobile-input-redesign.md))
 - [x] Prevent `relay attach` and `relay tui` from attaching to own session (hangs the process)
 - [x] CI cross-compilation + postinstall binary download for Rust pty-host ([detail](work-queue/rust-binary-distribution.md))
+- [ ] Display npm package version in `relay --version` instead of hardcoded value

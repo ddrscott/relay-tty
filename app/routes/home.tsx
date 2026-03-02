@@ -63,6 +63,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   // Modal state: which session is open in the modal (null = no modal)
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
 
+  // Grid cell selection: which cell is active/focused (receives keyboard input)
+  const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
+
   // Dynamic imports for grid and modal components (xterm.js is client-only)
   const [GridTerminalComponent, setGridTerminalComponent] =
     useState<React.ComponentType<any> | null>(null);
@@ -75,7 +78,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }
 
-  if (typeof window !== "undefined" && modalSessionId && !SessionModalComponent) {
+  // Pre-load modal component when grid view is active so expand is instant
+  if (typeof window !== "undefined" && (modalSessionId || viewMode === "grid") && !SessionModalComponent) {
     import("../components/session-modal").then((mod) => {
       setSessionModalComponent(() => mod.SessionModal);
     });
@@ -180,7 +184,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  // Open modal for a session (grid cell click)
+  // Select a grid cell (click to focus for keyboard input)
+  const selectCell = useCallback((sessionId: string) => {
+    setSelectedCellId(sessionId);
+  }, []);
+
+  // Deselect all grid cells (Escape or click background)
+  const deselectCell = useCallback(() => {
+    setSelectedCellId(null);
+  }, []);
+
+  // Open modal for a session (expand button)
   const openModal = useCallback((sessionId: string) => {
     setModalSessionId(sessionId);
   }, []);
@@ -194,6 +208,28 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const navigateModal = useCallback((sessionId: string) => {
     setModalSessionId(sessionId);
   }, []);
+
+  // Escape key deselects the active grid cell (when no modal is open).
+  // Only deselects when Escape is NOT targeted at the xterm textarea —
+  // in-terminal Escape (vim, etc.) should not deselect.
+  useEffect(() => {
+    if (!selectedCellId || modalSessionId) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        const target = e.target as HTMLElement;
+        if (target.classList.contains("xterm-helper-textarea")) return;
+        e.preventDefault();
+        setSelectedCellId(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedCellId, modalSessionId]);
+
+  // Clear selected cell when switching away from grid view
+  useEffect(() => {
+    if (viewMode !== "grid") setSelectedCellId(null);
+  }, [viewMode]);
 
   const isGrid = viewMode === "grid";
 
@@ -317,7 +353,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </code>
         </div>
       ) : isGrid ? (
-        /* -- Grid view ------------------------------------------------- */
+        /* -- Grid view: horizontal scroll, column-first flow ------------ */
         <>
           {sortedGridSessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
@@ -333,28 +369,40 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             </div>
           ) : (
             <div
-              className="w-full grid gap-3 flex-1 min-h-0 justify-center"
-              style={{
-                gridTemplateColumns: `repeat(auto-fill, minmax(min(260px, 100%), 360px))`,
-                gridAutoRows: "minmax(300px, 1fr)",
+              className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden"
+              onClick={(e) => {
+                // Click on background deselects active cell
+                if (e.target === e.currentTarget) deselectCell();
               }}
             >
-              {sortedGridSessions.map((session) => (
-                GridTerminalComponent ? (
-                  <GridTerminalComponent
-                    key={session.id}
-                    session={session}
-                    onClick={() => openModal(session.id)}
-                  />
-                ) : (
-                  <div
-                    key={session.id}
-                    className="rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
-                  >
-                    <span className="loading loading-spinner loading-sm" />
-                  </div>
-                )
-              ))}
+              <div
+                className="flex flex-col flex-wrap gap-3 h-full content-start"
+              >
+                {sortedGridSessions.map((session) => (
+                  GridTerminalComponent ? (
+                    <div
+                      key={session.id}
+                      className="shrink-0"
+                      style={{ width: "min(360px, 45vw)", height: "min(340px, 48vh)" }}
+                    >
+                      <GridTerminalComponent
+                        session={session}
+                        selected={selectedCellId === session.id}
+                        onSelect={() => selectCell(session.id)}
+                        onExpand={() => openModal(session.id)}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      key={session.id}
+                      className="shrink-0 rounded-lg border border-[#1e1e2e] bg-[#19191f] flex items-center justify-center"
+                      style={{ width: "min(360px, 45vw)", height: "min(340px, 48vh)" }}
+                    >
+                      <span className="loading loading-spinner loading-sm" />
+                    </div>
+                  )
+                ))}
+              </div>
             </div>
           )}
         </>
