@@ -92,8 +92,17 @@ export function listFromDisk(): Session[] {
           meta.exitCode = -1;
           meta.exitedAt = Date.now();
           try { fs.writeFileSync(metaPath, JSON.stringify(meta)); } catch {}
-          // Clean up stale socket
           try { fs.unlinkSync(path.join(SOCKETS_DIR, `${id}.sock`)); } catch {}
+        }
+      }
+
+      // Auto-clean exited sessions older than 1 hour
+      if (meta.status === "exited") {
+        const age = Date.now() - (meta.exitedAt || meta.createdAt);
+        if (age > 60 * 60 * 1000) {
+          try { fs.unlinkSync(metaPath); } catch {}
+          try { fs.unlinkSync(path.join(SOCKETS_DIR, `${id}.sock`)); } catch {}
+          continue;
         }
       }
 
