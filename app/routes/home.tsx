@@ -123,13 +123,28 @@ function SidebarItem({
 /**
  * Phone frame component — renders a CSS-only mock device bezel
  * containing an iframe of the session view.
+ *
+ * Width is derived from the session's PTY cols so the iframe's xterm.js
+ * FitAddon lands on exactly the original column count. Height stretches
+ * to fill the available space so more text is visible.
+ *
+ * Pixel width formula: cols * cellWidth + bezel chrome.
+ * xterm.js cell width at 14px ≈ fontSize * 0.6 ≈ 8.4px.
  */
-function PhoneFrame({ sessionId }: { sessionId: string }) {
+function PhoneFrame({ session }: { session: Session }) {
+  const cols = session.cols || 80;
+  // xterm.js cell width ≈ fontSize * 0.6 for standard monospace fonts at 14px
+  const CELL_WIDTH = 8.4;
+  // The session page has no horizontal padding on the terminal area itself,
+  // but the bezel adds inner margin (m-2 = 8px each side) and border (3px each).
+  const BEZEL_CHROME = 2 * (8 + 3); // inner margin + border, both sides
+  const frameWidth = Math.round(cols * CELL_WIDTH) + BEZEL_CHROME;
+
   return (
     <div className="flex items-center justify-center h-full w-full p-4">
       <div
         className="relative flex flex-col bg-[#1a1a2e] rounded-[2.5rem] border-[3px] border-[#2d2d44] shadow-2xl overflow-hidden"
-        style={{ width: "min(400px, 100%)", height: "min(820px, 100%)" }}
+        style={{ width: `min(${frameWidth}px, 100%)`, height: "100%" }}
       >
         {/* Notch / dynamic island */}
         <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#0a0a0f] rounded-full z-10" />
@@ -137,8 +152,8 @@ function PhoneFrame({ sessionId }: { sessionId: string }) {
         {/* Inner bezel padding */}
         <div className="flex-1 m-2 mt-0 rounded-[2rem] overflow-hidden bg-[#0a0a0f]">
           <iframe
-            key={sessionId}
-            src={`/sessions/${sessionId}`}
+            key={session.id}
+            src={`/sessions/${session.id}`}
             className="w-full h-full border-0"
             title="Session preview"
             allow="clipboard-write"
@@ -398,7 +413,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             {/* Preview area: phone frame with iframe */}
             <div className="flex-1 min-w-0">
               {previewSessionId ? (
-                <PhoneFrame sessionId={previewSessionId} />
+                <PhoneFrame session={sessions.find((s) => s.id === previewSessionId)!} />
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-[#64748b] font-mono text-sm">Select a session</p>
