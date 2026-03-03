@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
-import { useRevalidator, useNavigate, Link } from "react-router";
+import { useRevalidator, Link } from "react-router";
 import type { Route } from "./+types/grid";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey } from "../lib/session-groups";
@@ -272,7 +272,7 @@ function GridViewport({
 export default function Grid({ loaderData }: Route.ComponentProps) {
   const { sessions: loaderSessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
-  const navigate = useNavigate();
+
   const [creating, setCreating] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
@@ -384,13 +384,13 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           body: JSON.stringify({ command }),
         });
         if (!res.ok) throw new Error(await res.text());
-        const { session } = await res.json();
-        navigate(`/sessions/${session.id}`);
+        await res.json();
+        revalidate();
       } finally {
         setCreating(false);
       }
     },
-    [creating, navigate]
+    [creating, revalidate]
   );
 
   const setSort = useCallback((key: SortKey) => {
