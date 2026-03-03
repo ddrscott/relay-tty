@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { WS_MSG } from "../../shared/types";
 import type { Session } from "../../shared/types";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Scaling } from "lucide-react";
 
 interface GridTerminalProps {
   session: Session;
@@ -202,6 +202,38 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     [zoomed, onZoom, onUnzoom]
   );
 
+  // Compute visible cols×rows from the wrapper size and xterm cell dimensions,
+  // then send a real RESIZE to the PTY so the running program redraws to fit.
+  const handleFitToCell = useCallback(() => {
+    const term = termRef.current;
+    const wrapper = wrapperRef.current;
+    if (!term || !wrapper) return;
+
+    // Get character cell dimensions from xterm's render service
+    const core = (term as any)._core;
+    const cellW = core?._renderService?.dimensions?.css?.cell?.width;
+    const cellH = core?._renderService?.dimensions?.css?.cell?.height;
+    if (!cellW || !cellH) return;
+
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const newCols = Math.max(1, Math.floor(wrapperRect.width / cellW));
+    const newRows = Math.max(1, Math.floor(wrapperRect.height / cellH));
+
+    // Send RESIZE to PTY: [type, cols_hi, cols_lo, rows_hi, rows_lo]
+    const msg = new Uint8Array(5);
+    msg[0] = WS_MSG.RESIZE;
+    new DataView(msg.buffer).setUint16(1, newCols, false);
+    new DataView(msg.buffer).setUint16(3, newRows, false);
+    sendBinary(msg);
+
+    // Resize local xterm immediately so content renders at new dimensions
+    term.resize(newCols, newRows);
+
+    // Update live dimension state so the indicator updates instantly
+    setLiveCols(newCols);
+    setLiveRows(newRows);
+  }, [sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div
       className={`relative h-full rounded-lg border-2 bg-[#19191f] overflow-hidden cursor-pointer transition-all group flex flex-col ${
@@ -232,6 +264,17 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {liveCols}×{liveRows}
           </span>
+          <button
+            data-zoom-btn
+            className="shrink-0 p-0.5 rounded transition-colors text-[#64748b] hover:text-[#e2e8f0]"
+            onClick={(e) => { e.stopPropagation(); handleFitToCell(); }}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label="Fit PTY to cell"
+            title="Resize PTY to fit cell"
+          >
+            <Scaling className="w-3 h-3" />
+          </button>
           <button
             data-zoom-btn
             className={`shrink-0 p-0.5 rounded transition-colors ${
