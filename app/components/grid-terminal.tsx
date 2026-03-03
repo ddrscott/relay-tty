@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { WS_MSG } from "../../shared/types";
 import type { Session } from "../../shared/types";
-import { Maximize2, Scaling } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 
 interface GridTerminalProps {
   session: Session;
@@ -122,16 +122,15 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
       if (termW === 0 || termH === 0) return;
 
       if (zoomed && term) {
-        // Width-based scale: fill the cell width with terminal content
-        const widthScale = wrapperRect.width / termW;
-        // Compute actual rendered line height from current terminal
+        // Render at native font size when zoomed — never shrink the font.
+        // Auto-fit (handleFitToCell) resizes the PTY to match the cell
+        // after the CSS transition settles, so any overflow is brief.
         const lineH = termH / term.rows;
-        // How many rows fill the wrapper height at this scale?
-        const neededRows = Math.max(liveRows, Math.floor(wrapperRect.height / (widthScale * lineH)));
+        const neededRows = Math.max(liveRows, Math.floor(wrapperRect.height / lineH));
         if (term.rows !== neededRows) {
           term.resize(liveCols, neededRows);
         }
-        setScale(widthScale);
+        setScale(1);
       } else {
         // Restore original PTY dimensions when not zoomed
         if (term && term.rows !== liveRows) {
@@ -234,6 +233,22 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     setLiveRows(newRows);
   }, [sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-fit PTY to cell dimensions on zoom state transitions.
+  // Skip initial render — only resize on explicit zoom/unzoom.
+  const prevZoomedRef = useRef<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    const wasZoomed = prevZoomedRef.current;
+    prevZoomedRef.current = zoomed;
+    if (wasZoomed === undefined) return; // skip initial render
+
+    // Wait for CSS transition to settle, then resize PTY to match cell
+    const timer = setTimeout(() => {
+      handleFitToCell();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [zoomed, handleFitToCell]);
+
   return (
     <div
       className={`relative h-full rounded-lg border-2 bg-[#19191f] overflow-hidden cursor-pointer transition-all group flex flex-col ${
@@ -264,17 +279,6 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {liveCols}×{liveRows}
           </span>
-          <button
-            data-zoom-btn
-            className="shrink-0 p-0.5 rounded transition-colors text-[#64748b] hover:text-[#e2e8f0]"
-            onClick={(e) => { e.stopPropagation(); handleFitToCell(); }}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-            aria-label="Fit PTY to cell"
-            title="Resize PTY to fit cell"
-          >
-            <Scaling className="w-3 h-3" />
-          </button>
           <button
             data-zoom-btn
             className={`shrink-0 p-0.5 rounded transition-colors ${
