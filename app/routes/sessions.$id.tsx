@@ -16,7 +16,6 @@ import {
   Info,
   SendHorizontal,
   Copy,
-  Trash2,
   Keyboard as KeyboardIcon,
   TextSelect,
   ClipboardCheck,
@@ -727,16 +726,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 enterKeyHint="send"
                 autoFocus
               />
-              <button
-                className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); setPadText(""); padRef.current?.focus(); }}
-                onClick={() => { setPadText(""); padRef.current?.focus(); }}
-                aria-label="Clear"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
               <button
                 className="btn btn-primary h-10 min-h-0 px-3 min-w-0 rounded-none"
                 tabIndex={-1}
