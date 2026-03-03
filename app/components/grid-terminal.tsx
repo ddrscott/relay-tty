@@ -2,19 +2,17 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { WS_MSG } from "../../shared/types";
 import type { Session } from "../../shared/types";
-import { Maximize2, UnfoldVertical, FoldVertical } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
   zoomed?: boolean;
-  heightExpanded?: boolean;
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
   onZoom?: () => void;
   onUnzoom?: () => void;
-  onToggleHeightExpand?: () => void;
 }
 
 /**
@@ -27,7 +25,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, heightExpanded, fontSize, onSelect, onZoom, onUnzoom, onToggleHeightExpand }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -53,28 +51,53 @@ export function GridTerminal({ session, selected, zoomed, heightExpanded, fontSi
     term.options.fontSize = fontSize;
   }, [fontSize, termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compute CSS scale: shrink terminal's natural size to fit the wrapper
-  const computeScale = useCallback(() => {
-    const wrapper = wrapperRef.current;
-    const container = containerRef.current;
-    if (!wrapper || !container) return;
-
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const termW = container.scrollWidth;
-    const termH = container.scrollHeight;
-    if (termW === 0 || termH === 0) return;
-
-    setScale(Math.min(wrapperRect.width / termW, wrapperRect.height / termH, 1));
-  }, []);
+  // Compute CSS scale + manage terminal rows for zoom.
+  // Normal mode: shrink terminal to fit wrapper (scale capped at 1).
+  // Zoomed mode: width-based scale (may be > 1) for readability,
+  // resize xterm to fill wrapper height with actual rows (not CSS-scaled).
+  // Since readOnly=true, the extra rows are local — no RESIZE sent to PTY.
+  const origRows = session.rows || 24;
+  const origCols = session.cols || 80;
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
-    if (contentReady) computeScale();
-    const observer = new ResizeObserver(computeScale);
+
+    const updateScale = () => {
+      const container = containerRef.current;
+      const term = termRef.current;
+      if (!container) return;
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const termW = container.scrollWidth;
+      const termH = container.scrollHeight;
+      if (termW === 0 || termH === 0) return;
+
+      if (zoomed && term) {
+        // Width-based scale: fill the cell width with terminal content
+        const widthScale = wrapperRect.width / termW;
+        // Compute actual rendered line height from current terminal
+        const lineH = termH / term.rows;
+        // How many rows fill the wrapper height at this scale?
+        const neededRows = Math.max(origRows, Math.floor(wrapperRect.height / (widthScale * lineH)));
+        if (term.rows !== neededRows) {
+          term.resize(origCols, neededRows);
+        }
+        setScale(widthScale);
+      } else {
+        // Restore original PTY dimensions when not zoomed
+        if (term && term.rows !== origRows) {
+          term.resize(origCols, origRows);
+        }
+        setScale(Math.min(wrapperRect.width / termW, wrapperRect.height / termH, 1));
+      }
+    };
+
+    if (contentReady) updateScale();
+    const observer = new ResizeObserver(updateScale);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [contentReady, computeScale, fontSize]);
+  }, [contentReady, zoomed, fontSize, origRows, origCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up keyboard input when selected
   useEffect(() => {
@@ -161,18 +184,6 @@ export function GridTerminal({ session, selected, zoomed, heightExpanded, fontSi
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {session.cols || 80}×{session.rows || 24}
           </span>
-          <button
-            data-zoom-btn
-            className={`shrink-0 p-0.5 rounded transition-colors ${
-              heightExpanded ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
-            }`}
-            onClick={(e) => { e.stopPropagation(); onToggleHeightExpand?.(); }}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-            aria-label={heightExpanded ? "Collapse height" : "Expand height"}
-          >
-            {heightExpanded ? <FoldVertical className="w-3 h-3" /> : <UnfoldVertical className="w-3 h-3" />}
-          </button>
           <button
             data-zoom-btn
             className={`shrink-0 p-0.5 rounded transition-colors ${

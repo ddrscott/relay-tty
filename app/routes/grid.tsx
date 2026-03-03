@@ -104,7 +104,6 @@ function GridViewport({
   sessions,
   selectedCellId,
   zoomedCellId,
-  expandedCellId,
   gridFontSize,
   GridTerminalComponent,
   onDeselectCell,
@@ -112,12 +111,10 @@ function GridViewport({
   onOpenModal,
   onZoomCell,
   onUnzoomCell,
-  onToggleExpandCell,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
   zoomedCellId: string | null;
-  expandedCellId: string | null;
   gridFontSize: number;
   GridTerminalComponent: React.ComponentType<any> | null;
   onDeselectCell: () => void;
@@ -125,7 +122,6 @@ function GridViewport({
   onOpenModal: (id: string) => void;
   onZoomCell: (id: string) => void;
   onUnzoomCell: () => void;
-  onToggleExpandCell: (id: string) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -179,9 +175,9 @@ function GridViewport({
     return pos;
   }, [cellSizes, scale, vpSize.h]);
 
-  // Compute zoomed cell dimensions: scale up to be readable, expanding
-  // from the cell's original position toward the viewport center.
-  // The cell overlays neighbors — no backdrop or dimming.
+  // Compute zoomed cell dimensions: fill viewport height and scale width
+  // proportionally. Expand from the cell's original center toward the
+  // viewport center, clamped so the cell never overflows.
   const zoomedInfo = useMemo(() => {
     if (!zoomedCellId) return null;
     const idx = sessions.findIndex((s) => s.id === zoomedCellId);
@@ -190,19 +186,17 @@ function GridViewport({
     const pos = positions[idx];
     if (!cell || !pos) return null;
 
-    // Target: fill ~80% of viewport while maintaining aspect ratio
-    const maxW = vpSize.w * 0.85;
-    const maxH = vpSize.h * 0.85;
-    const zoomScale = Math.min(maxW / cell.w, maxH / cell.h, 1);
-    const zw = cell.w * zoomScale;
-    const zh = cell.h * zoomScale;
+    // Fill viewport height; use natural terminal width (scale ≈ 1)
+    // so xterm can add real rows to fill the height, not just CSS-scale
+    // the same content bigger. Clamp width to viewport.
+    let zw = Math.min(cell.w, vpSize.w);
+    let zh = vpSize.h;
 
     // Expand from the cell's original center, then clamp to viewport
     const origCX = pos.x + pos.w / 2;
     const origCY = pos.y + pos.h / 2;
     let zx = origCX - zw / 2;
     let zy = origCY - zh / 2;
-    // Clamp so the zoomed cell stays within the viewport
     zx = Math.max(0, Math.min(zx, vpSize.w - zw));
     zy = Math.max(0, Math.min(zy, vpSize.h - zh));
 
@@ -215,8 +209,7 @@ function GridViewport({
       className="flex-1 min-h-0 overflow-hidden relative"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          if (expandedCellId) onToggleExpandCell(expandedCellId);
-          else if (zoomedCellId) onUnzoomCell();
+          if (zoomedCellId) onUnzoomCell();
           else onDeselectCell();
         }
       }}
@@ -225,29 +218,16 @@ function GridViewport({
         const p = positions[i];
         if (!p) return null;
         const isZoomed = session.id === zoomedCellId;
-        const isHeightExpanded = session.id === expandedCellId;
 
-        // Determine cell position: zoomed > height-expanded > normal
-        let cellLeft = p.x;
-        let cellTop = p.y;
-        let cellWidth = p.w;
-        let cellHeight = p.h;
-
-        if (isZoomed && zoomedInfo) {
-          cellLeft = zoomedInfo.x;
-          cellTop = zoomedInfo.y;
-          cellWidth = zoomedInfo.w;
-          cellHeight = zoomedInfo.h;
-        } else if (isHeightExpanded) {
-          // Keep horizontal position and width, expand height to full viewport
-          cellTop = 0;
-          cellHeight = vpSize.h;
-        }
+        const cellLeft = isZoomed && zoomedInfo ? zoomedInfo.x : p.x;
+        const cellTop = isZoomed && zoomedInfo ? zoomedInfo.y : p.y;
+        const cellWidth = isZoomed && zoomedInfo ? zoomedInfo.w : p.w;
+        const cellHeight = isZoomed && zoomedInfo ? zoomedInfo.h : p.h;
 
         return GridTerminalComponent ? (
           <div
             key={session.id}
-            className={`absolute transition-all duration-200 ease-out ${isZoomed || isHeightExpanded ? "z-20" : "z-0"}`}
+            className={`absolute transition-all duration-200 ease-out ${isZoomed ? "z-20" : "z-0"}`}
             style={{
               left: `${cellLeft}px`,
               top: `${cellTop}px`,
@@ -259,13 +239,11 @@ function GridViewport({
               session={session}
               selected={selectedCellId === session.id}
               zoomed={isZoomed}
-              heightExpanded={isHeightExpanded}
               fontSize={gridFontSize}
               onSelect={() => onSelectCell(session.id)}
               onExpand={() => onOpenModal(session.id)}
               onZoom={() => onZoomCell(session.id)}
               onUnzoom={onUnzoomCell}
-              onToggleHeightExpand={() => onToggleExpandCell(session.id)}
             />
           </div>
         ) : (
@@ -300,10 +278,9 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
 
-  // Grid cell selection, zoom, and height expansion
+  // Grid cell selection and zoom
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
-  const [expandedCellId, setExpandedCellId] = useState<string | null>(null);
 
   // Dynamic imports for grid and modal components
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -412,7 +389,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   const deselectCell = useCallback(() => {
     setSelectedCellId(null);
     setZoomedCellId(null);
-    setExpandedCellId(null);
   }, []);
 
   const zoomCell = useCallback((sessionId: string) => {
@@ -421,10 +397,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
 
   const unzoomCell = useCallback(() => {
     setZoomedCellId(null);
-  }, []);
-
-  const toggleExpandCell = useCallback((sessionId: string) => {
-    setExpandedCellId((prev) => (prev === sessionId ? null : sessionId));
   }, []);
 
   const openModal = useCallback((sessionId: string) => {
@@ -439,17 +411,15 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     setModalSessionId(sessionId);
   }, []);
 
-  // Escape key: collapse expanded first, then unzoom, then deselect (when no modal)
+  // Escape key: unzoom first, then deselect (when no modal)
   useEffect(() => {
-    if ((!selectedCellId && !zoomedCellId && !expandedCellId) || modalSessionId) return;
+    if ((!selectedCellId && !zoomedCellId) || modalSessionId) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         const target = e.target as HTMLElement;
         if (target.classList.contains("xterm-helper-textarea")) return;
         e.preventDefault();
-        if (expandedCellId) {
-          setExpandedCellId(null);
-        } else if (zoomedCellId) {
+        if (zoomedCellId) {
           setZoomedCellId(null);
         } else {
           setSelectedCellId(null);
@@ -458,7 +428,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [selectedCellId, zoomedCellId, expandedCellId, modalSessionId]);
+  }, [selectedCellId, zoomedCellId, modalSessionId]);
 
   return (
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
@@ -606,7 +576,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           sessions={sortedGridSessions}
           selectedCellId={selectedCellId}
           zoomedCellId={zoomedCellId}
-          expandedCellId={expandedCellId}
           gridFontSize={gridFontSize}
           GridTerminalComponent={GridTerminalComponent}
           onDeselectCell={deselectCell}
@@ -614,7 +583,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
-          onToggleExpandCell={toggleExpandCell}
         />
       )}
 
