@@ -42,8 +42,9 @@ function getStoredShowInactive(): boolean {
   return localStorage.getItem("relay-tty-show-inactive") === "true";
 }
 
+const ADJUSTMENT_STEP = 20;
 const DEFAULT_LANE_FONT_SIZE = 12;
-const DEFAULT_LANE_WIDTH = 400;
+const DEFAULT_LANE_WIDTH = 480;
 const DEFAULT_LANE_HEIGHT = 800;
 
 function getStoredLaneFontSize(): number {
@@ -186,8 +187,16 @@ function LanesViewport({
       colW = Math.max(colW, cw);
       colY += ch + LANE_GAP;
     }
+
+    // Center horizontally: offset all cells by half the remaining space
+    const totalW = colX + colW;
+    const offsetX = Math.max(0, (vpSize.w - totalW) / 2);
+    if (offsetX > 0) {
+      for (const p of pos) p.x += offsetX;
+    }
+
     return pos;
-  }, [cellSizes, scale, vpSize.h]);
+  }, [cellSizes, scale, vpSize.w, vpSize.h]);
 
   const zoomedInfo = useMemo(() => {
     if (!zoomedCellId) return null;
@@ -201,8 +210,6 @@ function LanesViewport({
     // and ensure at least 50% of viewport width for readability
     let zh = vpSize.h;
     let zw = zh / 2; // 1:2 aspect ratio
-    // zw = Math.max(zw, vpSize.w * 0.2); // at least 50% viewport width
-    // zw = Math.min(zw, vpSize.w); // clamp to viewport
 
     const origCX = pos.x + pos.w / 2;
     const origCY = pos.y + pos.h / 2;
@@ -549,7 +556,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             <span className="px-1.5 text-[#64748b]">W</span>
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustLaneWidth(-50)}
+              onClick={() => adjustLaneWidth(-ADJUSTMENT_STEP)}
               aria-label="Decrease lane width"
             >
               <Minus className="w-3 h-3" />
@@ -557,7 +564,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             <span className="px-1 text-[#94a3b8] tabular-nums min-w-[3.5ch] text-center">{laneWidth}</span>
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustLaneWidth(50)}
+              onClick={() => adjustLaneWidth(ADJUSTMENT_STEP)}
               aria-label="Increase lane width"
             >
               <Plus className="w-3 h-3" />
@@ -569,7 +576,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             <span className="px-1.5 text-[#64748b]">H</span>
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustLaneHeight(-50)}
+              onClick={() => adjustLaneHeight(-ADJUSTMENT_STEP)}
               aria-label="Decrease lane height"
             >
               <Minus className="w-3 h-3" />
@@ -577,7 +584,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             <span className="px-1 text-[#94a3b8] tabular-nums min-w-[3.5ch] text-center">{laneHeight}</span>
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustLaneHeight(50)}
+              onClick={() => adjustLaneHeight(ADJUSTMENT_STEP)}
               aria-label="Increase lane height"
             >
               <Plus className="w-3 h-3" />
