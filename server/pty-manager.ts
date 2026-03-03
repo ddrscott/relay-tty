@@ -310,7 +310,7 @@ export class PtyManager extends EventEmitter {
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     try {
-      this.fileWatcher = fs.watch(SESSIONS_DIR, (eventType, filename) => {
+      this.fileWatcher = fs.watch(SESSIONS_DIR, (_eventType, filename) => {
         if (!filename || !filename.endsWith(".json")) return;
         // Ignore .tmp files from atomic writes
         if (filename.endsWith(".tmp")) return;

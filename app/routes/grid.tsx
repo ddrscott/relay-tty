@@ -123,7 +123,7 @@ function GridViewport({
   onOpenModal: (id: string) => void;
   onZoomCell: (id: string) => void;
   onUnzoomCell: () => void;
-  onSessionUpdate: (session: Session) => void;
+  onSessionUpdate?: (session: Session) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
