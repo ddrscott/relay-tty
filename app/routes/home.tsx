@@ -4,7 +4,7 @@ import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
-import { LayoutGrid, ArrowDownUp } from "lucide-react";
+import { LayoutGrid, Columns, ArrowDownUp } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -328,6 +328,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             aria-label="Grid dashboard"
           >
             <LayoutGrid className="w-4 h-4" />
+          </Link>
+        )}
+
+        {/* Lanes view link — desktop only */}
+        {sessions.length > 0 && (
+          <Link
+            to="/lanes"
+            className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
+            aria-label="Lanes view"
+          >
+            <Columns className="w-4 h-4" />
           </Link>
         )}
 

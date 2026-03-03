@@ -1,16 +1,16 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator, useNavigate, Link } from "react-router";
-import type { Route } from "./+types/grid";
+import type { Route } from "./+types/lanes";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey } from "../lib/session-groups";
-import { ArrowDownUp, Columns, List, Eye, EyeOff, Minus, Plus } from "lucide-react";
+import { ArrowDownUp, LayoutGrid, List, Eye, EyeOff, Minus, Plus } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
-  const title = hostname ? `Grid — ${hostname} — relay-tty` : "Grid — relay-tty";
+  const title = hostname ? `Lanes — ${hostname} — relay-tty` : "Lanes — relay-tty";
   return [
     { title },
-    { name: "description", content: "Terminal relay service — grid dashboard" },
+    { name: "description", content: "Terminal relay service — lanes dashboard" },
   ];
 }
 
@@ -42,21 +42,34 @@ function getStoredShowInactive(): boolean {
   return localStorage.getItem("relay-tty-show-inactive") === "true";
 }
 
-const DEFAULT_GRID_FONT_SIZE = 12;
+const DEFAULT_LANE_FONT_SIZE = 12;
+const DEFAULT_LANE_WIDTH = 400;
+const DEFAULT_LANE_HEIGHT = 800;
 
-function getStoredGridFontSize(): number {
-  if (typeof window === "undefined") return DEFAULT_GRID_FONT_SIZE;
-  const stored = localStorage.getItem("relay-tty-grid-font-size");
-  return stored ? Number(stored) : DEFAULT_GRID_FONT_SIZE;
+function getStoredLaneFontSize(): number {
+  if (typeof window === "undefined") return DEFAULT_LANE_FONT_SIZE;
+  const stored = localStorage.getItem("relay-tty-lane-font-size");
+  return stored ? Number(stored) : DEFAULT_LANE_FONT_SIZE;
 }
 
-/** Gap between grid cells in pixels */
-const GRID_GAP = 4;
+function getStoredLaneWidth(): number {
+  if (typeof window === "undefined") return DEFAULT_LANE_WIDTH;
+  const stored = localStorage.getItem("relay-tty-lane-width");
+  return stored ? Number(stored) : DEFAULT_LANE_WIDTH;
+}
+
+function getStoredLaneHeight(): number {
+  if (typeof window === "undefined") return DEFAULT_LANE_HEIGHT;
+  const stored = localStorage.getItem("relay-tty-lane-height");
+  return stored ? Number(stored) : DEFAULT_LANE_HEIGHT;
+}
+
+/** Gap between lane cells in pixels */
+const LANE_GAP = 4;
 
 /**
- * Deterministic column-first packing: given cell sizes (at scale=1) and a
- * viewport, binary-search for the largest uniform scale where all cells
- * fit without scrolling.
+ * Column-first packing: binary-search for the largest uniform scale
+ * where all cells fit without scrolling.
  */
 function computeFitScale(
   cells: { w: number; h: number }[],
@@ -71,8 +84,8 @@ function computeFitScale(
     let colY = 0;
 
     for (const cell of cells) {
-      const cw = cell.w * s + GRID_GAP;
-      const ch = cell.h * s + GRID_GAP;
+      const cw = cell.w * s + LANE_GAP;
+      const ch = cell.h * s + LANE_GAP;
 
       if (colY > 0 && colY + ch > vpH) {
         colX += colW;
@@ -97,14 +110,16 @@ function computeFitScale(
 }
 
 /**
- * Grid viewport: computes a deterministic scale so all cells fit in the
- * viewport without scrolling, then renders with absolute positioning.
+ * Lanes viewport: uniform cell sizes, column-first packing with
+ * absolute positioning. Scale computed to fit all cells on screen.
  */
-function GridViewport({
+function LanesViewport({
   sessions,
   selectedCellId,
   zoomedCellId,
-  gridFontSize,
+  fontSize,
+  laneWidth,
+  laneHeight,
   GridTerminalComponent,
   onDeselectCell,
   onSelectCell,
@@ -116,7 +131,9 @@ function GridViewport({
   sessions: Session[];
   selectedCellId: string | null;
   zoomedCellId: string | null;
-  gridFontSize: number;
+  fontSize: number;
+  laneWidth: number;
+  laneHeight: number;
   GridTerminalComponent: React.ComponentType<any> | null;
   onDeselectCell: () => void;
   onSelectCell: (id: string) => void;
@@ -138,15 +155,10 @@ function GridViewport({
     return () => observer.disconnect();
   }, []);
 
-  const charW = gridFontSize * 0.6;
-  const lineH = gridFontSize * 1.2;
-
+  // All cells are uniform size
   const cellSizes = useMemo(
-    () => sessions.map((s) => ({
-      w: (s.cols || 80) * charW,
-      h: (s.rows || 24) * lineH,
-    })),
-    [sessions, charW, lineH]
+    () => sessions.map(() => ({ w: laneWidth, h: laneHeight })),
+    [sessions.length, laneWidth, laneHeight]
   );
 
   const scale = useMemo(
@@ -164,22 +176,19 @@ function GridViewport({
       const cw = cell.w * scale;
       const ch = cell.h * scale;
 
-      if (colY > 0 && colY + ch + GRID_GAP > vpSize.h) {
-        colX += colW + GRID_GAP;
+      if (colY > 0 && colY + ch + LANE_GAP > vpSize.h) {
+        colX += colW + LANE_GAP;
         colW = 0;
         colY = 0;
       }
 
       pos.push({ x: colX, y: colY, w: cw, h: ch });
       colW = Math.max(colW, cw);
-      colY += ch + GRID_GAP;
+      colY += ch + LANE_GAP;
     }
     return pos;
   }, [cellSizes, scale, vpSize.h]);
 
-  // Compute zoomed cell dimensions: fill viewport height and scale width
-  // proportionally. Expand from the cell's original center toward the
-  // viewport center, clamped so the cell never overflows.
   const zoomedInfo = useMemo(() => {
     if (!zoomedCellId) return null;
     const idx = sessions.findIndex((s) => s.id === zoomedCellId);
@@ -188,13 +197,13 @@ function GridViewport({
     const pos = positions[idx];
     if (!cell || !pos) return null;
 
-    // Fill viewport height; use natural terminal width (scale ≈ 1)
-    // so xterm can add real rows to fill the height, not just CSS-scale
-    // the same content bigger. Clamp width to viewport.
-    let zw = Math.min(cell.w, vpSize.w);
+    // Fill viewport height, maintain 1:2 portrait aspect ratio,
+    // and ensure at least 50% of viewport width for readability
     let zh = vpSize.h;
+    let zw = zh / 2; // 1:2 aspect ratio
+    // zw = Math.max(zw, vpSize.w * 0.2); // at least 50% viewport width
+    // zw = Math.min(zw, vpSize.w); // clamp to viewport
 
-    // Expand from the cell's original center, then clamp to viewport
     const origCX = pos.x + pos.w / 2;
     const origCY = pos.y + pos.h / 2;
     let zx = origCX - zw / 2;
@@ -241,7 +250,7 @@ function GridViewport({
               session={session}
               selected={selectedCellId === session.id}
               zoomed={isZoomed}
-              fontSize={gridFontSize}
+              fontSize={fontSize}
               onSelect={() => onSelectCell(session.id)}
               onExpand={() => onOpenModal(session.id)}
               onZoom={() => onZoomCell(session.id)}
@@ -264,26 +273,24 @@ function GridViewport({
           </div>
         );
       })}
-
     </div>
   );
 }
 
-export default function Grid({ loaderData }: Route.ComponentProps) {
+export default function Lanes({ loaderData }: Route.ComponentProps) {
   const { sessions: loaderSessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
-  const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
+  const [fontSize, setFontSize] = useState(getStoredLaneFontSize);
+  const [laneWidth, setLaneWidth] = useState(getStoredLaneWidth);
+  const [laneHeight, setLaneHeight] = useState(getStoredLaneHeight);
 
-  // Live session overrides from SESSION_UPDATE WS messages.
-  // These provide real-time dimension/metadata updates between
-  // the 3s loader revalidation polls. Keyed by session ID.
+  // Live session overrides from SESSION_UPDATE WS messages
   const [sessionOverrides, setSessionOverrides] = useState<Map<string, Partial<Session>>>(new Map());
 
-  // Merge loader sessions with live overrides for real-time grid layout
   const sessions = useMemo(() => {
     if (sessionOverrides.size === 0) return loaderSessions;
     return loaderSessions.map((s) => {
@@ -292,12 +299,10 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     });
   }, [loaderSessions, sessionOverrides]);
 
-  // Clear overrides when loader revalidates (loader data now has the updates)
   useEffect(() => {
     setSessionOverrides(new Map());
   }, [loaderSessions]);
 
-  // Handle SESSION_UPDATE from any grid cell's WS connection
   const handleSessionUpdate = useCallback((updatedSession: Session) => {
     if (!updatedSession.id) return;
     setSessionOverrides((prev) => {
@@ -310,11 +315,11 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
 
-  // Grid cell selection and zoom
+  // Cell selection and zoom
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
 
-  // Dynamic imports for grid and modal components
+  // Dynamic imports for grid terminal and modal
   const [GridTerminalComponent, setGridTerminalComponent] =
     useState<React.ComponentType<any> | null>(null);
   const [SessionModalComponent, setSessionModalComponent] =
@@ -326,19 +331,19 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     });
   }
 
-  if (typeof window !== "undefined" && (modalSessionId || true) && !SessionModalComponent) {
+  if (typeof window !== "undefined" && !SessionModalComponent) {
     import("../components/session-modal").then((mod) => {
       setSessionModalComponent(() => mod.SessionModal);
     });
   }
 
-  // Filter sessions: optionally hide inactive/exited
-  const gridSessions = useMemo(() => {
+  // Filter and sort
+  const laneSessions = useMemo(() => {
     if (showInactive) return sessions;
     return sessions.filter((s) => s.status === "running");
   }, [sessions, showInactive]);
 
-  const sortedGridSessions = useMemo(() => sortSessions(gridSessions, sortKey), [gridSessions, sortKey]);
+  const sortedLaneSessions = useMemo(() => sortSessions(laneSessions, sortKey), [laneSessions, sortKey]);
   const exitedCount = useMemo(() => sessions.filter((s) => s.status !== "running").length, [sessions]);
 
   const modalSession = useMemo(
@@ -346,7 +351,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     [modalSessionId, sessions]
   );
 
-  // Read ?session= from URL on mount for deep-linking
+  // Deep-link ?session= on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -354,7 +359,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     if (sessionParam && sessions.some((s) => s.id === sessionParam)) {
       setModalSessionId(sessionParam);
     }
-  }, []); // Only on mount
+  }, []);
 
   // Update URL when modal opens/closes
   useEffect(() => {
@@ -406,10 +411,26 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  const adjustGridFontSize = useCallback((delta: number) => {
-    setGridFontSize((prev) => {
+  const adjustFontSize = useCallback((delta: number) => {
+    setFontSize((prev) => {
       const next = Math.max(4, Math.min(20, prev + delta));
-      localStorage.setItem("relay-tty-grid-font-size", String(next));
+      localStorage.setItem("relay-tty-lane-font-size", String(next));
+      return next;
+    });
+  }, []);
+
+  const adjustLaneWidth = useCallback((delta: number) => {
+    setLaneWidth((prev) => {
+      const next = Math.max(100, Math.min(1200, prev + delta));
+      localStorage.setItem("relay-tty-lane-width", String(next));
+      return next;
+    });
+  }, []);
+
+  const adjustLaneHeight = useCallback((delta: number) => {
+    setLaneHeight((prev) => {
+      const next = Math.max(200, Math.min(1600, prev + delta));
+      localStorage.setItem("relay-tty-lane-height", String(next));
       return next;
     });
   }, []);
@@ -519,41 +540,81 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
               aria-label={showInactive ? "Hide inactive sessions" : "Show inactive sessions"}
             >
               {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              {showInactive ? `All (${sessions.length})` : `Active (${gridSessions.length})`}
+              {showInactive ? `All (${sessions.length})` : `Active (${laneSessions.length})`}
             </button>
           )}
+
+          {/* Lane width stepper */}
+          <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
+            <span className="px-1.5 text-[#64748b]">W</span>
+            <button
+              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+              onClick={() => adjustLaneWidth(-50)}
+              aria-label="Decrease lane width"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="px-1 text-[#94a3b8] tabular-nums min-w-[3.5ch] text-center">{laneWidth}</span>
+            <button
+              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+              onClick={() => adjustLaneWidth(50)}
+              aria-label="Increase lane width"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Lane height stepper */}
+          <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
+            <span className="px-1.5 text-[#64748b]">H</span>
+            <button
+              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+              onClick={() => adjustLaneHeight(-50)}
+              aria-label="Decrease lane height"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="px-1 text-[#94a3b8] tabular-nums min-w-[3.5ch] text-center">{laneHeight}</span>
+            <button
+              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+              onClick={() => adjustLaneHeight(50)}
+              aria-label="Increase lane height"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
 
           {/* Font size picker */}
           <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustGridFontSize(-1)}
+              onClick={() => adjustFontSize(-1)}
               aria-label="Decrease font size"
             >
               <Minus className="w-3 h-3" />
             </button>
-            <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{gridFontSize}</span>
+            <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{fontSize}</span>
             <button
               className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustGridFontSize(1)}
+              onClick={() => adjustFontSize(1)}
               aria-label="Increase font size"
             >
               <Plus className="w-3 h-3" />
             </button>
           </div>
 
-          {/* Lanes view link */}
+          {/* Grid view link */}
           {sessions.length > 0 && (
             <Link
-              to="/lanes"
+              to="/grid"
               className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
-              aria-label="Lanes view"
+              aria-label="Grid view"
             >
-              <Columns className="w-4 h-4" />
+              <LayoutGrid className="w-4 h-4" />
             </Link>
           )}
 
-          {/* List view link — navigate to / */}
+          {/* List view link */}
           {sessions.length > 0 && (
             <Link
               to="/"
@@ -602,7 +663,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
             relay bash
           </code>
         </div>
-      ) : sortedGridSessions.length === 0 ? (
+      ) : sortedLaneSessions.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-[#64748b] mb-2">No active sessions</p>
@@ -615,11 +676,13 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
       ) : (
-        <GridViewport
-          sessions={sortedGridSessions}
+        <LanesViewport
+          sessions={sortedLaneSessions}
           selectedCellId={selectedCellId}
           zoomedCellId={zoomedCellId}
-          gridFontSize={gridFontSize}
+          fontSize={fontSize}
+          laneWidth={laneWidth}
+          laneHeight={laneHeight}
           GridTerminalComponent={GridTerminalComponent}
           onDeselectCell={deselectCell}
           onSelectCell={selectCell}
