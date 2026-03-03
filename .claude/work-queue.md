@@ -34,3 +34,4 @@
 - [x] Desktop home: TUI-style list+preview layout with phone-frame iframe ([detail](work-queue/desktop-home-preview.md))
 - [x] Phone preview iframe: match session's original xterm width exactly (height can grow to fit more text)
 - [x] Grid view: double-click cell title to zoom/scale up for readability (toggle back with double-click or click elsewhere)
+- [x] CLI: print QR code with APP_URL + auth token so phone can scan to authenticate ([detail](work-queue/cli-qr-auth.md))

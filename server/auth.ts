@@ -71,6 +71,9 @@ function verifyJwt(token: string): JwtPayload | null {
 
     if (payload.iss !== "relay-tty") return null;
 
+    // Check expiry if present
+    if (typeof payload.exp === "number" && payload.exp < Math.floor(Date.now() / 1000)) return null;
+
     return payload;
   } catch {
     return null;
@@ -84,6 +87,21 @@ function verifyJwt(token: string): JwtPayload | null {
 export function generateToken(): string | null {
   if (!JWT_SECRET) return null;
   return signJwt({ iss: "relay-tty", iat: Math.floor(Date.now() / 1000) }, JWT_SECRET);
+}
+
+/**
+ * Generate a short-lived access token (for QR codes, etc).
+ * The token is valid for `ttlSeconds` (default 24h).
+ * The auth callback should exchange this for a long-lived session cookie.
+ */
+export function generateAccessToken(ttlSeconds = 86400): string | null {
+  if (!JWT_SECRET) return null;
+  const now = Math.floor(Date.now() / 1000);
+  return signJwt({
+    iss: "relay-tty",
+    iat: now,
+    exp: now + ttlSeconds,
+  }, JWT_SECRET);
 }
 
 /**

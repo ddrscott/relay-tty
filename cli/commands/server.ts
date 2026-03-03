@@ -111,11 +111,17 @@ async function startTunnel(port: number): Promise<void> {
     localPort: port,
     onConnected: async (url) => {
       console.log(`\n  ${boldGreen("Tunnel active")}: ${cyan(url)}\n`);
-      // Try to show QR code
+      // Try to show QR code with auth token
       try {
         const qrcode = await import("qrcode-terminal");
-        qrcode.default.generate(url, { small: true }, (qr: string) => {
-          console.log(qr);
+        const { generateAccessToken } = await import("../../server/auth.js");
+        const token = generateAccessToken(86400); // 24h
+        const qrUrl = token ? `${url}/api/auth/callback?token=${token}` : url;
+        if (token) {
+          console.log(dim("Scan to authenticate (24h):"));
+        }
+        qrcode.default.generate(qrUrl, { small: true }, (qr: string) => {
+          process.stderr.write(qr + "\n");
         });
       } catch {
         // qrcode-terminal not installed, skip

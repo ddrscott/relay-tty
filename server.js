@@ -63,7 +63,7 @@ async function loadModules(load) {
     appUrl: APP_URL,
   });
 
-  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken };
+  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken };
 }
 
 async function start() {
@@ -84,7 +84,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken };
         },
       })
     );
@@ -110,13 +110,13 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken };
         },
       })
     );
   }
 
-  const { wsHandler, verifyWsAuth, generateToken } = modules;
+  const { wsHandler, verifyWsAuth, generateToken, generateAccessToken } = modules;
 
   const httpServer = createServer(app);
 
@@ -150,6 +150,25 @@ async function start() {
       const authBase = APP_URL || localUrl;
       console.log(_dim(`Auth: ${authBase}/api/auth/callback?token=${token}`));
     }
+
+    // Print QR code when APP_URL is set so phones can scan to authenticate
+    if (APP_URL && generateAccessToken) {
+      const qrToken = generateAccessToken(86400); // 24h expiry
+      if (qrToken) {
+        const qrUrl = `${APP_URL}/api/auth/callback?token=${qrToken}`;
+        try {
+          const qrcode = await import("qrcode-terminal");
+          console.log(_dim("\nScan to authenticate (24h):"));
+          qrcode.default.generate(qrUrl, { small: true }, (qr) => {
+            // Print to stderr (POSIX: status output to stderr)
+            process.stderr.write(qr + "\n");
+          });
+        } catch {
+          // qrcode-terminal not available, skip
+        }
+      }
+    }
+
     if (DISCORD_WEBHOOK && APP_URL) {
       const authUrl = token
         ? `${APP_URL}/api/auth/callback?token=${token}`
