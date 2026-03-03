@@ -2,17 +2,19 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { WS_MSG } from "../../shared/types";
 import type { Session } from "../../shared/types";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, UnfoldVertical, FoldVertical } from "lucide-react";
 
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
   zoomed?: boolean;
+  heightExpanded?: boolean;
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
   onZoom?: () => void;
   onUnzoom?: () => void;
+  onToggleHeightExpand?: () => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, heightExpanded, fontSize, onSelect, onZoom, onUnzoom, onToggleHeightExpand }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -159,6 +161,18 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {session.cols || 80}×{session.rows || 24}
           </span>
+          <button
+            data-zoom-btn
+            className={`shrink-0 p-0.5 rounded transition-colors ${
+              heightExpanded ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+            }`}
+            onClick={(e) => { e.stopPropagation(); onToggleHeightExpand?.(); }}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label={heightExpanded ? "Collapse height" : "Expand height"}
+          >
+            {heightExpanded ? <FoldVertical className="w-3 h-3" /> : <UnfoldVertical className="w-3 h-3" />}
+          </button>
           <button
             data-zoom-btn
             className={`shrink-0 p-0.5 rounded transition-colors ${

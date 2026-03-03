@@ -36,4 +36,4 @@
 - [x] Grid view: double-click cell title to zoom/scale up for readability (toggle back with double-click or click elsewhere)
 - [x] CLI: print QR code with APP_URL + auth token so phone can scan to authenticate ([detail](work-queue/cli-qr-auth.md))
 - [x] Remove clear input button from scratchpad — OS select-all handles this, button wastes space during text input
-- [ ] Grid view: add vertical expander toggle to cell titlebar — expand xterm height to full viewport, keep width unchanged ([detail](work-queue/grid-cell-height-expander.md))
+- [x] Grid view: add vertical expander toggle to cell titlebar — expand xterm height to full viewport, keep width unchanged ([detail](work-queue/grid-cell-height-expander.md))
