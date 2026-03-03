@@ -37,3 +37,4 @@
 - [x] CLI: print QR code with APP_URL + auth token so phone can scan to authenticate ([detail](work-queue/cli-qr-auth.md))
 - [x] Remove clear input button from scratchpad — OS select-all handles this, button wastes space during text input
 - [x] Grid view: combined zoom button — fills viewport height, scales width proportionally, expands toward center ([detail](work-queue/grid-cell-height-expander.md))
+- [x] Propagate PTY dimension changes to web grid for proportional re-layout ([detail](work-queue/grid-pty-dimension-propagation.md))

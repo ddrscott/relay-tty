@@ -13,6 +13,8 @@ interface GridTerminalProps {
   onExpand: () => void;
   onZoom?: () => void;
   onUnzoom?: () => void;
+  /** Called when a SESSION_UPDATE arrives — parent updates grid layout */
+  onSessionUpdate?: (session: Session) => void;
 }
 
 /**
@@ -25,12 +27,44 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   const isRunning = session.status === "running";
   const displayTitle = session.title || `${session.command} ${session.args.join(" ")}`;
+
+  // Track live PTY dimensions — updated by SESSION_UPDATE messages.
+  // Starts from the session prop and updates in real time as the PTY resizes.
+  const [liveCols, setLiveCols] = useState(session.cols || 80);
+  const [liveRows, setLiveRows] = useState(session.rows || 24);
+
+  // Sync from prop when session changes (e.g. revalidation)
+  useEffect(() => {
+    setLiveCols(session.cols || 80);
+    setLiveRows(session.rows || 24);
+  }, [session.cols, session.rows]);
+
+  // Stable refs for the session update handler
+  const sessionIdRef = useRef(session.id);
+  sessionIdRef.current = session.id;
+  const onSessionUpdateRef = useRef(onSessionUpdate);
+  onSessionUpdateRef.current = onSessionUpdate;
+
+  const handleSessionUpdate = useCallback((updatedSession: Session) => {
+    // SESSION_UPDATE is broadcast to all clients — filter for our session
+    // Also forward ALL session updates to parent so grid can re-layout
+    // when any session's dimensions change
+    onSessionUpdateRef.current?.(updatedSession);
+
+    // Only resize our local xterm for our own session
+    if (updatedSession.id !== sessionIdRef.current) return;
+
+    const newCols = updatedSession.cols || 80;
+    const newRows = updatedSession.rows || 24;
+    setLiveCols(newCols);
+    setLiveRows(newRows);
+  }, []);
 
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
@@ -42,7 +76,23 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     throttleFps: 8,
     fixedCols: session.cols,
     fixedRows: session.rows,
+    onSessionUpdate: handleSessionUpdate,
   });
+
+  // When live dimensions change, resize the xterm instance directly.
+  // This updates the terminal's internal cols/rows so new content
+  // renders at the correct dimensions. CSS scale adjusts automatically.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !contentReady) return;
+    // Only resize if dimensions actually differ from current terminal
+    if (term.cols !== liveCols || term.rows !== liveRows) {
+      // Don't resize during zoom — zoom manages its own row count
+      if (!zoomed) {
+        term.resize(liveCols, liveRows);
+      }
+    }
+  }, [liveCols, liveRows, contentReady, zoomed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update font size on the live terminal instance when it changes
   useEffect(() => {
@@ -56,8 +106,6 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
   // Zoomed mode: width-based scale (may be > 1) for readability,
   // resize xterm to fill wrapper height with actual rows (not CSS-scaled).
   // Since readOnly=true, the extra rows are local — no RESIZE sent to PTY.
-  const origRows = session.rows || 24;
-  const origCols = session.cols || 80;
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -79,15 +127,15 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
         // Compute actual rendered line height from current terminal
         const lineH = termH / term.rows;
         // How many rows fill the wrapper height at this scale?
-        const neededRows = Math.max(origRows, Math.floor(wrapperRect.height / (widthScale * lineH)));
+        const neededRows = Math.max(liveRows, Math.floor(wrapperRect.height / (widthScale * lineH)));
         if (term.rows !== neededRows) {
-          term.resize(origCols, neededRows);
+          term.resize(liveCols, neededRows);
         }
         setScale(widthScale);
       } else {
         // Restore original PTY dimensions when not zoomed
-        if (term && term.rows !== origRows) {
-          term.resize(origCols, origRows);
+        if (term && term.rows !== liveRows) {
+          term.resize(liveCols, liveRows);
         }
         setScale(Math.min(wrapperRect.width / termW, wrapperRect.height / termH, 1));
       }
@@ -97,7 +145,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     const observer = new ResizeObserver(updateScale);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [contentReady, zoomed, fontSize, origRows, origCols]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contentReady, zoomed, fontSize, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up keyboard input when selected
   useEffect(() => {
@@ -182,7 +230,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
             {displayTitle}
           </code>
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
-            {session.cols || 80}×{session.rows || 24}
+            {liveCols}×{liveRows}
           </span>
           <button
             data-zoom-btn

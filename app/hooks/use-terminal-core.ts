@@ -5,7 +5,7 @@
  * Used by both the interactive Terminal and ReadOnlyTerminal components.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
-import { WS_MSG } from "../../shared/types";
+import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
 
@@ -41,6 +41,8 @@ export interface TerminalCoreOpts {
   onFileLink?: (link: FileLink) => void;
   /** Called when the user taps the terminal (touch with no drag) */
   onTap?: () => void;
+  /** Called when a SESSION_UPDATE message arrives with updated session metadata */
+  onSessionUpdate?: (session: Session) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
   /** Skip WebGL renderer for lightweight grid cells */
@@ -748,6 +750,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             const totalBytes = mv.getFloat64(24, false);
             lastActivityActive = bps1 >= 1;
             opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes, bps1, bps5, bps15 });
+          }
+          break;
+        }
+        case WS_MSG.SESSION_UPDATE: {
+          // UTF-8 JSON of updated Session object
+          try {
+            const json = new TextDecoder().decode(payload);
+            const session = JSON.parse(json) as Session;
+            opts.onSessionUpdate?.(session);
+          } catch {
+            // Malformed JSON — ignore
           }
           break;
         }

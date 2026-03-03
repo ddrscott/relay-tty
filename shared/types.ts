@@ -46,6 +46,8 @@ export const WS_MSG = {
   BUFFER_REPLAY_GZ: 0x13,
   /** Server→client: throughput metrics [bps1(f64) + bps5(f64) + bps15(f64) + totalBytes(f64)]. */
   SESSION_METRICS: 0x14,
+  /** Server→client: updated session metadata [UTF-8 JSON of Session]. */
+  SESSION_UPDATE: 0x15,
 } as const;
 
 export interface CreateSessionRequest {

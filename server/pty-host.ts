@@ -540,6 +540,7 @@ const server = net.createServer((socket) => {
             ptyProcess.resize(newCols, newRows);
             sessionMeta.cols = newCols;
             sessionMeta.rows = newRows;
+            markMetaDirty();
           }
           break;
         case WS_MSG.RESUME:

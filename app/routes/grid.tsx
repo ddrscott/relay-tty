@@ -111,6 +111,7 @@ function GridViewport({
   onOpenModal,
   onZoomCell,
   onUnzoomCell,
+  onSessionUpdate,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
@@ -122,6 +123,7 @@ function GridViewport({
   onOpenModal: (id: string) => void;
   onZoomCell: (id: string) => void;
   onUnzoomCell: () => void;
+  onSessionUpdate: (session: Session) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -244,6 +246,7 @@ function GridViewport({
               onExpand={() => onOpenModal(session.id)}
               onZoom={() => onZoomCell(session.id)}
               onUnzoom={onUnzoomCell}
+              onSessionUpdate={onSessionUpdate}
             />
           </div>
         ) : (
@@ -267,13 +270,42 @@ function GridViewport({
 }
 
 export default function Grid({ loaderData }: Route.ComponentProps) {
-  const { sessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
+  const { sessions: loaderSessions, version, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
   const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
+
+  // Live session overrides from SESSION_UPDATE WS messages.
+  // These provide real-time dimension/metadata updates between
+  // the 3s loader revalidation polls. Keyed by session ID.
+  const [sessionOverrides, setSessionOverrides] = useState<Map<string, Partial<Session>>>(new Map());
+
+  // Merge loader sessions with live overrides for real-time grid layout
+  const sessions = useMemo(() => {
+    if (sessionOverrides.size === 0) return loaderSessions;
+    return loaderSessions.map((s) => {
+      const override = sessionOverrides.get(s.id);
+      return override ? { ...s, ...override } : s;
+    });
+  }, [loaderSessions, sessionOverrides]);
+
+  // Clear overrides when loader revalidates (loader data now has the updates)
+  useEffect(() => {
+    setSessionOverrides(new Map());
+  }, [loaderSessions]);
+
+  // Handle SESSION_UPDATE from any grid cell's WS connection
+  const handleSessionUpdate = useCallback((updatedSession: Session) => {
+    if (!updatedSession.id) return;
+    setSessionOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(updatedSession.id, updatedSession);
+      return next;
+    });
+  }, []);
 
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
@@ -583,6 +615,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
+          onSessionUpdate={handleSessionUpdate}
         />
       )}
 

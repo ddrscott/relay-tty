@@ -28,6 +28,32 @@ export class WsHandler {
   ) {
     this.wss = new WebSocketServer({ noServer: true });
     this.startPingInterval();
+
+    // Listen for session metadata updates from the file watcher and
+    // broadcast to all connected WS clients. This is how dimension
+    // changes (and any other metadata) propagate to the grid view.
+    this.ptyManager.on("session-update", (_id: string, session: any) => {
+      this.broadcastSessionUpdate(session);
+    });
+  }
+
+  /**
+   * Broadcast a SESSION_UPDATE message to all connected WS clients.
+   * Payload: [0x15][UTF-8 JSON of full Session object]
+   * Clients use the session.id field to identify which session changed.
+   */
+  private broadcastSessionUpdate(session: any): void {
+    const json = JSON.stringify(session);
+    const jsonBytes = Buffer.from(json, "utf-8");
+    const msg = Buffer.alloc(1 + jsonBytes.length);
+    msg[0] = WS_MSG.SESSION_UPDATE;
+    jsonBytes.copy(msg, 1);
+
+    this.wss.clients.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
+    });
   }
 
   /**

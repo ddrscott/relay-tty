@@ -32,6 +32,7 @@ function isPidAlive(pid: number): boolean {
 export class PtyManager extends EventEmitter {
   // Monitoring connections — one per running session, for status tracking
   private monitors = new Map<string, net.Socket>();
+  private fileWatcher: fs.FSWatcher | null = null;
 
   constructor(private sessionStore: SessionStore) {
     super();
@@ -111,6 +112,9 @@ export class PtyManager extends EventEmitter {
       const parts = [...counts.entries()].map(([cmd, n]) => n > 1 ? `${cmd} ×${n}` : cmd);
       console.log(dim(`Reconnected to ${reconnected.length} session${reconnected.length > 1 ? "s" : ""} (${parts.join(", ")})`));
     }
+
+    // Start watching session JSON files for changes (e.g. resize, metrics)
+    this.startFileWatcher();
   }
 
   /**
@@ -287,6 +291,88 @@ export class PtyManager extends EventEmitter {
     const socketPath = path.join(SOCKETS_DIR, `${id}.sock`);
     try { fs.unlinkSync(sessionPath); } catch {}
     try { fs.unlinkSync(socketPath); } catch {}
+  }
+
+  /**
+   * Watch session JSON files for changes and propagate updates.
+   *
+   * When pty-host flushes updated metadata to disk (every 5s), this
+   * detects the change, reads the JSON, diffs against the in-memory
+   * session state, and emits "session-update" with the updated Session.
+   *
+   * This is general-purpose — any field pty-host writes (metrics, title,
+   * status, cols/rows, future fields) propagates automatically to WS clients.
+   */
+  startFileWatcher(): void {
+    if (this.fileWatcher) return;
+
+    // Debounce per-file: fs.watch can fire multiple times for a single write
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    try {
+      this.fileWatcher = fs.watch(SESSIONS_DIR, (eventType, filename) => {
+        if (!filename || !filename.endsWith(".json")) return;
+        // Ignore .tmp files from atomic writes
+        if (filename.endsWith(".tmp")) return;
+
+        const id = filename.replace(".json", "");
+
+        // Debounce: wait 200ms after last event before processing
+        const existing = debounceTimers.get(id);
+        if (existing) clearTimeout(existing);
+
+        debounceTimers.set(id, setTimeout(() => {
+          debounceTimers.delete(id);
+          this.handleSessionFileChange(id);
+        }, 200));
+      });
+    } catch (err) {
+      // fs.watch not supported on this platform — degrade gracefully
+      console.error("Failed to start session file watcher:", err);
+    }
+  }
+
+  stopFileWatcher(): void {
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+      this.fileWatcher = null;
+    }
+  }
+
+  /** Read updated session JSON from disk, diff against in-memory, emit changes. */
+  private handleSessionFileChange(id: string): void {
+    const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
+    try {
+      const raw = fs.readFileSync(sessionPath, "utf-8");
+      const diskMeta = JSON.parse(raw) as Session;
+
+      const memSession = this.sessionStore.get(id);
+      if (!memSession) return; // Not tracked — ignore
+
+      // Diff: check if any fields changed
+      let changed = false;
+      const updatedFields: Partial<Session> = {};
+
+      for (const key of Object.keys(diskMeta) as Array<keyof Session>) {
+        if (key === "id") continue; // Never changes
+        const diskVal = diskMeta[key];
+        const memVal = memSession[key];
+        if (diskVal !== memVal) {
+          changed = true;
+          (updatedFields as any)[key] = diskVal;
+          // Update in-memory state
+          (memSession as any)[key] = diskVal;
+        }
+      }
+
+      if (changed) {
+        // Always include id in the update payload for client routing
+        updatedFields.id = id;
+        this.emit("session-update", id, memSession, updatedFields);
+      }
+    } catch {
+      // File may have been deleted or corrupted — ignore
+    }
   }
 
   // --- Private ---
