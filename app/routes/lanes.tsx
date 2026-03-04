@@ -1,10 +1,11 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
-import { useRevalidator, Link } from "react-router";
+import { useRevalidator } from "react-router";
 import type { Route } from "./+types/lanes";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { useSessionEvents } from "../hooks/use-session-events";
-import { ArrowDown, ArrowUp, LayoutGrid, List, Eye, EyeOff, Minus, Plus, Maximize, Minimize } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize } from "lucide-react";
+import { LayoutSwitcher } from "../components/layout-switcher";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -657,27 +658,8 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             </button>
           </div>
 
-          {/* Grid view link */}
-          {sessions.length > 0 && (
-            <Link
-              to="/grid"
-              className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
-              aria-label="Grid view"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </Link>
-          )}
-
-          {/* List view link */}
-          {sessions.length > 0 && (
-            <Link
-              to="/"
-              className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
-              aria-label="List view"
-            >
-              <List className="w-4 h-4" />
-            </Link>
-          )}
+          {/* Layout switcher — desktop only */}
+          {sessions.length > 0 && <LayoutSwitcher />}
 
           {/* Fullscreen toggle */}
           <button

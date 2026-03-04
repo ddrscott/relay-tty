@@ -38,4 +38,6 @@
 - [x] Remove clear input button from scratchpad — OS select-all handles this, button wastes space during text input
 - [x] Grid view: combined zoom button — fills viewport height, scales width proportionally, expands toward center ([detail](work-queue/grid-cell-height-expander.md))
 - [x] Propagate PTY dimension changes to web grid for proportional re-layout ([detail](work-queue/grid-pty-dimension-propagation.md))
+- [x] Desktop layout switcher: DaisyUI radio tab (`join` group) to toggle between Home, Grid, and Lanes views ([detail](work-queue/desktop-layout-switcher.md))
+- [ ] Gallery font sizing: render xterm at readable font size (for expanded view), use CSS scale for thumbnails ([detail](work-queue/gallery-font-sizing.md))
 - [x] Grid cell: "fit to cell" button that sends PTY RESIZE to match visible dimensions ([detail](work-queue/grid-fit-to-cell.md))
