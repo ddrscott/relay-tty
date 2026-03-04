@@ -155,7 +155,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
 
   // Cleanup
   clearInterval(refreshInterval);
-  process.stdin.removeListener("data", onData);
+  process.stdin.removeAllListeners("data");
   process.removeListener("SIGWINCH", onResize);
   if (state.statusTimeout) clearTimeout(state.statusTimeout);
   if (state.previewDebounce) clearTimeout(state.previewDebounce);
@@ -164,6 +164,9 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
   process.stdout.write(MOUSE_OFF + CURSOR_SHOW + ALT_SCREEN_OFF);
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
+  // Allow the process to exit even if stdin is still referenced by the event loop.
+  // Node.js keeps the process alive for a resumed stdin stream; unref lets it drain.
+  process.stdin.unref();
 }
 
 // ── Input handling ──────────────────────────────────────────────────────

@@ -41,6 +41,6 @@
 - [x] Desktop layout switcher: DaisyUI radio tab (`join` group) to toggle between Home, Grid, and Lanes views ([detail](work-queue/desktop-layout-switcher.md))
 - [x] Layout switcher polish: use lucide icons (List, Grid, Columns) instead of text labels, subtle active state (highlight color text only, normal weight, no bright bg)
 - [x] Expanded grid cell: drag handle to resize cell width, sends SIGWINCH on release to force re-render ([detail](work-queue/expanded-cell-drag-resize.md))
-- [ ] Fix `relay tui` hanging after pressing `q` to quit — requires Ctrl-C to return to shell (likely not restoring terminal or exiting process cleanly)
+- [x] Fix `relay tui` hanging after pressing `q` to quit — requires Ctrl-C to return to shell (likely not restoring terminal or exiting process cleanly)
 - [x] Gallery font sizing: render xterm at readable font size (for expanded view), use CSS scale for thumbnails ([detail](work-queue/gallery-font-sizing.md))
 - [x] Grid cell: "fit to cell" button that sends PTY RESIZE to match visible dimensions ([detail](work-queue/grid-fit-to-cell.md))
