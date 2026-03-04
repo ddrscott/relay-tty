@@ -1,23 +1,17 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
-import { WS_MSG } from "../../shared/types";
+import { useTerminalInput } from "../hooks/use-terminal-input";
+import { encodeResizeMessage } from "../lib/ws-messages";
 import type { Session } from "../../shared/types";
 import { Maximize2 } from "lucide-react";
-
-/**
- * Readable font size for xterm.js rendering.
- * Thumbnails use CSS transform: scale() to shrink; zoomed cells show
- * this native size so text is always comfortable to read.
- */
-const READABLE_FONT_SIZE = 14;
 
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
   zoomed?: boolean;
   /** Font size used by the parent for cell-size layout calculations.
-   *  xterm always renders at READABLE_FONT_SIZE; this prop is accepted
-   *  for interface compatibility but does NOT change the terminal font. */
+   *  xterm always renders at 14px; this prop is accepted for interface
+   *  compatibility but does NOT change the terminal font. */
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
@@ -80,13 +74,11 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
 
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
-  // Always render at READABLE_FONT_SIZE so zoomed cells have comfortable text.
   // Thumbnails shrink via CSS transform: scale().
   const { termRef, status, contentReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
-    fontSize: READABLE_FONT_SIZE,
+    fontSize: 14,
     readOnly: true,
-    skipWebGL: true,
     throttleFps: 8,
     fixedCols: session.cols,
     fixedRows: session.rows,
@@ -153,39 +145,24 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     return () => observer.disconnect();
   }, [contentReady, zoomed, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wire up keyboard input when selected
+  // Wire up keyboard input when selected (sendResize: false — grid manages RESIZE explicitly)
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: selected, sendResize: false });
+
+  // Toggle stdin/cursor and focus when selection changes
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
 
-    if (selected) {
-      term.options.disableStdin = false;
-      term.options.cursorBlink = true;
+    term.options.disableStdin = !selected;
+    term.options.cursorBlink = selected;
 
+    if (selected) {
       const textarea = containerRef.current?.querySelector(
         ".xterm-helper-textarea"
       ) as HTMLTextAreaElement | null;
       textarea?.focus();
-
-      const disposable = term.onData((data: string) => {
-        if (replayingRef.current) return;
-        const encoded = new TextEncoder().encode(data);
-        const msg = new Uint8Array(1 + encoded.length);
-        msg[0] = WS_MSG.DATA;
-        msg.set(encoded, 1);
-        sendBinary(msg);
-      });
-
-      return () => {
-        disposable.dispose();
-        term.options.disableStdin = true;
-        term.options.cursorBlink = false;
-      };
-    } else {
-      term.options.disableStdin = true;
-      term.options.cursorBlink = false;
     }
-  }, [selected, termRef.current, sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -225,12 +202,8 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     const newCols = Math.max(1, Math.floor(wrapperRect.width / cellW));
     const newRows = Math.max(1, Math.floor(wrapperRect.height / cellH));
 
-    // Send RESIZE to PTY: [type, cols_hi, cols_lo, rows_hi, rows_lo]
-    const msg = new Uint8Array(5);
-    msg[0] = WS_MSG.RESIZE;
-    new DataView(msg.buffer).setUint16(1, newCols, false);
-    new DataView(msg.buffer).setUint16(3, newRows, false);
-    sendBinary(msg);
+    // Send RESIZE to PTY
+    sendBinary(encodeResizeMessage(newCols, newRows));
 
     // Resize local xterm immediately so content renders at new dimensions
     term.resize(newCols, newRows);

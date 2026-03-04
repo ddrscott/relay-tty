@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
-import { WS_MSG } from "../../shared/types";
 import { useTerminalCore } from "../hooks/use-terminal-core";
+import { useTerminalInput } from "../hooks/use-terminal-input";
+import { encodeDataMessage } from "../lib/ws-messages";
 import type { FileLink } from "../lib/file-link-provider";
 
 export interface TerminalHandle {
@@ -56,11 +57,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   });
 
   const sendText = useCallback((text: string) => {
-    const encoded = new TextEncoder().encode(text);
-    const msg = new Uint8Array(1 + encoded.length);
-    msg[0] = WS_MSG.DATA;
-    msg.set(encoded, 1);
-    sendBinary(msg);
+    sendBinary(encodeDataMessage(text));
   }, [sendBinary]);
 
   const scrollToBottom = useCallback(() => {
@@ -121,46 +118,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
   useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText]);
 
-  // Wire up terminal input → WS (with optional input transform for sticky modifiers)
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-
-    const disposable = term.onData((data: string) => {
-      // During buffer replay, xterm generates CPR/DA responses to replayed
-      // DSR queries. Suppress them so they don't leak to the PTY as stdin.
-      if (replayingRef.current) return;
-      const transform = inputTransformRef.current;
-      const out = transform ? transform(data) : data;
-      if (out === null) return;
-      const encoded = new TextEncoder().encode(out);
-      const msg = new Uint8Array(1 + encoded.length);
-      msg[0] = WS_MSG.DATA;
-      msg.set(encoded, 1);
-      sendBinary(msg);
-    });
-
-    return () => disposable.dispose();
-  }, [termRef.current, sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Wire up resize → WS (dedup to avoid redundant SIGWINCH → full TUI redraws)
-  const lastSentSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-
-    const disposable = term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-      if (cols === lastSentSizeRef.current.cols && rows === lastSentSizeRef.current.rows) return;
-      lastSentSizeRef.current = { cols, rows };
-      const msg = new Uint8Array(5);
-      msg[0] = WS_MSG.RESIZE;
-      new DataView(msg.buffer).setUint16(1, cols, false);
-      new DataView(msg.buffer).setUint16(3, rows, false);
-      sendBinary(msg);
-    });
-
-    return () => disposable.dispose();
-  }, [termRef.current, sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: true, inputTransformRef });
 
   // Update font size on existing terminal
   useEffect(() => {

@@ -35,5 +35,14 @@ Code changes require restarting pty-host or creating new sessions — running se
 
 **Critical: The CLI spawns processes, not the server.** `relay <command>` calls `spawnDirect()` so pty-host inherits the user's env. The server is only a WS bridge — discovers sessions from disk via `discoverOne()`.
 
+## Critical: Gallery Thumbnail SIGWINCH Policy
+Gallery views (grid, lanes) are **passive observers**. Thumbnails MUST:
+- Use the session's existing PTY cols (width) from metadata — **never send a wider RESIZE/SIGWINCH**. Wider reflows line wrapping and jumbles layouts on other connected devices.
+- Rendering taller (more rows) is OK — it just shows more scrollback without reflowing content.
+- Render with `readOnly=true` and use CSS `transform: scale()` to fit the cell visually.
+- **Never reflow remote sessions on load** — loading a gallery page must not affect other devices.
+
+SIGWINCH is ONLY permitted when a cell enters **expanded/interactive mode** (zoom, modal, fit-to-cell) where the user is actively engaging with that terminal. Other devices will naturally get SIGWINCH when they next open their session view.
+
 ## Protocol Documentation
 See `docs/protocol.md` for the WS binary protocol (pty-host ↔ browser message types, framing) and the tunnel relay protocol (multiplexed WS/HTTP proxying over a single tunnel connection to relaytty.com).

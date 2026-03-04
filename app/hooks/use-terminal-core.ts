@@ -45,8 +45,6 @@ export interface TerminalCoreOpts {
   onSessionUpdate?: (session: Session) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
-  /** Skip WebGL renderer for lightweight grid cells */
-  skipWebGL?: boolean;
   /** Throttle terminal writes to this many fps (0 = unlimited) */
   throttleFps?: number;
   /** Fixed terminal cols — disables FitAddon auto-fit when set */
@@ -183,16 +181,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       term.open(containerRef.current!);
 
       // WebGL renderer — must be loaded after term.open()
-      // Skip for lightweight grid cells to save GPU contexts
-      if (!opts.skipWebGL) {
-        try {
-          const webgl = new WebglAddon();
-          webgl.onContextLoss(() => { webgl.dispose(); });
-          term.loadAddon(webgl);
-          webglRef.current = webgl;
-        } catch {
-          // WebGL unavailable — falls back to default canvas renderer
-        }
+      // Context loss is handled gracefully (falls back to canvas)
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { webgl.dispose(); });
+        term.loadAddon(webgl);
+        webglRef.current = webgl;
+      } catch {
+        // WebGL unavailable — falls back to default canvas renderer
       }
 
       termRef.current = term;
