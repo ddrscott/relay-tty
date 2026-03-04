@@ -4,10 +4,20 @@ import { WS_MSG } from "../../shared/types";
 import type { Session } from "../../shared/types";
 import { Maximize2 } from "lucide-react";
 
+/**
+ * Readable font size for xterm.js rendering.
+ * Thumbnails use CSS transform: scale() to shrink; zoomed cells show
+ * this native size so text is always comfortable to read.
+ */
+const READABLE_FONT_SIZE = 14;
+
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
   zoomed?: boolean;
+  /** Font size used by the parent for cell-size layout calculations.
+   *  xterm always renders at READABLE_FONT_SIZE; this prop is accepted
+   *  for interface compatibility but does NOT change the terminal font. */
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
@@ -68,9 +78,11 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
 
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
+  // Always render at READABLE_FONT_SIZE so zoomed cells have comfortable text.
+  // Thumbnails shrink via CSS transform: scale().
   const { termRef, status, contentReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
-    fontSize,
+    fontSize: READABLE_FONT_SIZE,
     readOnly: true,
     skipWebGL: true,
     throttleFps: 8,
@@ -93,13 +105,6 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
       }
     }
   }, [liveCols, liveRows, contentReady, zoomed]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update font size on the live terminal instance when it changes
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-    term.options.fontSize = fontSize;
-  }, [fontSize, termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute CSS scale + manage terminal rows for zoom.
   // Normal mode: shrink terminal to fit wrapper (scale capped at 1).
@@ -144,7 +149,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     const observer = new ResizeObserver(updateScale);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [contentReady, zoomed, fontSize, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contentReady, zoomed, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up keyboard input when selected
   useEffect(() => {

@@ -40,5 +40,5 @@
 - [x] Propagate PTY dimension changes to web grid for proportional re-layout ([detail](work-queue/grid-pty-dimension-propagation.md))
 - [x] Desktop layout switcher: DaisyUI radio tab (`join` group) to toggle between Home, Grid, and Lanes views ([detail](work-queue/desktop-layout-switcher.md))
 - [x] Layout switcher polish: use lucide icons (List, Grid, Columns) instead of text labels, subtle active state (highlight color text only, normal weight, no bright bg)
-- [ ] Gallery font sizing: render xterm at readable font size (for expanded view), use CSS scale for thumbnails ([detail](work-queue/gallery-font-sizing.md))
+- [x] Gallery font sizing: render xterm at readable font size (for expanded view), use CSS scale for thumbnails ([detail](work-queue/gallery-font-sizing.md))
 - [x] Grid cell: "fit to cell" button that sends PTY RESIZE to match visible dimensions ([detail](work-queue/grid-fit-to-cell.md))
