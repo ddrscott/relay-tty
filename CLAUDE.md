@@ -34,3 +34,6 @@ Rust pty-host adds `bps1`/`bps5`/`bps15` throughput metrics (1/5/15m windows) an
 Code changes require restarting pty-host or creating new sessions — running sessions use the old binary.
 
 **Critical: The CLI spawns processes, not the server.** `relay <command>` calls `spawnDirect()` so pty-host inherits the user's env. The server is only a WS bridge — discovers sessions from disk via `discoverOne()`.
+
+## Protocol Documentation
+See `docs/protocol.md` for the WS binary protocol (pty-host ↔ browser message types, framing) and the tunnel relay protocol (multiplexed WS/HTTP proxying over a single tunnel connection to relaytty.com).
