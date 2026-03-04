@@ -3,8 +3,8 @@ import { useRevalidator, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
-import { groupByCwd, sortSessions, type SortKey } from "../lib/session-groups";
-import { LayoutGrid, Columns, ArrowDownUp } from "lucide-react";
+import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
+import { LayoutGrid, Columns, ArrowDown, ArrowUp } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -36,6 +36,11 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 function getStoredSort(): SortKey {
   if (typeof window === "undefined") return "recent";
   return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
+}
+
+function getStoredSortDir(): SortDir {
+  if (typeof window === "undefined") return "desc";
+  return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
 function timeAgo(timestamp: number): string {
@@ -204,6 +209,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
+  const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
 
   // Desktop preview: which session is shown in the phone frame
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
@@ -218,8 +224,28 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  const sortedSessions = useMemo(() => sortSessions(sessions, sortKey), [sessions, sortKey]);
-  const groups = useMemo(() => groupByCwd(sessions, sortKey), [sessions, sortKey]);
+  // Snapshot: recompute sort order only when sort key/dir changes, not on data updates.
+  const sortedIdsRef = useRef<string[]>([]);
+  const sortSnapshotRef = useRef<string>("");
+  const sortedSessions = useMemo(() => {
+    const freshSorted = sortSessions(sessions, sortKey, sortDir);
+    const snapshotKey = `${sortKey}:${sortDir}`;
+    const currentIds = new Set(sessions.map((s) => s.id));
+    const prevIds = new Set(sortedIdsRef.current);
+
+    if (sortedIdsRef.current.length === 0 || sortSnapshotRef.current !== snapshotKey) {
+      sortedIdsRef.current = freshSorted.map((s) => s.id);
+      sortSnapshotRef.current = snapshotKey;
+    } else {
+      const kept = sortedIdsRef.current.filter((id) => currentIds.has(id));
+      const newIds = freshSorted.filter((s) => !prevIds.has(s.id)).map((s) => s.id);
+      sortedIdsRef.current = [...kept, ...newIds];
+    }
+
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+    return sortedIdsRef.current.filter((id) => sessionMap.has(id)).map((id) => sessionMap.get(id)!);
+  }, [sessions, sortKey, sortDir]);
+  const groups = useMemo(() => groupByCwd(sessions, sortKey, sortDir), [sessions, sortKey, sortDir]);
   const isSingleGroup = groups.length === 1;
 
   // Auto-select first session on desktop when no preview is set
@@ -271,9 +297,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   }, []);
 
   const setSort = useCallback((key: SortKey) => {
-    setSortKey(key);
-    localStorage.setItem("relay-tty-sort", key);
-  }, []);
+    if (key === sortKey) {
+      const newDir = sortDir === "desc" ? "asc" : "desc";
+      setSortDir(newDir);
+      localStorage.setItem("relay-tty-sort-dir", newDir);
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+      localStorage.setItem("relay-tty-sort", key);
+      localStorage.setItem("relay-tty-sort-dir", "desc");
+    }
+  }, [sortKey, sortDir]);
 
   // Header bar — shared between mobile and desktop
   const headerBar = (
@@ -296,7 +330,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               tabIndex={0}
               className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
             >
-              <ArrowDownUp className="w-3.5 h-3.5" />
+              {sortDir === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
               {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
             </button>
             <ul
@@ -306,13 +340,16 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               {SORT_OPTIONS.map((opt) => (
                 <li key={opt.key}>
                   <button
-                    className={`font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
+                    className={`flex items-center justify-between font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
                     onClick={() => {
                       setSort(opt.key);
-                      (document.activeElement as HTMLElement)?.blur();
+                      if (opt.key !== sortKey) (document.activeElement as HTMLElement)?.blur();
                     }}
                   >
                     {opt.label}
+                    {sortKey === opt.key && (
+                      sortDir === "desc" ? <ArrowDown className="w-3 h-3 opacity-50" /> : <ArrowUp className="w-3 h-3 opacity-50" />
+                    )}
                   </button>
                 </li>
               ))}

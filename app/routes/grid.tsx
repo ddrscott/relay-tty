@@ -2,8 +2,8 @@ import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator, Link } from "react-router";
 import type { Route } from "./+types/grid";
 import type { Session } from "../../shared/types";
-import { sortSessions, type SortKey } from "../lib/session-groups";
-import { ArrowDownUp, Columns, List, Eye, EyeOff, Minus, Plus } from "lucide-react";
+import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
+import { ArrowDown, ArrowUp, Columns, List, Eye, EyeOff, Minus, Plus } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -35,6 +35,11 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 function getStoredSort(): SortKey {
   if (typeof window === "undefined") return "recent";
   return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
+}
+
+function getStoredSortDir(): SortDir {
+  if (typeof window === "undefined") return "desc";
+  return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
 function getStoredShowInactive(): boolean {
@@ -275,6 +280,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
 
   const [creating, setCreating] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
+  const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
   const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
 
@@ -338,7 +344,30 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     return sessions.filter((s) => s.status === "running");
   }, [sessions, showInactive]);
 
-  const sortedGridSessions = useMemo(() => sortSessions(gridSessions, sortKey), [gridSessions, sortKey]);
+  // Snapshot: recompute sort order only when sort key/dir changes, not on data updates.
+  // New sessions append to end; removed sessions are filtered out.
+  const sortedIdsRef = useRef<string[]>([]);
+  const sortSnapshotRef = useRef<string>("");
+  const sortedGridSessions = useMemo(() => {
+    const freshSorted = sortSessions(gridSessions, sortKey, sortDir);
+    const snapshotKey = `${sortKey}:${sortDir}`;
+    const currentIds = new Set(gridSessions.map((s) => s.id));
+    const prevIds = new Set(sortedIdsRef.current);
+
+    if (sortedIdsRef.current.length === 0 || sortSnapshotRef.current !== snapshotKey) {
+      // Sort params changed or first render — take a fresh snapshot
+      sortedIdsRef.current = freshSorted.map((s) => s.id);
+      sortSnapshotRef.current = snapshotKey;
+    } else {
+      // Keep existing order, filter removed, append new
+      const kept = sortedIdsRef.current.filter((id) => currentIds.has(id));
+      const newIds = freshSorted.filter((s) => !prevIds.has(s.id)).map((s) => s.id);
+      sortedIdsRef.current = [...kept, ...newIds];
+    }
+
+    const sessionMap = new Map(gridSessions.map((s) => [s.id, s]));
+    return sortedIdsRef.current.filter((id) => sessionMap.has(id)).map((id) => sessionMap.get(id)!);
+  }, [gridSessions, sortKey, sortDir]);
   const exitedCount = useMemo(() => sessions.filter((s) => s.status !== "running").length, [sessions]);
 
   const modalSession = useMemo(
@@ -394,9 +423,18 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   );
 
   const setSort = useCallback((key: SortKey) => {
-    setSortKey(key);
-    localStorage.setItem("relay-tty-sort", key);
-  }, []);
+    if (key === sortKey) {
+      // Toggle direction when clicking the same sort key
+      const newDir = sortDir === "desc" ? "asc" : "desc";
+      setSortDir(newDir);
+      localStorage.setItem("relay-tty-sort-dir", newDir);
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+      localStorage.setItem("relay-tty-sort", key);
+      localStorage.setItem("relay-tty-sort-dir", "desc");
+    }
+  }, [sortKey, sortDir]);
 
   const toggleShowInactive = useCallback(() => {
     setShowInactive((prev) => {
@@ -483,7 +521,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
                 tabIndex={0}
                 className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
               >
-                <ArrowDownUp className="w-3.5 h-3.5" />
+                {sortDir === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
                 {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
               </button>
               <ul
@@ -493,13 +531,16 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
                 {SORT_OPTIONS.map((opt) => (
                   <li key={opt.key}>
                     <button
-                      className={`font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
+                      className={`flex items-center justify-between font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
                       onClick={() => {
                         setSort(opt.key);
-                        (document.activeElement as HTMLElement)?.blur();
+                        if (opt.key !== sortKey) (document.activeElement as HTMLElement)?.blur();
                       }}
                     >
                       {opt.label}
+                      {sortKey === opt.key && (
+                        sortDir === "desc" ? <ArrowDown className="w-3 h-3 opacity-50" /> : <ArrowUp className="w-3 h-3 opacity-50" />
+                      )}
                     </button>
                   </li>
                 ))}

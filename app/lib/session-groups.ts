@@ -1,6 +1,7 @@
 import type { Session } from "../../shared/types";
 
 export type SortKey = "recent" | "created" | "active" | "name";
+export type SortDir = "asc" | "desc";
 
 export interface SessionGroup {
   cwd: string;
@@ -13,36 +14,36 @@ export function displayPath(cwd: string): string {
   return cwd.replace(/^\/Users\/[^/]+/, "~");
 }
 
-/** Sort sessions by the given key. Returns a new sorted array. */
-export function sortSessions(sessions: Session[], key: SortKey): Session[] {
+/** Sort sessions by the given key and direction. Returns a new sorted array. */
+export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir = "desc"): Session[] {
   const sorted = [...sessions];
+  const flip = dir === "asc" ? -1 : 1;
   switch (key) {
     case "recent":
       return sorted.sort((a, b) => {
         const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : a.lastActivity;
         const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : b.lastActivity;
-        return bTime - aTime;
+        return (bTime - aTime) * flip;
       });
     case "created":
-      return sorted.sort((a, b) => b.createdAt - a.createdAt);
+      return sorted.sort((a, b) => (b.createdAt - a.createdAt) * flip);
     case "active":
       return sorted.sort((a, b) => {
-        // Running sessions first
-        if (a.status !== b.status) return a.status === "running" ? -1 : 1;
-        return (b.bytesPerSecond ?? 0) - (a.bytesPerSecond ?? 0);
+        if (a.status !== b.status) return (a.status === "running" ? -1 : 1) * flip;
+        return ((b.bytesPerSecond ?? 0) - (a.bytesPerSecond ?? 0)) * flip;
       });
     case "name":
       return sorted.sort((a, b) => {
         const aName = (a.title || `${a.command} ${a.args.join(" ")}`).toLowerCase();
         const bName = (b.title || `${b.command} ${b.args.join(" ")}`).toLowerCase();
-        return aName.localeCompare(bName);
+        return aName.localeCompare(bName) * flip;
       });
   }
 }
 
 /** Group sessions by cwd, sorted: groups with running sessions first, then by most recent activity */
-export function groupByCwd(sessions: Session[], sortKey?: SortKey): SessionGroup[] {
-  const sorted = sortKey ? sortSessions(sessions, sortKey) : sessions;
+export function groupByCwd(sessions: Session[], sortKey?: SortKey, sortDir?: SortDir): SessionGroup[] {
+  const sorted = sortKey ? sortSessions(sessions, sortKey, sortDir) : sessions;
   const groups = new Map<string, Session[]>();
   for (const s of sorted) {
     const list = groups.get(s.cwd) || [];
