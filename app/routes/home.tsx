@@ -4,7 +4,8 @@ import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
-import { LayoutGrid, Columns, ArrowDown, ArrowUp } from "lucide-react";
+import { useSessionEvents } from "../hooks/use-session-events";
+import { LayoutGrid, Columns, ArrowDown, ArrowUp, Maximize, Minimize } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -210,6 +211,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  }, []);
 
   // Desktop preview: which session is shown in the phone frame
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
@@ -262,10 +275,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     }
   }, [isDesktop, sessions, sortedSessions, previewSessionId]);
 
-  useEffect(() => {
-    const interval = setInterval(revalidate, 3000);
-    return () => clearInterval(interval);
-  }, [revalidate]);
+  useSessionEvents(revalidate);
 
   const createSession = useCallback(
     async (command: string) => {
@@ -378,6 +388,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             <Columns className="w-4 h-4" />
           </Link>
         )}
+
+        {/* Fullscreen toggle */}
+        <button
+          className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+        </button>
 
         <div className="dropdown dropdown-end">
           <button

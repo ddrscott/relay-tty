@@ -3,7 +3,8 @@ import { useRevalidator, Link } from "react-router";
 import type { Route } from "./+types/lanes";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
-import { ArrowDown, ArrowUp, LayoutGrid, List, Eye, EyeOff, Minus, Plus } from "lucide-react";
+import { useSessionEvents } from "../hooks/use-session-events";
+import { ArrowDown, ArrowUp, LayoutGrid, List, Eye, EyeOff, Minus, Plus, Maximize, Minimize } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -300,6 +301,18 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const [fontSize, setFontSize] = useState(getStoredLaneFontSize);
   const [laneWidth, setLaneWidth] = useState(getStoredLaneWidth);
   const [laneHeight, setLaneHeight] = useState(getStoredLaneHeight);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  }, []);
 
   // Live session overrides from SESSION_UPDATE WS messages
   const [sessionOverrides, setSessionOverrides] = useState<Map<string, Partial<Session>>>(new Map());
@@ -406,10 +419,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     window.history.replaceState({}, "", url.toString());
   }, [modalSessionId]);
 
-  useEffect(() => {
-    const interval = setInterval(revalidate, 3000);
-    return () => clearInterval(interval);
-  }, [revalidate]);
+  useSessionEvents(revalidate);
 
   const createSession = useCallback(
     async (command: string) => {
@@ -668,6 +678,15 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
               <List className="w-4 h-4" />
             </Link>
           )}
+
+          {/* Fullscreen toggle */}
+          <button
+            className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          </button>
 
           <div className="dropdown dropdown-end">
             <button

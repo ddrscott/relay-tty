@@ -21,6 +21,7 @@ const PING_INTERVAL_MS = 30_000;
 export class WsHandler {
   private wss: WebSocketServer;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private eventSubscribers = new Set<WebSocket>();
 
   constructor(
     private sessionStore: SessionStore,
@@ -34,6 +35,16 @@ export class WsHandler {
     // changes (and any other metadata) propagate to the grid view.
     this.ptyManager.on("session-update", (_id: string, session: any) => {
       this.broadcastSessionUpdate(session);
+      // Don't call notifyEventSubscribers() here — session-update fires on every
+      // metadata change (metrics, dimensions) and would cause continuous loader
+      // revalidation. The binary SESSION_UPDATE broadcast above already pushes
+      // granular changes to clients. Session list membership changes (add/remove/
+      // exit/title) go through sessionStore "change" events below.
+    });
+
+    // Session list membership changes (add/remove/exit/title)
+    this.sessionStore.on("change", () => {
+      this.notifyEventSubscribers();
     });
   }
 
@@ -56,6 +67,15 @@ export class WsHandler {
     });
   }
 
+  /** Send "sessions-changed" to all event subscribers */
+  private notifyEventSubscribers(): void {
+    for (const ws of this.eventSubscribers) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send("sessions-changed");
+      }
+    }
+  }
+
   /**
    * Ping all connected WebSocket clients every 30s. If a client didn't
    * respond to the previous ping (isAlive still false), terminate it.
@@ -64,14 +84,17 @@ export class WsHandler {
    */
   private startPingInterval(): void {
     this.pingTimer = setInterval(() => {
-      this.wss.clients.forEach((ws: WebSocket & { isAlive?: boolean }) => {
+      const pingOne = (ws: WebSocket & { isAlive?: boolean }) => {
         if (ws.isAlive === false) {
           ws.terminate();
           return;
         }
         ws.isAlive = false;
         ws.ping();
-      });
+      };
+      this.wss.clients.forEach(pingOne);
+      // Event subscribers are added to wss via handleUpgrade, so they're
+      // already in wss.clients. No extra iteration needed.
     }, PING_INTERVAL_MS);
   }
 
@@ -98,6 +121,17 @@ export class WsHandler {
         this.wss.handleUpgrade(req, socket, head, (ws) => {
           this.handleConnection(ws, sessionId);
         });
+      });
+      return;
+    }
+
+    // Event stream for session list changes (gallery views)
+    if (url.pathname === "/ws/events") {
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        this.initKeepAlive(ws);
+        this.eventSubscribers.add(ws);
+        ws.on("close", () => this.eventSubscribers.delete(ws));
+        ws.on("error", () => this.eventSubscribers.delete(ws));
       });
       return;
     }
