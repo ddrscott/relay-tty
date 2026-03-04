@@ -25,6 +25,8 @@ interface GridTerminalProps {
   onUnzoom?: () => void;
   /** Called when a SESSION_UPDATE arrives — parent updates grid layout */
   onSessionUpdate?: (session: Session) => void;
+  /** Increment to trigger a fit-to-cell RESIZE (used by drag handle in parent) */
+  fitToCellTrigger?: number;
 }
 
 /**
@@ -37,7 +39,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUnzoom, onSessionUpdate }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUnzoom, onSessionUpdate, fitToCellTrigger }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -247,12 +249,29 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     prevZoomedRef.current = zoomed;
     if (wasZoomed === undefined) return; // skip initial render
 
+    // Only send RESIZE when entering expanded mode (user is actively engaging).
+    // Never send RESIZE on unzoom — thumbnail is a passive observer and must
+    // not reflow the remote session (which would jumble other devices).
+    if (!zoomed) return;
+
     // Wait for CSS transition to settle, then resize PTY to match cell
     const timer = setTimeout(() => {
       handleFitToCell();
     }, 300);
     return () => clearTimeout(timer);
   }, [zoomed, handleFitToCell]);
+
+  // External trigger for fit-to-cell (e.g. after drag resize in parent)
+  const fitTriggerRef = useRef(fitToCellTrigger);
+  useEffect(() => {
+    if (fitToCellTrigger === undefined) return;
+    if (fitTriggerRef.current === fitToCellTrigger) return;
+    fitTriggerRef.current = fitToCellTrigger;
+    if (!zoomed) return; // Only send RESIZE in expanded mode
+    // Small delay to let the container dimensions settle
+    const timer = setTimeout(() => handleFitToCell(), 50);
+    return () => clearTimeout(timer);
+  }, [fitToCellTrigger, zoomed, handleFitToCell]);
 
   return (
     <div

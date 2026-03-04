@@ -212,6 +212,58 @@ function GridViewport({
     return { idx, x: zx, y: zy, w: zw, h: zh };
   }, [zoomedCellId, sessions, cellSizes, positions, vpSize]);
 
+  // Drag handle state for resizing zoomed cell width
+  const [dragWidthOverride, setDragWidthOverride] = useState<number | null>(null);
+  const [fitToCellTrigger, setFitToCellTrigger] = useState(0);
+  const dragRef = useRef<{
+    startX: number;
+    startWidth: number;
+    side: "left" | "right";
+  } | null>(null);
+
+  // Reset drag override when zoom changes
+  useEffect(() => {
+    setDragWidthOverride(null);
+  }, [zoomedCellId]);
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent, side: "left" | "right") => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!zoomedInfo) return;
+
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const startWidth = dragWidthOverride ?? zoomedInfo.w;
+      dragRef.current = { startX: clientX, startWidth, side };
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        if (!dragRef.current) return;
+        const cx = "touches" in ev ? ev.touches[0].clientX : (ev as MouseEvent).clientX;
+        const delta = cx - dragRef.current.startX;
+        // Right handle: positive delta = wider. Left handle: negative delta = wider.
+        const widthDelta = side === "right" ? delta : -delta;
+        const newWidth = Math.max(200, Math.min(vpSize.w, dragRef.current.startWidth + widthDelta * 2));
+        setDragWidthOverride(newWidth);
+      };
+
+      const onEnd = () => {
+        dragRef.current = null;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onEnd);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onEnd);
+        // Trigger fit-to-cell RESIZE on drag end
+        setFitToCellTrigger((n) => n + 1);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onEnd);
+      document.addEventListener("touchmove", onMove, { passive: false });
+      document.addEventListener("touchend", onEnd);
+    },
+    [zoomedInfo, dragWidthOverride, vpSize.w]
+  );
+
   return (
     <div
       ref={viewportRef}
@@ -228,15 +280,23 @@ function GridViewport({
         if (!p) return null;
         const isZoomed = session.id === zoomedCellId;
 
-        const cellLeft = isZoomed && zoomedInfo ? zoomedInfo.x : p.x;
+        const effectiveZoomedW = isZoomed && zoomedInfo
+          ? (dragWidthOverride ?? zoomedInfo.w)
+          : null;
+
+        const cellLeft = isZoomed && zoomedInfo
+          ? (effectiveZoomedW != null
+              ? Math.max(0, Math.min(vpSize.w / 2 - effectiveZoomedW / 2, vpSize.w - effectiveZoomedW))
+              : zoomedInfo.x)
+          : p.x;
         const cellTop = isZoomed && zoomedInfo ? zoomedInfo.y : p.y;
-        const cellWidth = isZoomed && zoomedInfo ? zoomedInfo.w : p.w;
+        const cellWidth = effectiveZoomedW ?? (isZoomed && zoomedInfo ? zoomedInfo.w : p.w);
         const cellHeight = isZoomed && zoomedInfo ? zoomedInfo.h : p.h;
 
         return GridTerminalComponent ? (
           <div
             key={session.id}
-            className={`absolute transition-all duration-200 ease-out ${isZoomed ? "z-20" : "z-0"}`}
+            className={`absolute ${isZoomed ? "z-20" : "z-0"} ${dragRef.current ? "" : "transition-all duration-200 ease-out"}`}
             style={{
               left: `${cellLeft}px`,
               top: `${cellTop}px`,
@@ -254,7 +314,27 @@ function GridViewport({
               onZoom={() => onZoomCell(session.id)}
               onUnzoom={onUnzoomCell}
               onSessionUpdate={onSessionUpdate}
+              fitToCellTrigger={isZoomed ? fitToCellTrigger : undefined}
             />
+            {/* Drag handles — only on zoomed cells */}
+            {isZoomed && (
+              <>
+                <div
+                  className="absolute top-0 right-0 w-2 h-full cursor-col-resize group/handle flex items-center justify-end z-30"
+                  onMouseDown={(e) => handleDragStart(e, "right")}
+                  onTouchStart={(e) => handleDragStart(e, "right")}
+                >
+                  <div className="w-1 h-12 max-h-[30%] rounded-full bg-[#64748b]/40 group-hover/handle:bg-[#94a3b8]/60 transition-colors" />
+                </div>
+                <div
+                  className="absolute top-0 left-0 w-2 h-full cursor-col-resize group/handle flex items-center justify-start z-30"
+                  onMouseDown={(e) => handleDragStart(e, "left")}
+                  onTouchStart={(e) => handleDragStart(e, "left")}
+                >
+                  <div className="w-1 h-12 max-h-[30%] rounded-full bg-[#64748b]/40 group-hover/handle:bg-[#94a3b8]/60 transition-colors" />
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div
