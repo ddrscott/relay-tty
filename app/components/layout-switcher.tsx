@@ -1,13 +1,14 @@
 import { useLocation, useNavigate } from "react-router";
+import { List, LayoutGrid, Columns } from "lucide-react";
 
 const LAYOUTS = [
-  { label: "Home", path: "/" },
-  { label: "Grid", path: "/grid" },
-  { label: "Lanes", path: "/lanes" },
+  { icon: List, title: "Home", path: "/" },
+  { icon: LayoutGrid, title: "Grid", path: "/grid" },
+  { icon: Columns, title: "Lanes", path: "/lanes" },
 ] as const;
 
 /**
- * DaisyUI radio tab group for switching between Home, Grid, and Lanes views.
+ * Icon-based layout switcher for toggling between Home, Grid, and Lanes views.
  * Desktop-only — hidden on mobile (< lg breakpoint).
  */
 export function LayoutSwitcher() {
@@ -15,18 +16,25 @@ export function LayoutSwitcher() {
   const navigate = useNavigate();
 
   return (
-    <div className="hidden lg:flex join">
-      {LAYOUTS.map(({ label, path }) => (
-        <input
-          key={path}
-          className="join-item btn btn-sm"
-          type="radio"
-          name="layout"
-          aria-label={label}
-          checked={location.pathname === path}
-          onChange={() => navigate(path)}
-        />
-      ))}
+    <div className="hidden lg:flex items-center gap-1 border border-[#2d2d44] rounded-lg p-0.5">
+      {LAYOUTS.map(({ icon: Icon, title, path }) => {
+        const active = location.pathname === path;
+        return (
+          <button
+            key={path}
+            className={`p-1.5 rounded-md transition-colors ${
+              active
+                ? "text-[#e2e8f0]"
+                : "text-[#64748b] hover:text-[#e2e8f0]"
+            }`}
+            onClick={() => navigate(path)}
+            aria-label={title}
+            title={title}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        );
+      })}
     </div>
   );
 }
