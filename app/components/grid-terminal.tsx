@@ -37,7 +37,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUnzoom, onSessionUpdate }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
