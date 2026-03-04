@@ -45,3 +45,4 @@
 - [x] Fix `relay tui` hanging after pressing `q` to quit — requires Ctrl-C to return to shell (likely not restoring terminal or exiting process cleanly)
 - [x] Gallery font sizing: render xterm at readable font size (for expanded view), use CSS scale for thumbnails ([detail](work-queue/gallery-font-sizing.md))
 - [x] Grid cell: "fit to cell" button that sends PTY RESIZE to match visible dimensions ([detail](work-queue/grid-fit-to-cell.md))
+- [x] Fix grid gallery re-ordering on remote session updates ([detail](work-queue/grid-stable-ordering.md))

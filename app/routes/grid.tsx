@@ -148,13 +148,38 @@ function GridViewport({
   const charW = gridFontSize * 0.6;
   const lineH = gridFontSize * 1.2;
 
-  const cellSizes = useMemo(
-    () => sessions.map((s) => ({
-      w: (s.cols || 80) * charW,
-      h: (s.rows || 24) * lineH,
-    })),
-    [sessions, charW, lineH]
-  );
+  // Snapshot cell dimensions per session — only update when sessions are
+  // added/removed or font size changes, NOT on live dimension updates from
+  // SESSION_UPDATE. This prevents remote session resizes from reflowing the
+  // entire grid layout (the "re-shuffling" bug).
+  const snappedDimsRef = useRef<Map<string, { cols: number; rows: number }>>(new Map());
+  const prevCellSizesRef = useRef<{ w: number; h: number }[]>([]);
+  const cellSizes = useMemo(() => {
+    const prev = snappedDimsRef.current;
+    const next = new Map<string, { cols: number; rows: number }>();
+    for (const s of sessions) {
+      // Keep existing snapshot if we already have dims for this session
+      const existing = prev.get(s.id);
+      if (existing) {
+        next.set(s.id, existing);
+      } else {
+        next.set(s.id, { cols: s.cols || 80, rows: s.rows || 24 });
+      }
+    }
+    snappedDimsRef.current = next;
+    const sizes = sessions.map((s) => {
+      const dims = next.get(s.id)!;
+      return { w: dims.cols * charW, h: dims.rows * lineH };
+    });
+    // Return previous reference if values haven't changed (avoids cascading
+    // useMemo invalidation for scale/positions on data-only updates)
+    const prevSizes = prevCellSizesRef.current;
+    if (prevSizes.length === sizes.length && sizes.every((s, i) => s.w === prevSizes[i].w && s.h === prevSizes[i].h)) {
+      return prevSizes;
+    }
+    prevCellSizesRef.current = sizes;
+    return sizes;
+  }, [sessions, charW, lineH]);
 
   const scale = useMemo(
     () => computeFitScale(cellSizes, vpSize.w, vpSize.h),
@@ -378,34 +403,13 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     else document.documentElement.requestFullscreen();
   }, []);
 
-  // Live session overrides from SESSION_UPDATE WS messages.
-  // These provide real-time dimension/metadata updates between
-  // loader revalidations. Keyed by session ID.
-  const [sessionOverrides, setSessionOverrides] = useState<Map<string, Partial<Session>>>(new Map());
-
-  // Merge loader sessions with live overrides for real-time grid layout
-  const sessions = useMemo(() => {
-    if (sessionOverrides.size === 0) return loaderSessions;
-    return loaderSessions.map((s) => {
-      const override = sessionOverrides.get(s.id);
-      return override ? { ...s, ...override } : s;
-    });
-  }, [loaderSessions, sessionOverrides]);
-
-  // Clear overrides when loader revalidates (loader data now has the updates)
-  useEffect(() => {
-    setSessionOverrides(new Map());
-  }, [loaderSessions]);
-
-  // Handle SESSION_UPDATE from any grid cell's WS connection
-  const handleSessionUpdate = useCallback((updatedSession: Session) => {
-    if (!updatedSession.id) return;
-    setSessionOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(updatedSession.id, updatedSession);
-      return next;
-    });
-  }, []);
+  // Session list for layout — use loader data directly.
+  // Grid cells handle their own live dimension/metrics updates internally
+  // via their WS connections. The parent does NOT track session overrides
+  // for layout because dimension changes from remote sessions would reflow
+  // the entire grid (the "re-shuffling" bug). Layout only changes on
+  // loader revalidation (session add/remove/exit/title).
+  const sessions = loaderSessions;
 
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
@@ -748,7 +752,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
-          onSessionUpdate={handleSessionUpdate}
         />
       )}
 

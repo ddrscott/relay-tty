@@ -315,29 +315,11 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     else document.documentElement.requestFullscreen();
   }, []);
 
-  // Live session overrides from SESSION_UPDATE WS messages
-  const [sessionOverrides, setSessionOverrides] = useState<Map<string, Partial<Session>>>(new Map());
-
-  const sessions = useMemo(() => {
-    if (sessionOverrides.size === 0) return loaderSessions;
-    return loaderSessions.map((s) => {
-      const override = sessionOverrides.get(s.id);
-      return override ? { ...s, ...override } : s;
-    });
-  }, [loaderSessions, sessionOverrides]);
-
-  useEffect(() => {
-    setSessionOverrides(new Map());
-  }, [loaderSessions]);
-
-  const handleSessionUpdate = useCallback((updatedSession: Session) => {
-    if (!updatedSession.id) return;
-    setSessionOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(updatedSession.id, updatedSession);
-      return next;
-    });
-  }, []);
+  // Session list for layout — use loader data directly.
+  // Grid cells handle their own live dimension/metrics updates internally.
+  // The parent does NOT track session overrides for layout because dimension
+  // changes from remote sessions would reflow the layout (the "re-shuffling" bug).
+  const sessions = loaderSessions;
 
   // Modal state
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
@@ -734,7 +716,6 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
-          onSessionUpdate={handleSessionUpdate}
         />
       )}
 
