@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dim, cyan, boldGreen } from "../../server/log.js";
@@ -87,6 +88,45 @@ export function registerServerCommand(program: Command) {
     .action(async () => {
       const { uninstallService } = await import("../../service/install.js");
       await uninstallService();
+    });
+
+  serverCmd
+    .command("new-tunnel-id")
+    .description("regenerate machine ID and re-register with tunnel server")
+    .action(async () => {
+      const {
+        MACHINE_ID_FILE,
+        getMachineId,
+        setupTunnel,
+      } = await import("../tunnel-config.js");
+
+      // Delete existing machine-id file
+      try {
+        fs.unlinkSync(MACHINE_ID_FILE);
+        console.error("Deleted old machine ID");
+      } catch {
+        // No existing file — that's fine
+      }
+
+      // Generate new machine ID
+      const newId = getMachineId();
+      console.error(`Generated new machine ID: ${newId}`);
+
+      // Re-register with tunnel server to get new slug
+      try {
+        const config = await setupTunnel();
+        console.error(`Tunnel URL: ${config.url}`);
+      } catch (err: any) {
+        console.error(`Warning: tunnel registration failed: ${err.message}`);
+        console.error("You can retry later with: relay server start --tunnel");
+      }
+
+      // Print the new machine ID to stdout (POSIX convention)
+      console.log(newId);
+
+      console.error(
+        "\nIf the server is running with --tunnel, restart it to use the new identity."
+      );
     });
 }
 

@@ -5,7 +5,7 @@ import * as crypto from "node:crypto";
 
 const CONFIG_DIR = path.join(os.homedir(), ".config", "relay-tty");
 const TUNNEL_FILE = path.join(CONFIG_DIR, "tunnel.json");
-const MACHINE_ID_FILE = path.join(CONFIG_DIR, "machine-id");
+export const MACHINE_ID_FILE = path.join(CONFIG_DIR, "machine-id");
 
 const RELAY_API = "https://relaytty.com";
 
