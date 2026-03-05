@@ -244,39 +244,65 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // ── iOS keyboard viewport fix ──────────────────────────────────────
   // iOS Safari ignores `interactive-widget=resizes-content`, so `h-dvh`
   // stays at full screen height when the keyboard opens. We shrink <main>
-  // to match the visual viewport. On Android/Chrome (which supports
-  // interactive-widget), window.innerHeight shrinks with the keyboard,
-  // so the threshold is never hit and this is a no-op.
+  // to match the visual viewport height while an input is focused.
+  //
+  // Focus/blur tracking eliminates the guesswork of threshold-based
+  // detection — we know the keyboard is open because we know an input is
+  // focused, and we just use vv.height directly.
+  //
+  // On Android/Chrome (which supports interactive-widget), the layout
+  // viewport already shrinks with the keyboard, so vv.height ≈
+  // window.innerHeight and the pixel height we set matches h-dvh — no
+  // visible effect.
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return;
+    const maybeVv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!maybeVv) return;
+    if (window.innerWidth > 1024) return;
+    const vv = maybeVv;
 
-    function onViewportChange() {
+    let inputFocused = false;
+
+    function applyViewport() {
       const el = mainRef.current;
       if (!el || !vv) return;
-      if (window.innerWidth > 1024) return;
+      if (vv.scale > 1.05) return; // page is zoomed, not keyboard
 
-      // If Safari auto-zoomed (e.g. from focusing a small input), the visual
-      // viewport shrinks from zoom, not a keyboard. Don't apply height override.
-      if (vv.scale > 1.05) return;
-
-      const keyboardOpen = vv.height < window.innerHeight - 50;
-      if (keyboardOpen) {
+      if (inputFocused) {
         el.style.height = `${vv.height}px`;
-        // Pin to top — prevent Safari from scrolling the page behind the keyboard
         window.scrollTo(0, 0);
-        requestAnimationFrame(() => terminalRef.current?.scrollToBottom());
       } else {
         el.style.height = "";
       }
     }
 
-    vv.addEventListener("resize", onViewportChange);
-    vv.addEventListener("scroll", onViewportChange);
+    function onFocusIn(e: FocusEvent) {
+      const t = e.target;
+      if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) {
+        inputFocused = true;
+        // Wait for keyboard to finish animating, then apply
+        vv.addEventListener("resize", applyViewport);
+        vv.addEventListener("scroll", applyViewport);
+        // Apply immediately too in case viewport already settled
+        requestAnimationFrame(applyViewport);
+      }
+    }
+
+    function onFocusOut() {
+      inputFocused = false;
+      const el = mainRef.current;
+      if (el) el.style.height = "";
+      vv.removeEventListener("resize", applyViewport);
+      vv.removeEventListener("scroll", applyViewport);
+    }
+
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
     return () => {
-      vv.removeEventListener("resize", onViewportChange);
-      vv.removeEventListener("scroll", onViewportChange);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+      vv.removeEventListener("resize", applyViewport);
+      vv.removeEventListener("scroll", applyViewport);
       const el = mainRef.current;
       if (el) el.style.height = "";
     };
