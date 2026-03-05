@@ -2,18 +2,19 @@
  * Horizontal swipe gesture for session carousel navigation.
  *
  * Detects horizontal swipes on the terminal area and navigates between
- * sessions with inertia — a fast flick carries through multiple sessions.
+ * sessions. Translates a **track element** (horizontal strip of terminals)
+ * while touch events are captured on the **container** (viewport).
  *
  * Coexists with:
  * - Vertical terminal scrolling (use-terminal-core.ts touchmove handler)
  * - Pinch-to-zoom (2-finger gesture in use-terminal-core.ts)
  * - Text selection mode
  *
- * Strategy: attach to the terminal area wrapper at capture phase. On
- * touchstart, record position but don't intercept. On touchmove, once
- * horizontal displacement exceeds the threshold (and is greater than
- * vertical), commit to swipe mode and preventDefault + stopPropagation
- * to block xterm's vertical scroll handler.
+ * Strategy: attach to the container at capture phase. On touchstart, record
+ * position but don't intercept. On touchmove, once horizontal displacement
+ * exceeds the threshold (and is greater than vertical), commit to swipe mode
+ * and preventDefault + stopPropagation to block xterm's vertical scroll
+ * handler. The track element is translated to show neighboring terminals.
  */
 import { useEffect, useRef } from "react";
 
@@ -21,8 +22,6 @@ import { useEffect, useRef } from "react";
 const H_THRESHOLD = 30;
 /** Horizontal must exceed vertical by this ratio to be a swipe (not scroll) */
 const HV_RATIO = 1.5;
-/** Width of a "virtual page" for calculating session switches */
-const PAGE_WIDTH = 250;
 /** Friction applied per 16ms frame during inertia */
 const FRICTION = 0.92;
 /** Minimum velocity (px/16ms) to keep animating */
@@ -43,19 +42,21 @@ interface CarouselSwipeOpts {
 
 export function useCarouselSwipe(
   containerRef: React.RefObject<HTMLElement | null>,
+  trackRef: React.RefObject<HTMLElement | null>,
   opts: CarouselSwipeOpts,
 ) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
-  // Swipe visual offset exposed for the container's translateX
-  const offsetRef = useRef(0);
   // Animation frame ID for cleanup
   const rafRef = useRef(0);
+  // Current track offset in px
+  const offsetRef = useRef(0);
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    const track = trackRef.current;
+    if (!el || !track) return;
 
     let startX = 0;
     let startY = 0;
@@ -68,7 +69,7 @@ export function useCarouselSwipe(
 
     function setOffset(px: number) {
       offsetRef.current = px;
-      el!.style.transform = px !== 0 ? `translateX(${px}px)` : "";
+      track!.style.transform = px !== 0 ? `translateX(${px}px)` : "";
     }
 
     function cancelAnimation() {
@@ -111,6 +112,12 @@ export function useCarouselSwipe(
         return;
       }
 
+      const pageWidth = el!.offsetWidth;
+      if (pageWidth <= 0) {
+        snapTo(0, SNAP_DURATION, () => {});
+        return;
+      }
+
       const currentOffset = offsetRef.current;
       const currentVelocity = velocity;
 
@@ -125,11 +132,9 @@ export function useCarouselSwipe(
       // How many sessions to skip based on projected distance
       // Positive offset = swiping right = go to previous session
       // Negative offset = swiping left = go to next session
-      const sessionSkip = Math.round(-projectedOffset / PAGE_WIDTH);
-      const clampedSkip = Math.max(
-        -(sessionIds.length - 1),
-        Math.min(sessionIds.length - 1, sessionSkip),
-      );
+      const sessionSkip = Math.round(-projectedOffset / pageWidth);
+      // Cap at ±1 — we only pre-render immediate neighbors
+      const clampedSkip = Math.max(-1, Math.min(1, sessionSkip));
 
       if (clampedSkip === 0) {
         // Snap back to current
@@ -145,11 +150,11 @@ export function useCarouselSwipe(
 
       const targetIdx = (idx + clampedSkip + sessionIds.length) % sessionIds.length;
       const targetId = sessionIds[targetIdx];
-      const targetPx = -clampedSkip * PAGE_WIDTH;
+      const targetPx = -clampedSkip * pageWidth;
 
-      // Animate to the target position, then snap and navigate
+      // Animate to the target position, then navigate (transform reset
+      // happens in useLayoutEffect when activeId changes)
       snapTo(targetPx, SNAP_DURATION, () => {
-        setOffset(0);
         goTo(targetId);
       });
     }
@@ -230,7 +235,8 @@ export function useCarouselSwipe(
       lastTime = now;
 
       // Apply rubber-band effect: dampen offset as it gets larger
-      const maxOffset = PAGE_WIDTH * 1.5;
+      const pageWidth = el!.offsetWidth || 400;
+      const maxOffset = pageWidth * 1.5;
       const ratio = Math.min(Math.abs(dx) / maxOffset, 1);
       const damped = dx * (1 - ratio * 0.4);
       setOffset(damped);
@@ -264,11 +270,9 @@ export function useCarouselSwipe(
       el.removeEventListener("touchmove", onTouchMove, { capture: true } as any);
       el.removeEventListener("touchend", onTouchEnd, { capture: true } as any);
       if (offsetRef.current !== 0) {
-        el.style.transform = "";
+        track.style.transform = "";
         offsetRef.current = 0;
       }
     };
-  }, [containerRef]);
-
-  return { offsetRef };
+  }, [containerRef, trackRef]);
 }

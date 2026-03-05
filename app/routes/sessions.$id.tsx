@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { Link, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
@@ -44,6 +44,18 @@ function getSessionFontSize(id: string): number {
 
 function setSessionFontSize(id: string, size: number) {
   localStorage.setItem(FONT_KEY(id), String(size));
+}
+
+/** Circular offset of `sid` relative to `activeId` in `allIds` (shortest path). */
+function getRelativeIndex(sid: string, activeId: string, allIds: string[]): number {
+  const activeIdx = allIds.indexOf(activeId);
+  const sidIdx = allIds.indexOf(sid);
+  if (activeIdx === -1 || sidIdx === -1) return 0;
+  const n = allIds.length;
+  let diff = sidIdx - activeIdx;
+  if (diff > n / 2) diff -= n;
+  if (diff < -n / 2) diff += n;
+  return diff;
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -102,18 +114,43 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
+  // Session IDs for carousel navigation (hoisted for use in visited-sessions logic)
+  const sessionIds = useMemo(() => allSessions.map(s => s.id), [allSessions]);
+
   // ── Keep-alive: track visited sessions (LRU, max MAX_KEEP_ALIVE) ──
+  // Always includes immediate neighbors for smooth carousel transitions.
   const [visitedSessions, setVisitedSessions] = useState<string[]>([activeId]);
   useEffect(() => {
     setVisitedSessions(prev => {
-      if (prev.includes(activeId)) {
-        // Move to end (most recent)
-        return [...prev.filter(id => id !== activeId), activeId];
+      const needed = new Set(prev);
+      needed.add(activeId);
+      // Always include immediate neighbors for smooth carousel
+      const idx = sessionIds.indexOf(activeId);
+      const neighborIds = new Set<string>();
+      neighborIds.add(activeId);
+      if (idx !== -1 && sessionIds.length > 1) {
+        const prevId = sessionIds[(idx - 1 + sessionIds.length) % sessionIds.length];
+        const nextId = sessionIds[(idx + 1) % sessionIds.length];
+        needed.add(prevId);
+        needed.add(nextId);
+        neighborIds.add(prevId);
+        neighborIds.add(nextId);
       }
-      const next = [...prev, activeId];
-      return next.length > MAX_KEEP_ALIVE ? next.slice(next.length - MAX_KEEP_ALIVE) : next;
+      // Build ordered list: active last (most recent)
+      let result = [...prev.filter(id => needed.has(id) && id !== activeId), activeId];
+      // Add any new neighbors not already present
+      for (const nid of neighborIds) {
+        if (!result.includes(nid)) result.push(nid);
+      }
+      // Evict oldest non-neighbor if over limit
+      while (result.length > MAX_KEEP_ALIVE) {
+        const evictIdx = result.findIndex(id => !neighborIds.has(id));
+        if (evictIdx === -1) break;
+        result.splice(evictIdx, 1);
+      }
+      return result;
     });
-  }, [activeId]);
+  }, [activeId, sessionIds]);
 
   // ── Per-session font sizes (persisted to localStorage) ──
   const [fontSizes, setFontSizes] = useState<Record<string, number>>({});
@@ -152,6 +189,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
+  const carouselTrackRef = useRef<HTMLDivElement>(null);
 
   // ── Reset per-session UI state when switching sessions ──
   // The Terminal component survives (keep-alive), but the route's UI chrome
@@ -431,13 +469,25 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }
 
   // ── Horizontal swipe carousel for session switching ──
-  const sessionIds = useMemo(() => allSessions.map(s => s.id), [allSessions]);
-  useCarouselSwipe(terminalAreaRef, {
+  useCarouselSwipe(terminalAreaRef, carouselTrackRef, {
     sessionIds,
     activeId,
     goTo,
     enabled: isMobile && !textViewerOpen && !pickerOpen && allSessions.length > 1,
   });
+
+  // Reset track transform synchronously when activeId changes (before paint)
+  // so the strip repositions without a visible flash.
+  const prevActiveRef = useRef(activeId);
+  useLayoutEffect(() => {
+    if (prevActiveRef.current !== activeId) {
+      if (carouselTrackRef.current) {
+        carouselTrackRef.current.style.transform = '';
+        carouselTrackRef.current.style.transition = 'none';
+      }
+      prevActiveRef.current = activeId;
+    }
+  }, [activeId]);
 
   // Apply sticky modifiers to a key string, then clear them
   const applyModifiers = useCallback((key: string): string => {
@@ -717,31 +767,38 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
       {/* Terminal area — keep-alive: all visited terminals stay mounted */}
       <div ref={terminalAreaRef} className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]">
-        {isClient && visitedSessions.map(sid => {
-          const cbs = getGatedCallbacks(sid);
-          return (
-            <div key={sid} className="absolute inset-0" style={{
-              visibility: sid === activeId ? 'visible' : 'hidden',
-              zIndex: sid === activeId ? 1 : 0,
-            }}>
-              <Terminal
-                ref={sid === activeId ? terminalRef : undefined}
-                sessionId={sid}
-                fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
-                active={sid === activeId}
-                onExit={cbs.onExit}
-                onTitleChange={cbs.onTitleChange}
-                onScrollChange={cbs.onScrollChange}
-                onReplayProgress={cbs.onReplayProgress}
-                onNotification={cbs.onNotification}
-                onFontSizeChange={cbs.onFontSizeChange}
-                onCopy={cbs.onCopy}
-                onActivityUpdate={cbs.onActivityUpdate}
-                onFileLink={cbs.onFileLink}
-              />
-            </div>
-          );
-        })}
+        {/* Carousel track: translates horizontally during swipe */}
+        <div ref={carouselTrackRef} className="absolute inset-0">
+          {isClient && visitedSessions.map(sid => {
+            const cbs = getGatedCallbacks(sid);
+            const relIdx = getRelativeIndex(sid, activeId, sessionIds);
+            return (
+              <div key={sid} className="absolute top-0 bottom-0 border-l border-[#2d2d44]" style={{
+                width: '100%',
+                left: `${relIdx * 100}%`,
+                visibility: Math.abs(relIdx) <= 1 ? 'visible' : 'hidden',
+              }}>
+                <Terminal
+                  ref={sid === activeId ? terminalRef : undefined}
+                  sessionId={sid}
+                  fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
+                  active={sid === activeId}
+                  onExit={cbs.onExit}
+                  onTitleChange={cbs.onTitleChange}
+                  onScrollChange={cbs.onScrollChange}
+                  onReplayProgress={cbs.onReplayProgress}
+                  onNotification={cbs.onNotification}
+                  onFontSizeChange={cbs.onFontSizeChange}
+                  onCopy={cbs.onCopy}
+                  onActivityUpdate={cbs.onActivityUpdate}
+                  onFileLink={cbs.onFileLink}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Overlays — outside the track so they don't translate during swipe */}
 
         {/* Jump to bottom */}
         {!atBottom && (
