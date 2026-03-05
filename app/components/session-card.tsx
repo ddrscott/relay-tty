@@ -2,17 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Loader } from "lucide-react";
 import type { Session } from "../../shared/types";
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { useTimeAgo } from "../hooks/use-time-ago";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -35,6 +25,10 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
   const displayCommand = [session.command, ...session.args].join(" ");
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const activityTimestamp = isRunning && session.lastActiveAt
+    ? new Date(session.lastActiveAt).getTime()
+    : session.createdAt;
+  const activityAgo = useTimeAgo(activityTimestamp);
 
   useEffect(() => {
     return () => {
@@ -100,9 +94,7 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
               <span className="shrink-0">{session.id}</span>
             </div>
             <span className="shrink-0">
-              {isRunning && session.lastActiveAt
-                ? timeAgo(new Date(session.lastActiveAt).getTime())
-                : timeAgo(session.createdAt)}
+              {activityAgo}
             </span>
           </div>
         </div>

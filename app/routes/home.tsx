@@ -5,6 +5,7 @@ import { SessionCard } from "../components/session-card";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { useSessionEvents } from "../hooks/use-session-events";
+import { useTimeAgo } from "../hooks/use-time-ago";
 import { ArrowDown, ArrowUp, Maximize, Minimize } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 
@@ -45,17 +46,6 @@ function getStoredSortDir(): SortDir {
   return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function formatRate(bps: number): string {
   if (bps < 1) return "idle";
   if (bps < 1024) return `${Math.round(bps)}B/s`;
@@ -79,6 +69,10 @@ function SidebarItem({
   const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
   const isActive = isRunning && bps >= 1;
   const displayCommand = [session.command, ...session.args].join(" ");
+  const activityTimestamp = isRunning && session.lastActiveAt
+    ? new Date(session.lastActiveAt).getTime()
+    : session.createdAt;
+  const activityAgo = useTimeAgo(activityTimestamp);
 
   return (
     <button
@@ -118,9 +112,7 @@ function SidebarItem({
         </span>
         <span className="shrink-0">{session.id}</span>
         <span className="shrink-0 ml-1">
-          {isRunning && session.lastActiveAt
-            ? timeAgo(new Date(session.lastActiveAt).getTime())
-            : timeAgo(session.createdAt)}
+          {activityAgo}
         </span>
       </div>
     </button>
