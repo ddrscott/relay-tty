@@ -241,54 +241,44 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
-  // ── Keyboard-aware viewport: adjust layout when virtual keyboard opens ──
-  // On mobile, the on-screen keyboard shrinks the visual viewport but `dvh`
-  // uses the "large viewport" (without keyboard). We listen to visualViewport
-  // resize events and set the main container height to match, so the terminal
-  // resizes via flex and the cursor stays visible.
+  // ── iOS keyboard viewport fix ──────────────────────────────────────
+  // iOS Safari ignores `interactive-widget=resizes-content`, so `h-dvh`
+  // stays at full screen height when the keyboard opens. We shrink <main>
+  // to match the visual viewport. On Android/Chrome (which supports
+  // interactive-widget), window.innerHeight shrinks with the keyboard,
+  // so the threshold is never hit and this is a no-op.
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv) return;
 
-    function onResize() {
+    function onViewportChange() {
       const el = mainRef.current;
       if (!el || !vv) return;
-      // Only apply on mobile-ish screens where a virtual keyboard is likely
       if (window.innerWidth > 1024) return;
-      // Detect keyboard: visual viewport significantly smaller than window
+
+      // If Safari auto-zoomed (e.g. from focusing a small input), the visual
+      // viewport shrinks from zoom, not a keyboard. Don't apply height override.
+      if (vv.scale > 1.05) return;
+
       const keyboardOpen = vv.height < window.innerHeight - 50;
       if (keyboardOpen) {
-        // Set height to visual viewport height and offset for any viewport scroll
         el.style.height = `${vv.height}px`;
-        // Translate to account for viewport offset (iOS scrolls the page up)
-        el.style.transform = `translateY(${vv.offsetTop}px)`;
-        // Scroll terminal to bottom so cursor is visible after keyboard opens
+        // Pin to top — prevent Safari from scrolling the page behind the keyboard
+        window.scrollTo(0, 0);
         requestAnimationFrame(() => terminalRef.current?.scrollToBottom());
       } else {
-        // Keyboard closed — reset to CSS-driven layout
         el.style.height = "";
-        el.style.transform = "";
       }
     }
 
-    function onReset() {
-      const el = mainRef.current;
-      if (!el) return;
-      el.style.height = "";
-      el.style.transform = "";
-    }
-
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-
-    // Run once on mount in case keyboard is already open
-    onResize();
-
+    vv.addEventListener("resize", onViewportChange);
+    vv.addEventListener("scroll", onViewportChange);
     return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-      onReset();
+      vv.removeEventListener("resize", onViewportChange);
+      vv.removeEventListener("scroll", onViewportChange);
+      const el = mainRef.current;
+      if (el) el.style.height = "";
     };
   }, []);
 
@@ -880,7 +870,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               </button>
               <textarea
                 ref={padRef}
-                className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
+                className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-base rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
                 rows={padExpanded ? 3 : 1}
                 wrap={padExpanded ? "soft" : "off"}
                 style={padExpanded

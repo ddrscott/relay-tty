@@ -375,6 +375,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       textarea.setAttribute("spellcheck", "false");
       textarea.setAttribute("data-gramm", "false"); // Grammarly
 
+      // iOS Safari auto-zooms the page ~10% when focusing any input/textarea
+      // with font-size < 16px. The textarea is invisible (xterm's hidden input
+      // helper), so setting 16px has no visual effect but prevents the zoom.
+      textarea.style.fontSize = "16px";
+
       textarea.addEventListener("beforeinput", (e) => {
         if (e.inputType === "insertLineBreak") {
           e.preventDefault();
@@ -389,6 +394,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const screen = container.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
+
+      // ── Prevent iOS Safari native pinch-to-zoom ──────────────────
+      // iOS has a separate gesture event system (gesturestart/gesturechange)
+      // that triggers native page zoom independently of touch events.
+      // Our touch handlers intercept pinch for font-size changes, but iOS
+      // still fires native zoom which shifts the visual viewport and causes
+      // the status bar to overlap the session bar.
+      const blockNativeZoom = (e: Event) => { e.preventDefault(); };
+      xtermEl.addEventListener("gesturestart", blockNativeZoom, { passive: false });
+      xtermEl.addEventListener("gesturechange", blockNativeZoom, { passive: false });
 
       const core = (term as any)._core;
       const viewport = core?.viewport;

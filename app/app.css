@@ -33,6 +33,7 @@ body {
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
   padding-top: env(safe-area-inset-top);
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar {
