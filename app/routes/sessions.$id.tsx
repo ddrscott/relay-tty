@@ -10,10 +10,7 @@ import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import {
   ArrowLeft,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
-  Type,
   ChevronsDown,
   Info,
   SendHorizontal,
@@ -409,12 +406,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
-  const prevSession = allSessions.length > 1
-    ? allSessions[(currentIndex - 1 + allSessions.length) % allSessions.length]
-    : null;
-  const nextSession = allSessions.length > 1
-    ? allSessions[(currentIndex + 1) % allSessions.length]
-    : null;
 
   // Close picker on outside click; revalidate to get fresh titles when opening
   useEffect(() => {
@@ -619,68 +610,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
-        {/* Session navigation: < index > */}
-        {allSessions.length > 1 && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
-              onClick={() => prevSession && goTo(prevSession.id)}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Previous session"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-xs font-mono text-[#64748b] w-8 text-center">
-              {currentIndex + 1}/{allSessions.length}
-            </span>
-            <button
-              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
-              onClick={() => nextSession && goTo(nextSession.id)}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Next session"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Activity indicator */}
+        {/* Activity dot */}
         {session.status === "running" && (
-          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono text-[#64748b]">
-            <span
-              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                sessionActive
-                  ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)] animate-pulse"
-                  : "bg-[#64748b]/40"
-              }`}
-            />
-            <span className="text-[#94a3b8]">{formatBytes(totalBytes)}</span>
-            {!sessionActive && idleDisplay && (
-              <span className="text-[#64748b]">idle {idleDisplay}</span>
-            )}
-          </div>
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              sessionActive
+                ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)] animate-pulse"
+                : "bg-[#64748b]/40"
+            }`}
+            title={sessionActive ? "Active" : idleDisplay ? `Idle ${idleDisplay}` : "Idle"}
+          />
         )}
-
-        <div className="dropdown dropdown-end shrink-0">
-          <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" aria-label="Font size">
-            <Type className="w-4 h-4" />
-          </button>
-          <div tabIndex={0} className="dropdown-content z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-2 flex items-center gap-1">
-            <button
-              className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => handleSetFontSize(activeFontSize - 2)}
-            >
-              A-
-            </button>
-            <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{activeFontSize}</span>
-            <button
-              className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => handleSetFontSize(activeFontSize + 2)}
-            >
-              A+
-            </button>
-          </div>
-        </div>
 
         {/* Info button */}
         <div className="relative shrink-0" ref={infoRef}>
@@ -695,6 +635,31 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
               <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
                 <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
+
+                {/* Font size controls */}
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[#64748b]">Font size</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
+                      onClick={() => handleSetFontSize(activeFontSize - 2)}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      A-
+                    </button>
+                    <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{activeFontSize}</span>
+                    <button
+                      className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
+                      onClick={() => handleSetFontSize(activeFontSize + 2)}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      A+
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-[#2d2d44] my-1.5" />
+
                 {hostname && (
                   <div className="flex justify-between gap-4">
                     <span className="text-[#64748b]">Host</span>
@@ -703,7 +668,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 )}
                 <div className="flex justify-between gap-4">
                   <span className="text-[#64748b]">Session</span>
-                  <span className="text-[#e2e8f0]">{session.id}</span>
+                  <span className="text-[#e2e8f0]">{session.id} ({currentIndex + 1}/{allSessions.length})</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-[#64748b]">Status</span>
