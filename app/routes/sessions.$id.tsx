@@ -711,7 +711,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 ref={padRef}
                 className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
                 rows={padExpanded ? 3 : 1}
-                style={{ height: padExpanded ? undefined : "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em" }}
+                wrap={padExpanded ? "soft" : "off"}
+                style={padExpanded
+                  ? { paddingTop: "0.3em", paddingBottom: "0.3em" }
+                  : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
+                }
                 value={padText}
                 onChange={(e) => setPadText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
