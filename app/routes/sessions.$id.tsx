@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Link, useNavigate, useRevalidator } from "react-router";
+import { Link, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
+import { Terminal } from "../components/terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
+import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import {
   ArrowLeft,
   ChevronDown,
@@ -30,6 +32,20 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
 }
 
+// ── Per-session font size persistence ──
+const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
+const MAX_KEEP_ALIVE = 8;
+
+function getSessionFontSize(id: string): number {
+  if (typeof window === "undefined") return 14;
+  const stored = localStorage.getItem(FONT_KEY(id));
+  return stored ? Math.max(8, Math.min(28, parseInt(stored, 10) || 14)) : 14;
+}
+
+function setSessionFontSize(id: string, size: number) {
+  localStorage.setItem(FONT_KEY(id), String(size));
+}
+
 export function meta({ data }: Route.MetaArgs) {
   if (!data) return [{ title: "relay-tty" }];
   const { session, hostname } = data as { session: Session; hostname: string };
@@ -50,16 +66,65 @@ export async function loader({ params, context }: Route.LoaderArgs) {
 }
 
 export default function SessionView({ loaderData }: Route.ComponentProps) {
-  const { session, allSessions, version, hostname } = loaderData as {
+  const { session: initialSession, allSessions, version, hostname } = loaderData as {
     session: Session;
     allSessions: Session[];
     version: string;
     hostname: string;
   };
-  const navigate = useNavigate();
   const { revalidate } = useRevalidator();
   const terminalRef = useRef<TerminalHandle>(null);
-  const [fontSize, setFontSize] = useState(14);
+
+  // ── State-based session switching for keep-alive ──
+  // React Router v7 remounts route components on param changes, which would
+  // destroy all terminal instances. Instead, we track the active session in
+  // state and use history.replaceState to update the URL without navigating.
+  // The loader provides initial data; after that, switching is state-driven.
+  const [activeId, setActiveId] = useState(initialSession.id);
+  // Sync activeId when the route actually remounts (e.g. direct URL navigation)
+  const initialIdRef = useRef(initialSession.id);
+  if (initialSession.id !== initialIdRef.current) {
+    initialIdRef.current = initialSession.id;
+    // This is a true route remount — reset activeId
+    // (can't call setState during render in strict mode, use ref to detect)
+  }
+  useEffect(() => {
+    if (initialSession.id !== activeId) {
+      setActiveId(initialSession.id);
+    }
+  }, [initialSession.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The "session" used for UI chrome — find it from allSessions or fall back
+  const session = allSessions.find(s => s.id === activeId) ?? initialSession;
+
+  // Ref for activeId so callbacks captured in useTerminalCore closures
+  // can check if their session is still the active one before updating state.
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
+  // ── Keep-alive: track visited sessions (LRU, max MAX_KEEP_ALIVE) ──
+  const [visitedSessions, setVisitedSessions] = useState<string[]>([activeId]);
+  useEffect(() => {
+    setVisitedSessions(prev => {
+      if (prev.includes(activeId)) {
+        // Move to end (most recent)
+        return [...prev.filter(id => id !== activeId), activeId];
+      }
+      const next = [...prev, activeId];
+      return next.length > MAX_KEEP_ALIVE ? next.slice(next.length - MAX_KEEP_ALIVE) : next;
+    });
+  }, [activeId]);
+
+  // ── Per-session font sizes (persisted to localStorage) ──
+  const [fontSizes, setFontSizes] = useState<Record<string, number>>({});
+  const activeFontSize = fontSizes[activeId] ?? getSessionFontSize(activeId);
+
+  const handleSetFontSize = useCallback((size: number) => {
+    const clamped = Math.max(8, Math.min(28, size));
+    setFontSizes(prev => ({ ...prev, [activeId]: clamped }));
+    setSessionFontSize(activeId, clamped);
+  }, [activeId]);
+
   const [exitCode, setExitCode] = useState<number | null>(
     session.status === "exited" ? (session.exitCode ?? 0) : null
   );
@@ -86,6 +151,30 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   );
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
+
+  // ── Reset per-session UI state when switching sessions ──
+  // The Terminal component survives (keep-alive), but the route's UI chrome
+  // needs fresh state. Terminal callbacks re-populate correct values quickly.
+  useEffect(() => {
+    setExitCode(session.status === "exited" ? (session.exitCode ?? 0) : null);
+    setTermTitle(null);
+    setAtBottom(true);
+    setReplayProgress(null);
+    setSessionActive(true);
+    setTotalBytes(session.totalBytesWritten ?? 0);
+    setLastActiveTime(session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now());
+    setIdleDisplay("");
+    setFileViewerLink(null);
+    setTextViewerOpen(false);
+    setPickerOpen(false);
+    setInfoOpen(false);
+    setInputBarOpen(false);
+    setPadText("");
+    setPadExpanded(false);
+    setCtrlOn(false);
+    setAltOn(false);
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mobile detection + input bar state ──
   const [isMobile, setIsMobile] = useState(false);
@@ -217,10 +306,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     return () => clearInterval(timer);
   }, [sessionActive, lastActiveTime]);
 
-  // Pinch-to-zoom: adjust font size by delta, clamped to 8–28
+  // Pinch-to-zoom: adjust font size by delta, persisted per-session
   const handleFontSizeChange = useCallback((delta: number) => {
-    setFontSize((s) => Math.max(8, Math.min(28, s + delta)));
-  }, []);
+    handleSetFontSize(activeFontSize + delta);
+  }, [handleSetFontSize, activeFontSize]);
 
   // Show brief "Copied" toast when text is auto-copied to clipboard
   const handleCopy = useCallback(() => {
@@ -228,6 +317,49 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setCopyToast(true);
     copyToastTimer.current = setTimeout(() => setCopyToast(false), 1500);
   }, []);
+
+  // ── Ref-gated callback factories for keep-alive ──
+  // useTerminalCore captures callbacks in its effect closure (keyed on wsPath).
+  // Hidden terminals still receive WS messages and fire the original callbacks.
+  // These factories create per-session callbacks that check activeIdRef to
+  // prevent hidden sessions from updating the route's UI state.
+  //
+  // We use refs for the underlying handlers so the gated callbacks have stable
+  // identity (preventing unnecessary Terminal re-renders) while always calling
+  // the latest handler version.
+  const handleNotificationRef = useRef(handleNotification);
+  handleNotificationRef.current = handleNotification;
+  const handleFontSizeChangeRef = useRef(handleFontSizeChange);
+  handleFontSizeChangeRef.current = handleFontSizeChange;
+  const handleCopyRef = useRef(handleCopy);
+  handleCopyRef.current = handleCopy;
+  const handleActivityUpdateRef = useRef(handleActivityUpdate);
+  handleActivityUpdateRef.current = handleActivityUpdate;
+  const handleFileLinkRef = useRef(handleFileLink);
+  handleFileLinkRef.current = handleFileLink;
+
+  const gatedCallbacksCache = useRef(new Map<string, ReturnType<typeof makeGatedCbs>>());
+  function makeGatedCbs(sid: string) {
+    return {
+      onExit: (code: number) => { if (activeIdRef.current === sid) setExitCode(code); },
+      onTitleChange: (title: string) => { if (activeIdRef.current === sid) setTermTitle(title); },
+      onScrollChange: (v: boolean) => { if (activeIdRef.current === sid) setAtBottom(v); },
+      onReplayProgress: (v: number | null) => { if (activeIdRef.current === sid) setReplayProgress(v); },
+      onNotification: (msg: string) => { if (activeIdRef.current === sid) handleNotificationRef.current(msg); },
+      onFontSizeChange: (delta: number) => { if (activeIdRef.current === sid) handleFontSizeChangeRef.current(delta); },
+      onCopy: () => { if (activeIdRef.current === sid) handleCopyRef.current(); },
+      onActivityUpdate: (update: { isActive: boolean; totalBytes: number }) => { if (activeIdRef.current === sid) handleActivityUpdateRef.current(update); },
+      onFileLink: (link: FileLink) => { if (activeIdRef.current === sid) handleFileLinkRef.current(link); },
+    };
+  }
+  function getGatedCallbacks(sid: string) {
+    let cbs = gatedCallbacksCache.current.get(sid);
+    if (!cbs) {
+      cbs = makeGatedCbs(sid);
+      gatedCallbacksCache.current.set(sid, cbs);
+    }
+    return cbs;
+  }
 
   // Open text viewer overlay with current visible terminal content
   const openTextViewer = useCallback(() => {
@@ -271,17 +403,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [infoOpen]);
 
-  // Dynamic import of Terminal component (xterm.js is client-only)
-  const [TerminalComponent, setTerminalComponent] =
-    useState<React.ComponentType<any> | null>(null);
+  // Client-side guard — Terminal uses xterm.js which requires the DOM.
+  // We import Terminal statically (stable reference) and gate rendering
+  // on isClient to avoid SSR. This prevents the remounting that happened
+  // when storing the component in useState via dynamic import.
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => { setIsClient(true); }, []);
+
   const [FileViewerComponent, setFileViewerComponent] =
     useState<React.ComponentType<any> | null>(null);
-
-  if (typeof window !== "undefined" && !TerminalComponent) {
-    import("../components/terminal").then((mod) => {
-      setTerminalComponent(() => mod.Terminal);
-    });
-  }
 
   // Lazy-load file viewer only when first needed
   useEffect(() => {
@@ -294,10 +424,20 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   function goTo(id: string) {
     setPickerOpen(false);
-    setExitCode(null);
-    setTermTitle(null);
-    navigate(`/sessions/${id}`);
+    // Switch session via state (keeps all terminals alive) and update URL
+    // without triggering a React Router navigation (which would remount).
+    setActiveId(id);
+    window.history.replaceState(null, "", `/sessions/${id}`);
   }
+
+  // ── Horizontal swipe carousel for session switching ──
+  const sessionIds = useMemo(() => allSessions.map(s => s.id), [allSessions]);
+  useCarouselSwipe(terminalAreaRef, {
+    sessionIds,
+    activeId,
+    goTo,
+    enabled: isMobile && !textViewerOpen && !pickerOpen && allSessions.length > 1,
+  });
 
   // Apply sticky modifiers to a key string, then clear them
   const applyModifiers = useCallback((key: string): string => {
@@ -478,14 +618,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <div tabIndex={0} className="dropdown-content z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-2 flex items-center gap-1">
             <button
               className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => setFontSize((s) => Math.max(8, s - 2))}
+              onClick={() => handleSetFontSize(activeFontSize - 2)}
             >
               A-
             </button>
-            <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{fontSize}</span>
+            <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{activeFontSize}</span>
             <button
               className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => setFontSize((s) => Math.min(28, s + 2))}
+              onClick={() => handleSetFontSize(activeFontSize + 2)}
             >
               A+
             </button>
@@ -575,24 +715,33 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
-      {/* Terminal area */}
-      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]">
-        {TerminalComponent && (
-          <TerminalComponent
-            ref={terminalRef}
-            sessionId={session.id}
-            fontSize={fontSize}
-            onExit={(code: number) => setExitCode(code)}
-            onTitleChange={setTermTitle}
-            onScrollChange={setAtBottom}
-            onReplayProgress={setReplayProgress}
-            onNotification={handleNotification}
-            onFontSizeChange={handleFontSizeChange}
-            onCopy={handleCopy}
-            onActivityUpdate={handleActivityUpdate}
-            onFileLink={handleFileLink}
-          />
-        )}
+      {/* Terminal area — keep-alive: all visited terminals stay mounted */}
+      <div ref={terminalAreaRef} className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]">
+        {isClient && visitedSessions.map(sid => {
+          const cbs = getGatedCallbacks(sid);
+          return (
+            <div key={sid} className="absolute inset-0" style={{
+              visibility: sid === activeId ? 'visible' : 'hidden',
+              zIndex: sid === activeId ? 1 : 0,
+            }}>
+              <Terminal
+                ref={sid === activeId ? terminalRef : undefined}
+                sessionId={sid}
+                fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
+                active={sid === activeId}
+                onExit={cbs.onExit}
+                onTitleChange={cbs.onTitleChange}
+                onScrollChange={cbs.onScrollChange}
+                onReplayProgress={cbs.onReplayProgress}
+                onNotification={cbs.onNotification}
+                onFontSizeChange={cbs.onFontSizeChange}
+                onCopy={cbs.onCopy}
+                onActivityUpdate={cbs.onActivityUpdate}
+                onFileLink={cbs.onFileLink}
+              />
+            </div>
+          );
+        })}
 
         {/* Jump to bottom */}
         {!atBottom && (

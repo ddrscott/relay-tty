@@ -12,6 +12,45 @@ import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider
 /** Size of chunks fed to xterm.js during buffer replay (bytes) */
 const REPLAY_CHUNK_SIZE = 64 * 1024;
 
+// ── Terminal instance pool ──────────────────────────────────────────
+// Preserves xterm instances (with rendered buffers) across React component
+// unmounts. When a Terminal remounts for the same session, the pooled
+// instance is reattached instantly — no buffer replay needed.
+
+interface PooledTerminal {
+  /** Wrapper div containing xterm's rendered DOM */
+  wrapper: HTMLDivElement;
+  term: any;
+  fitAddon: any;
+  webgl: any | null;
+  byteOffset: number;
+  cacheWriter: BufferCacheWriter | null;
+  cacheSessionId: string | null;
+  pooledAt: number;
+}
+
+const terminalPool = new Map<string, PooledTerminal>();
+const MAX_POOL_SIZE = 8;
+
+function poolEvict() {
+  while (terminalPool.size > MAX_POOL_SIZE) {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+    for (const [key, entry] of terminalPool) {
+      if (entry.pooledAt < oldestTime) {
+        oldestTime = entry.pooledAt;
+        oldestKey = key;
+      }
+    }
+    if (!oldestKey) break;
+    const entry = terminalPool.get(oldestKey)!;
+    terminalPool.delete(oldestKey);
+    try { entry.webgl?.dispose(); } catch {}
+    entry.term.dispose();
+    entry.cacheWriter?.dispose();
+  }
+}
+
 export interface TerminalCoreOpts {
   /** WS URL path (without protocol/host) — e.g. `/ws/sessions/${id}` or `/ws/share?token=...` */
   wsPath: string;
@@ -51,6 +90,8 @@ export interface TerminalCoreOpts {
   fixedCols?: number;
   /** Fixed terminal rows — disables FitAddon auto-fit when set */
   fixedRows?: number;
+  /** Whether this terminal is the active/visible one. Controls resize observer and input. Default true. */
+  active?: boolean;
 }
 
 export interface TerminalCoreRef {
@@ -69,6 +110,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   // True during buffer replay — suppresses onData forwarding so xterm's
   // CPR/DA responses to replayed DSR queries don't leak to the PTY as stdin.
   const replayingRef = useRef(false);
+
+  // Track active state via ref so the ResizeObserver (inside the main effect)
+  // can read it without being in the effect's dependency array.
+  const activeRef = useRef(opts.active ?? true);
+  activeRef.current = opts.active ?? true;
 
   // After a resize, apps like Claude Code redraw their TUI. That output
   // arrives over WS and can scroll xterm away from the bottom. This ref
@@ -101,6 +147,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
     const scrollState = { momentumActive: false };
+
+    // Wrapper div for xterm's DOM — persists in pool across unmounts
+    let xtermWrapper: HTMLDivElement | null = null;
 
     // Throttle: accumulate DATA writes and flush at throttleFps
     const throttleInterval = opts.throttleFps ? Math.floor(1000 / opts.throttleFps) : 0;
@@ -178,7 +227,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const unicode11 = new Unicode11Addon();
       term.loadAddon(unicode11);
       term.unicode.activeVersion = "11";
-      term.open(containerRef.current!);
+
+      // Create wrapper div for xterm DOM (persists in pool across unmounts)
+      xtermWrapper = document.createElement('div');
+      xtermWrapper.style.cssText = 'width:100%;height:100%;overflow:hidden';
+      containerRef.current!.appendChild(xtermWrapper);
+      term.open(xtermWrapper);
 
       // WebGL renderer — must be loaded after term.open()
       // Context loss is handled gracefully (falls back to canvas)
@@ -193,6 +247,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       termRef.current = term;
       fitAddonRef.current = fitAddon;
+
       // Skip auto-fit when using fixed cols/rows (grid thumbnails).
       // The terminal is rendered at the session's actual dimensions
       // and CSS-scaled down by the grid cell component.
@@ -206,14 +261,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
 
       if (!opts.readOnly) {
-        setupMobileInput(term, containerRef.current!);
-        setupTouchScrolling(term, containerRef.current!, opts.fontSize ?? 14, scrollState);
+        setupMobileInput(term, xtermWrapper!);
+        setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState);
       }
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
       const iosStyle = document.createElement("style");
       iosStyle.textContent = ".xterm-rows span { pointer-events: none; }";
-      containerRef.current!.appendChild(iosStyle);
+      xtermWrapper!.appendChild(iosStyle);
 
       // Track scroll position (skip during momentum to prevent feedback loop)
       if (opts.onScrollChange) {
@@ -862,16 +917,47 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       retryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
     }
 
-    // ── Init + resize observer ──────────────────────────────────────
+    // ── Pool check or fresh init ────────────────────────────────────
 
-    initTerminal();
+    const poolKey = opts.wsPath;
+    const pooled = terminalPool.get(poolKey);
+
+    if (pooled) {
+      // ── POOL HIT: reattach existing xterm instantly ──────────────
+      terminalPool.delete(poolKey);
+      xtermWrapper = pooled.wrapper;
+      containerRef.current!.appendChild(xtermWrapper);
+
+      termRef.current = pooled.term;
+      fitAddonRef.current = pooled.fitAddon;
+      webglRef.current = pooled.webgl;
+      byteOffset = pooled.byteOffset;
+      cacheWriter = pooled.cacheWriter;
+
+      // Terminal is immediately visible with its existing buffer content
+      initialContentReady = true;
+      setContentReady(true);
+
+      const useFixedSize = opts.fixedCols != null && opts.fixedRows != null;
+      if (!useFixedSize) {
+        requestAnimationFrame(() => pooled.fitAddon.fit());
+      }
+
+      // Connect fresh WS — RESUME from pooled byteOffset for fast delta
+      connect(pooled.term);
+      // Override "connecting" status — terminal is already visible with content
+      setStatus("connected");
+    } else {
+      // ── NORMAL INIT ──────────────────────────────────────────────
+      initTerminal();
+    }
 
     // Skip resize observer for fixed-size terminals (grid thumbnails) —
     // they use CSS transform: scale() instead of FitAddon auto-fit.
     const hasFixedSize = opts.fixedCols != null && opts.fixedRows != null;
     let observer: ResizeObserver | null = null;
     if (!hasFixedSize) {
-      observer = new ResizeObserver(() => { if (!scrollState.momentumActive) fit(); });
+      observer = new ResizeObserver(() => { if (!scrollState.momentumActive && activeRef.current) fit(); });
       if (containerRef.current) observer.observe(containerRef.current);
     }
 
@@ -881,12 +967,45 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (throttleTimer) clearTimeout(throttleTimer);
       observer?.disconnect();
       wsRef.current?.close();
-      try { webglRef.current?.dispose(); } catch {}
-      webglRef.current = null;
-      termRef.current?.dispose();
-      cacheWriter?.dispose();
+
+      // Pool the terminal for instant reattach on remount.
+      // Read-only terminals (grid thumbnails) are not pooled — they're
+      // managed differently and have fixed-size rendering.
+      if (termRef.current && xtermWrapper && !opts.readOnly) {
+        xtermWrapper.remove();
+        terminalPool.set(poolKey, {
+          wrapper: xtermWrapper,
+          term: termRef.current,
+          fitAddon: fitAddonRef.current,
+          webgl: webglRef.current,
+          byteOffset,
+          cacheWriter,
+          cacheSessionId,
+          pooledAt: Date.now(),
+        });
+        poolEvict();
+        // Clear refs without disposing — pooled for reuse
+        termRef.current = null;
+        fitAddonRef.current = null;
+        webglRef.current = null;
+      } else {
+        // Normal dispose (read-only terminals, or no xterm initialized)
+        try { webglRef.current?.dispose(); } catch {}
+        webglRef.current = null;
+        termRef.current?.dispose();
+        cacheWriter?.dispose();
+      }
     };
   }, [opts.wsPath]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fit terminal when it becomes the active/visible instance.
+  // Hidden terminals skip ResizeObserver callbacks, so they need
+  // an explicit fit when shown again to match the container size.
+  useEffect(() => {
+    if ((opts.active ?? true) && fitAddonRef.current && termRef.current) {
+      fitAddonRef.current.fit();
+    }
+  }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { termRef, wsRef, fitAddonRef, status, contentReady, fit, sendBinary, replayingRef };
 }

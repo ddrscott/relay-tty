@@ -33,9 +33,11 @@ interface TerminalProps {
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
   onFileLink?: (link: FileLink) => void;
   onTap?: () => void;
+  /** Whether this terminal is the active/visible one. Controls resize and input. Default true. */
+  active?: boolean;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, active = true }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -43,6 +45,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const { termRef, status, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
+    active,
     onExit,
     onTitleChange,
     onScrollChange,
@@ -119,7 +122,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText]);
 
   // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
-  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: true, inputTransformRef });
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef });
 
   // Update font size on existing terminal
   useEffect(() => {
