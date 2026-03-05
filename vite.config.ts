@@ -13,7 +13,4 @@ export default defineConfig({
     allowedHosts,
   },
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
-  ssr: {
-    external: ["node-pty"],
-  },
 });

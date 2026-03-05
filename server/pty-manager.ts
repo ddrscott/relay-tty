@@ -123,7 +123,6 @@ export class PtyManager extends EventEmitter {
    */
   async spawn(command: string, args: string[] = [], cols = 80, rows = 24, cwd?: string): Promise<Session> {
     const id = randomBytes(4).toString("hex");
-    const ptyHostPath = this.resolvePtyHostPath();
     const effectiveCwd = cwd || process.env.HOME || "/";
 
     // When spawning from the server, process.env may be minimal
@@ -144,23 +143,8 @@ export class PtyManager extends EventEmitter {
       RELAY_ORIG_ARGS: JSON.stringify(args),
     };
 
-    // Prefer Rust binary, fall back to Node pty-host.js
-    const rustBinaryPath = this.resolveRustBinaryPath();
-    const useRust = rustBinaryPath !== null;
-
-    let spawnCmd: string;
-    let spawnArgs: string[];
-
-    if (useRust) {
-      // Rust binary: relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]
-      // Wrap in login shell same as Node path
-      spawnCmd = rustBinaryPath;
-      spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
-    } else {
-      // Node fallback: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
-      spawnCmd = "node";
-      spawnArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
-    }
+    const spawnCmd = this.resolveRustBinaryPath();
+    const spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
 
     // Spawn pty-host as detached process — survives server death
     const child = cpSpawn(spawnCmd, spawnArgs, {
@@ -399,21 +383,11 @@ export class PtyManager extends EventEmitter {
     } catch {}
   }
 
-  private resolvePtyHostPath(): string {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    // Both dev and prod: use compiled dist/server/pty-host.js
-    if (__dirname.includes("/dist/")) {
-      return path.join(__dirname, "pty-host.js");
-    }
-    // Dev mode (loaded via Vite SSR) — use pre-compiled dist
-    return path.resolve(__dirname, "..", "dist", "server", "pty-host.js");
-  }
-
   /**
-   * Look for the Rust relay-pty-host binary.
-   * Returns the path if found and executable, null otherwise.
+   * Resolve the Rust relay-pty-host binary path.
+   * Throws if not found — the Rust binary is required.
    */
-  private resolveRustBinaryPath(): string | null {
+  private resolveRustBinaryPath(): string {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const projectRoot = __dirname.includes("/dist/")
       ? path.resolve(__dirname, "..", "..")
@@ -436,7 +410,10 @@ export class PtyManager extends EventEmitter {
       }
     }
 
-    return null;
+    throw new Error(
+      "relay-pty-host binary not found. Install via npm (downloads automatically) " +
+      "or build locally: cargo build --release --manifest-path crates/pty-host/Cargo.toml"
+    );
   }
 
   private async waitForSocket(id: string, socketPath: string, retries = 30): Promise<void> {

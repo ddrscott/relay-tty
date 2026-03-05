@@ -22,22 +22,8 @@ export function spawnDirect(
   const id = randomBytes(4).toString("hex");
   const effectiveCwd = cwd || process.cwd();
 
-  // Prefer Rust binary, fall back to Node pty-host.js
-  const rustBinary = resolveRustBinaryPath();
-
-  let spawnCmd: string;
-  let spawnArgs: string[];
-
-  if (rustBinary) {
-    // Rust binary: relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]
-    spawnCmd = rustBinary;
-    spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, ...args];
-  } else {
-    // Node fallback: node pty-host.js <id> <cols> <rows> <cwd> <command> [args...]
-    const ptyHostPath = resolvePtyHostPath();
-    spawnCmd = "node";
-    spawnArgs = [ptyHostPath, id, String(cols), String(rows), effectiveCwd, command, ...args];
-  }
+  const spawnCmd = resolveRustBinaryPath();
+  const spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, ...args];
 
   const child = cpSpawn(spawnCmd, spawnArgs, {
     detached: true,
@@ -84,19 +70,11 @@ export function getSocketPath(id: string): string {
   return path.join(SOCKETS_DIR, `${id}.sock`);
 }
 
-function resolvePtyHostPath(): string {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  if (__dirname.includes("/dist/")) {
-    return path.join(__dirname, "..", "server", "pty-host.js");
-  }
-  return path.resolve(__dirname, "..", "dist", "server", "pty-host.js");
-}
-
 /**
- * Look for the Rust relay-pty-host binary.
- * Returns the path if found and executable, null otherwise.
+ * Resolve the Rust relay-pty-host binary path.
+ * Throws if not found — the Rust binary is required.
  */
-function resolveRustBinaryPath(): string | null {
+function resolveRustBinaryPath(): string {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = __dirname.includes("/dist/")
     ? path.resolve(__dirname, "..", "..")
@@ -119,5 +97,8 @@ function resolveRustBinaryPath(): string | null {
     }
   }
 
-  return null;
+  throw new Error(
+    "relay-pty-host binary not found. Install via npm (downloads automatically) " +
+    "or build locally: cargo build --release --manifest-path crates/pty-host/Cargo.toml"
+  );
 }

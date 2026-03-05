@@ -46,8 +46,9 @@ async function main() {
   const target = PLATFORM_MAP[key];
 
   if (!target) {
-    console.log(`relay-tty: No pre-built binary for ${key}, using Node.js fallback`);
-    return;
+    console.error(`relay-tty: No pre-built binary for ${key}. Only macOS and Linux (x64/arm64) are supported.`);
+    console.error(`relay-tty: Windows users should use WSL.`);
+    process.exit(1);
   }
 
   // Read version from package.json
@@ -110,5 +111,7 @@ function download(url, destPath, redirects = 5) {
 main().catch((err) => {
   // Clean up partial download
   try { unlinkSync(BIN_PATH); } catch {}
-  console.log(`relay-tty: Binary download failed (${err.message}), using Node.js fallback`);
+  console.error(`relay-tty: Binary download failed: ${err.message}`);
+  console.error(`relay-tty: The Rust pty-host binary is required. Build locally with: cargo build --release --manifest-path crates/pty-host/Cargo.toml`);
+  process.exit(1);
 });
