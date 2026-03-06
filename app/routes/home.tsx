@@ -6,7 +6,7 @@ import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { useSessionEvents } from "../hooks/use-session-events";
 import { useTimeAgo } from "../hooks/use-time-ago";
-import { ArrowDown, ArrowUp, Maximize, Minimize } from "lucide-react";
+import { ArrowDown, ArrowUp, Maximize, Minimize, LayoutGrid } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -358,6 +358,20 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* Gallery button — mobile only (LayoutSwitcher handles desktop) */}
+        {sessions.length > 0 && (
+          <button
+            className="lg:hidden flex items-center p-1.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors border border-[#2d2d44] rounded-lg"
+            onClick={() => navigate("/gallery")}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label="Gallery view"
+            title="Gallery"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
         )}
 
         {/* Layout switcher — desktop only */}
