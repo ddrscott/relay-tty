@@ -98,7 +98,7 @@ function ThumbnailTerminal({ session }: { session: Session }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
 
-  const { termRef, status, contentReady } = useTerminalCore(containerRef, {
+  const { status, contentReady } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
     fontSize: 14,
     readOnly: true,
