@@ -228,6 +228,11 @@ export class WsHandler {
     // Only forward RESUME messages from read-only clients (for delta replay)
     ws.on("message", (data: Buffer) => {
       if (data.length < 1) return;
+      // Respond to application-level PING with PONG
+      if (data[0] === WS_MSG.PING) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(Buffer.from([WS_MSG.PONG]));
+        return;
+      }
       if (data[0] === WS_MSG.RESUME && ptySocket.writable) {
         const header = Buffer.alloc(4);
         header.writeUInt32BE(data.length, 0);
@@ -305,6 +310,11 @@ export class WsHandler {
     // WS client → pty-host: wrap WS messages in length-prefixed frames
     ws.on("message", (data: Buffer) => {
       if (data.length < 1) return;
+      // Respond to application-level PING with PONG (don't forward to pty-host)
+      if (data[0] === WS_MSG.PING) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(Buffer.from([WS_MSG.PONG]));
+        return;
+      }
       if (ptySocket.writable) {
         const header = Buffer.alloc(4);
         header.writeUInt32BE(data.length, 0);

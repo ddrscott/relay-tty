@@ -144,6 +144,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let lastServerMessage = 0;
     let byteOffset = 0;
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
@@ -663,6 +665,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         retryDelay = 1000;
         setRetryCount(0);
         setStatus("connected");
+        lastServerMessage = Date.now();
 
         // RESUME must be sent before RESIZE to arrive within the 100ms handshake window
         const resumeMsg = new Uint8Array(9);
@@ -677,15 +680,32 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           new DataView(msg.buffer).setUint16(3, term.rows, false);
           ws.send(msg);
         }
+
+        // Start heartbeat: send PING every 10s, detect zombie connections after 15s silence
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            if (Date.now() - lastServerMessage > 15_000) {
+              // No data from server for 15s despite pings — zombie connection
+              ws.close();
+              return;
+            }
+            ws.send(new Uint8Array([WS_MSG.PING]));
+          }
+        }, 10_000);
       };
 
       ws.onmessage = (event) => {
+        lastServerMessage = Date.now();
         const data = new Uint8Array(event.data);
         if (data.length < 1) return;
+        // PONG is just a heartbeat ack — no further handling needed
+        if (data[0] === WS_MSG.PONG) return;
         handleWsMessage(term, data[0], data.slice(1));
       };
 
       ws.onclose = (event) => {
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         if (disposed) return;
         if (event.code === 4001 || event.code === 1008) {
           opts.onAuthError?.();
@@ -963,12 +983,38 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       // Connect fresh WS — RESUME from pooled byteOffset for fast delta
       connect(pooled.term);
-      // Override "connecting" status — terminal is already visible with content
-      setStatus("connected");
     } else {
       // ── NORMAL INIT ──────────────────────────────────────────────
       initTerminal();
     }
+
+    // ── Visibility + online reconnection ────────────────────────────
+    // Mobile browsers suspend timers when backgrounded, so the normal
+    // onclose → setTimeout backoff can stall indefinitely. These
+    // listeners detect foreground/network return and reconnect immediately.
+
+    function immediateReconnect() {
+      const term = termRef.current;
+      if (!term || disposed) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        // WS is dead — cancel pending retry and reconnect now with reset backoff
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        retryDelay = 1000;
+        connect(term);
+      } else if (ws.readyState === WebSocket.OPEN) {
+        // WS looks open — send a PING to probe; heartbeat timeout will catch zombies
+        ws.send(new Uint8Array([WS_MSG.PING]));
+      }
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") immediateReconnect();
+    };
+    const onOnline = () => immediateReconnect();
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("online", onOnline);
 
     // Skip resize observer for fixed-size terminals (grid thumbnails) —
     // they use CSS transform: scale() instead of FitAddon auto-fit.
@@ -982,7 +1028,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
       if (throttleTimer) clearTimeout(throttleTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("online", onOnline);
       observer?.disconnect();
       wsRef.current?.close();
 

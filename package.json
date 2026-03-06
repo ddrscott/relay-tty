@@ -35,6 +35,7 @@
     "dev": "npm run build:rust; tsc -p tsconfig.node.json && node server.js",
     "build": "npm run build:rust; react-router build && tsc -p tsconfig.node.json",
     "start": "NODE_ENV=production node server.js",
+    "start:tunnel": "npm run build && node dist/cli/index.js server start --tunnel",
     "build:cli": "tsc -p tsconfig.node.json",
     "build:rust": "command -v cargo >/dev/null 2>&1 && cargo build --release --manifest-path crates/pty-host/Cargo.toml || true",
     "prepack": "npm run build",

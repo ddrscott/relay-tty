@@ -48,6 +48,10 @@ export const WS_MSG = {
   SESSION_METRICS: 0x14,
   /** Server→client: updated session metadata [UTF-8 JSON of Session]. */
   SESSION_UPDATE: 0x15,
+  /** Client→server: 1-byte heartbeat probe. */
+  PING: 0x20,
+  /** Server→client: 1-byte heartbeat response. */
+  PONG: 0x21,
 } as const;
 
 export interface CreateSessionRequest {

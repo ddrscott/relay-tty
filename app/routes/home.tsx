@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator, useNavigate } from "react-router";
 import type { Route } from "./+types/home";
 import { SessionCard } from "../components/session-card";
+import { Terminal, type TerminalHandle } from "../components/terminal";
 import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { useSessionEvents } from "../hooks/use-session-events";
@@ -145,17 +146,14 @@ function measureCellWidth(fontSize: number): number {
 
 /**
  * Phone frame component — renders a CSS-only mock device bezel
- * containing an iframe of the session view.
+ * containing a live Terminal component (no iframe).
  *
- * Width is derived from the session's PTY cols so the iframe's xterm.js
- * FitAddon lands on exactly the original column count. Height stretches
- * to fill the available space so more text is visible.
- *
- * The cell width is measured from the actual xterm font (not hardcoded)
- * so FitAddon computes the correct column count inside the iframe.
+ * Width is derived from the session's PTY cols so xterm.js FitAddon
+ * lands on exactly the original column count. Height stretches to fill.
  */
-function PhoneFrame({ session }: { session: Session }) {
+function PhoneFrame({ session, onNavigate }: { session: Session; onNavigate: (id: string) => void }) {
   const cols = session.cols || 80;
+  const termRef = useRef<TerminalHandle>(null);
 
   // Measure actual cell width once using the real xterm font at 14px
   const cellWidth = useRef<number | null>(null);
@@ -177,14 +175,20 @@ function PhoneFrame({ session }: { session: Session }) {
         {/* Notch / dynamic island */}
         <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#0a0a0f] rounded-full z-10" />
 
-        {/* Inner bezel padding */}
-        <div className="flex-1 m-2 mt-0 rounded-[2rem] overflow-hidden bg-[#0a0a0f]">
-          <iframe
-            src={`/sessions/${session.id}`}
-            className="w-full h-full border-0"
-            title="Session preview"
-            allow="clipboard-write"
-          />
+        {/* Session title bar */}
+        <button
+          className="mx-2 mt-8 mb-0 px-3 py-1.5 flex items-center justify-between bg-[#0a0a0f] rounded-t-xl cursor-pointer hover:bg-[#111118] transition-colors"
+          onClick={() => onNavigate(session.id)}
+        >
+          <code className="text-xs font-mono text-[#94a3b8] truncate">
+            {session.title || [session.command, ...session.args].join(" ")}
+          </code>
+          <Maximize className="w-3 h-3 text-[#64748b] shrink-0 ml-2" />
+        </button>
+
+        {/* Terminal */}
+        <div className="flex-1 mx-2 mb-2 rounded-b-xl overflow-hidden bg-[#0a0a0f]">
+          <Terminal ref={termRef} sessionId={session.id} fontSize={14} />
         </div>
 
         {/* Home indicator */}
@@ -364,7 +368,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         {sessions.length > 0 && (
           <button
             className="lg:hidden flex items-center p-1.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors border border-[#2d2d44] rounded-lg"
-            onClick={() => navigate("/gallery")}
+            onClick={() => navigate("/grid")}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
             aria-label="Gallery view"
@@ -502,10 +506,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             {/* Divider */}
             <div className="w-px bg-[#1e1e2e] shrink-0" />
 
-            {/* Preview area: phone frame with iframe */}
+            {/* Preview area: phone frame with live terminal */}
             <div className="flex-1 min-w-0">
               {previewSessionId ? (
-                <PhoneFrame key={previewSessionId} session={sessions.find((s) => s.id === previewSessionId)!} />
+                <PhoneFrame key={previewSessionId} session={sessions.find((s) => s.id === previewSessionId)!} onNavigate={(id) => navigate(`/sessions/${id}`)} />
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-[#64748b] font-mono text-sm">Select a session</p>
