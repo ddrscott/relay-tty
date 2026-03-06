@@ -10,6 +10,7 @@ import {
   ChevronsDown,
   Info,
   ClipboardCheck,
+  BellRing,
 } from "lucide-react";
 
 function formatBytes(bytes: number): string {
@@ -41,6 +42,8 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
   const infoRef = useRef<HTMLDivElement>(null);
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notifToast, setNotifToast] = useState<string | null>(null);
+  const notifToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sessionActive, setSessionActive] = useState(true);
   const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
   const [lastActiveTime, setLastActiveTime] = useState<number>(
@@ -108,10 +111,30 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
   }, [infoOpen]);
 
   const handleNotification = useCallback((message: string) => {
+    const title = termTitle || session.command;
+
+    // Always show in-app toast
+    if (notifToastTimer.current) clearTimeout(notifToastTimer.current);
+    setNotifToast(message);
+    notifToastTimer.current = setTimeout(() => setNotifToast(null), 4000);
+
+    // System notification when tab is hidden
     if (document.visibilityState !== "hidden") return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const title = termTitle || session.command;
-    new Notification(title, { body: message, tag: `relay-${session.id}` });
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.showNotification(title, {
+          body: message,
+          tag: `relay-${session.id}`,
+          data: { url: `/sessions/${session.id}` },
+        });
+      }).catch(() => {
+        new Notification(title, { body: message, tag: `relay-${session.id}` });
+      });
+    } else {
+      new Notification(title, { body: message, tag: `relay-${session.id}` });
+    }
   }, [termTitle, session.command, session.id]);
 
   const handleFileLink = useCallback((link: FileLink) => {
@@ -383,7 +406,7 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
           {/* Jump to bottom */}
           {!atBottom && (
             <button
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#94a3b8] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#e2e8f0] transition-all shadow-lg"
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#7dcea0] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#a8e6c3] transition-all shadow-lg"
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => terminalRef.current?.scrollToBottom()}
@@ -399,6 +422,17 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#22c55e]/40 text-[#22c55e] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg">
               <ClipboardCheck className="w-4 h-4" />
               Copied
+            </div>
+          )}
+
+          {/* Notification toast */}
+          {notifToast && (
+            <div
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#3b82f6]/40 text-[#93c5fd] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg max-w-[80%] cursor-pointer"
+              onClick={() => setNotifToast(null)}
+            >
+              <BellRing className="w-4 h-4 shrink-0" />
+              <span className="truncate">{notifToast}</span>
             </div>
           )}
 

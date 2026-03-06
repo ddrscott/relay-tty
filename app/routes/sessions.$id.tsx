@@ -9,6 +9,9 @@ import { groupByCwd } from "../lib/session-groups";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import {
   ArrowLeft,
+  Bell,
+  BellOff,
+  BellRing,
   ChevronDown,
   ChevronUp,
   ChevronsDown,
@@ -178,6 +181,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [textViewerContent, setTextViewerContent] = useState("");
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notifToast, setNotifToast] = useState<string | null>(null);
+  const notifToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported"
+  );
   const [sessionActive, setSessionActive] = useState(true);
   const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
   const [lastActiveTime, setLastActiveTime] = useState<number>(
@@ -234,10 +242,19 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     document.title = parts.join(" \u2014 ");
   }, [termTitle, session.title, session.command, session.args, hostname]);
 
-  // Request notification permission on mount (no-op if already granted/denied)
-  useEffect(() => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission();
+  // Request notification permission via user gesture (button click).
+  // iOS Safari only supports Notification API in PWA mode AND requires a user
+  // gesture. Auto-requesting on mount is silently ignored on iOS.
+  const requestNotificationPermission = useCallback(async () => {
+    if (typeof Notification === "undefined") {
+      setNotifPermission("unsupported");
+      return;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      setNotifPermission(result);
+    } catch {
+      setNotifPermission("unsupported");
     }
   }, []);
 
@@ -309,11 +326,35 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, []);
 
   const handleNotification = useCallback((message: string) => {
-    // Only notify when the tab is hidden — user is already looking if visible
+    const title = termTitle || session.command;
+
+    // Always show in-app toast so the user sees the notification regardless
+    // of Web Notifications API support or permission state.
+    if (notifToastTimer.current) clearTimeout(notifToastTimer.current);
+    setNotifToast(message);
+    notifToastTimer.current = setTimeout(() => setNotifToast(null), 4000);
+
+    // System notification when tab is hidden (user not looking at the page).
+    // Use ServiceWorkerRegistration.showNotification() when available — this is
+    // the only API that works on iOS PWAs. Falls back to new Notification() for
+    // desktop browsers without a service worker.
     if (document.visibilityState !== "hidden") return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const title = termTitle || session.command;
-    new Notification(title, { body: message, tag: `relay-${session.id}` });
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.showNotification(title, {
+          body: message,
+          tag: `relay-${session.id}`,
+          data: { url: `/sessions/${session.id}` },
+        });
+      }).catch(() => {
+        // SW not available — fall back to direct Notification
+        new Notification(title, { body: message, tag: `relay-${session.id}` });
+      });
+    } else {
+      new Notification(title, { body: message, tag: `relay-${session.id}` });
+    }
   }, [termTitle, session.command, session.id]);
 
   // File link click from terminal
@@ -638,6 +679,25 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           />
         )}
 
+        {/* Notification bell — request permission on tap (user gesture for iOS) */}
+        {notifPermission !== "granted" && notifPermission !== "unsupported" && (
+          <button
+            className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
+            onClick={requestNotificationPermission}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label="Enable notifications"
+            title="Enable notifications"
+          >
+            <BellOff className="w-4 h-4" />
+          </button>
+        )}
+        {notifPermission === "granted" && (
+          <span className="shrink-0 text-[#64748b] flex items-center" title="Notifications enabled">
+            <Bell className="w-3.5 h-3.5" />
+          </span>
+        )}
+
         {/* Info button */}
         <div className="relative shrink-0" ref={infoRef}>
           <button
@@ -784,7 +844,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Jump to bottom */}
         {!atBottom && (
           <button
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#94a3b8] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#e2e8f0] transition-all shadow-lg"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#7dcea0] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#a8e6c3] transition-all shadow-lg"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onTouchEnd={(e) => { e.preventDefault(); terminalRef.current?.scrollToBottom(); }}
@@ -801,6 +861,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#22c55e]/40 text-[#22c55e] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg">
             <ClipboardCheck className="w-4 h-4" />
             Copied
+          </div>
+        )}
+
+        {/* Notification toast — in-app fallback when Web Notifications are unavailable */}
+        {notifToast && (
+          <div
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#3b82f6]/40 text-[#93c5fd] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg max-w-[80%] cursor-pointer"
+            onClick={() => setNotifToast(null)}
+          >
+            <BellRing className="w-4 h-4 shrink-0" />
+            <span className="truncate">{notifToast}</span>
           </div>
         )}
 
