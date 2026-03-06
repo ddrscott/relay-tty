@@ -63,6 +63,27 @@ async function loadModules(load) {
     appUrl: APP_URL,
   });
 
+  // Auth routes — plain Express redirects, no SSR needed.
+  // These are server-only cookie operations; using React Router SSR for them
+  // causes "No result found for routeId" errors in production builds.
+  app.get("/api/auth/callback", (req, res) => {
+    const token = req.query.token;
+    if (!token || !authModule.verifyAccessToken(String(token))) {
+      res.status(401).send("Invalid or expired token");
+      return;
+    }
+    const sessionToken = authModule.generateToken() || token;
+    const isSecure = req.protocol === "https" || req.get("x-forwarded-proto") === "https";
+    const securePart = isSecure ? " Secure;" : "";
+    res.setHeader("Set-Cookie", `session=${sessionToken}; HttpOnly; SameSite=Lax;${securePart} Path=/; Max-Age=${30 * 24 * 60 * 60}`);
+    res.redirect("/");
+  });
+
+  app.get("/api/auth/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", "session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    res.redirect("/");
+  });
+
   return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken };
 }
 
@@ -84,7 +105,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken, verifyAccessToken: modules.verifyAccessToken };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
         },
       })
     );
@@ -110,7 +131,7 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken, verifyAccessToken: modules.verifyAccessToken };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME };
         },
       })
     );
