@@ -207,7 +207,11 @@ async function startTunnel(port: number, tokenTtlSeconds: number): Promise<void>
     apiKey: config.api_key,
     slug: config.slug,
     localPort: port,
-    onConnected: async (url) => {
+    onConnected: async (url, isReconnect) => {
+      if (isReconnect) {
+        console.log(`  ${boldGreen("Tunnel reconnected")}: ${cyan(url)}`);
+        return;
+      }
       console.log(`\n  ${boldGreen("Tunnel active")}: ${cyan(url)}\n`);
       // Generate auth token and show QR code
       try {
@@ -233,8 +237,8 @@ async function startTunnel(port: number, tokenTtlSeconds: number): Promise<void>
         // auth module not available
       }
     },
-    onDisconnected: () => {
-      console.error("  Tunnel disconnected, reconnecting...");
+    onDisconnected: (code, reason) => {
+      console.error(`  Tunnel disconnected (code=${code}${reason ? ` reason=${reason}` : ""}), reconnecting...`);
     },
     onError: (err) => {
       console.error(`  Tunnel error: ${err.message}`);

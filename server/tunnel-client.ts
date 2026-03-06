@@ -23,8 +23,8 @@ export interface TunnelClientOptions {
   slug: string;
   localPort: number;
   tunnelUrl?: string; // default: wss://relaytty.com/ws/tunnel
-  onConnected?: (url: string) => void;
-  onDisconnected?: () => void;
+  onConnected?: (url: string, isReconnect: boolean) => void;
+  onDisconnected?: (code: number, reason: string) => void;
   onError?: (err: Error) => void;
 }
 
@@ -34,6 +34,7 @@ export class TunnelClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
   private stopped = false;
+  private hasConnected = false;
   private opts: TunnelClientOptions;
 
   constructor(opts: TunnelClientOptions) {
@@ -70,24 +71,39 @@ export class TunnelClient {
 
     ws.on("open", () => {
       this.ws = ws;
+      const isReconnect = this.hasConnected;
+      this.hasConnected = true;
       this.reconnectDelay = 1000; // reset backoff
       const publicUrl = `https://${this.opts.slug}.relaytty.com`;
-      this.opts.onConnected?.(publicUrl);
+      this.opts.onConnected?.(publicUrl, isReconnect);
     });
 
     ws.on("message", (data: Buffer) => {
       this.handleFrame(data);
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code: number, reason: Buffer) => {
       this.ws = null;
-      this.opts.onDisconnected?.();
+      this.opts.onDisconnected?.(code, reason.toString("utf-8"));
       this.scheduleReconnect();
     });
 
     ws.on("error", (err: Error) => {
       this.opts.onError?.(err);
       // 'close' will fire after 'error', triggering reconnect
+    });
+
+    ws.on("unexpected-response", (_req, res) => {
+      const status = res.statusCode;
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf-8").slice(0, 200);
+        this.opts.onError?.(
+          new Error(`WS upgrade rejected: HTTP ${status} — ${body}`),
+        );
+        ws.close();
+      });
     });
 
     // Respond to server pings
@@ -141,10 +157,12 @@ export class TunnelClient {
         body = Buffer.from(req.body, "base64");
       }
 
-      // Forward headers, replace Host, strip Cloudflare headers so the
-      // local server's isLocalhost() bypass works (--tunnel is secured by slug).
+      // Forward headers, replace Host, strip Cloudflare edge headers (not
+      // meaningful for the custom tunnel), and inject x-relay-tunnel so the
+      // local server's auth middleware knows to enforce cookie auth.
       const headers = new Headers(req.headers);
       headers.set("Host", `localhost:${this.opts.localPort}`);
+      headers.set("x-relay-tunnel", "1");
       for (const key of [...headers.keys()]) {
         if (key.startsWith("cf-")) headers.delete(key);
       }
