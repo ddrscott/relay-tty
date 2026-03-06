@@ -139,15 +139,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           <span className="loading loading-spinner loading-lg" />
         </div>
       )}
-      {(status === "disconnected" || (status === "connecting" && retryCount > 0)) && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-base-100/80">
-          <div className="flex flex-col items-center gap-2">
-            <span className="loading loading-spinner loading-sm" />
-            <span className="text-warning text-sm">Reconnecting{retryCount > 2 ? ` (attempt ${retryCount})` : ""}...</span>
-            {retryCount >= 5 && (
-              <span className="text-xs text-[#64748b] max-w-60 text-center">Connection lost. Check your network — retrying automatically.</span>
-            )}
-          </div>
+      {(status === "disconnected" || (status === "connecting" && retryCount > 0)) && contentReady && (
+        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10">
+          <span className="loading loading-spinner loading-xs text-warning" />
+          <span className="text-warning text-xs font-medium">
+            Reconnecting{retryCount > 2 ? ` (${retryCount})` : ""}
+          </span>
         </div>
       )}
       <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
