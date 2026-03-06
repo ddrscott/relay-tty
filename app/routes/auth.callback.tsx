@@ -18,13 +18,18 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // while the session cookie remains valid for 30 days.
   const sessionToken = context.generateToken?.() || token;
 
-  // Set Secure flag when accessed over HTTPS (e.g. behind Cloudflare Tunnel)
-  const isSecure = url.protocol === "https:";
+  // Detect HTTPS: check the request protocol and X-Forwarded-Proto (set by tunnels/proxies
+  // that terminate TLS at the edge — the local request arrives as http).
+  const isSecure = url.protocol === "https:" ||
+    request.headers.get("x-forwarded-proto") === "https";
   const securePart = isSecure ? " Secure;" : "";
 
+  // SameSite=Lax allows the cookie to be set on top-level navigations from external
+  // origins (QR code scans, links from other apps). Strict would block the cookie
+  // because the QR scan is a cross-site navigation.
   return redirect("/", {
     headers: {
-      "Set-Cookie": `session=${sessionToken}; HttpOnly; SameSite=Strict;${securePart} Path=/; Max-Age=${30 * 24 * 60 * 60}`,
+      "Set-Cookie": `session=${sessionToken}; HttpOnly; SameSite=Lax;${securePart} Path=/; Max-Age=${30 * 24 * 60 * 60}`,
     },
   });
 }
