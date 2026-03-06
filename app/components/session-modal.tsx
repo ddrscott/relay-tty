@@ -11,7 +11,17 @@ import {
   Info,
   ClipboardCheck,
   BellRing,
+  Bell,
+  Activity,
+  Zap,
 } from "lucide-react";
+import { useSmartNotifications } from "../hooks/use-smart-notifications";
+import {
+  getEffectiveNotifSettings,
+  getSessionNotifOverride,
+  setSessionNotifOverride,
+  type NotifSettings,
+} from "../lib/notif-settings";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -137,6 +147,35 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
     }
   }, [termTitle, session.command, session.id]);
 
+  // ── Smart notifications ──
+  const { handleActivityUpdate: smartNotifUpdate } = useSmartNotifications({
+    sessionId: session.id,
+    onNotification: handleNotification,
+  });
+
+  const [sessionNotifOverride, setSessionNotifOverrideState] = useState<NotifSettings | null>(
+    () => typeof window !== "undefined" ? getSessionNotifOverride(session.id) : null
+  );
+  useEffect(() => {
+    setSessionNotifOverrideState(getSessionNotifOverride(session.id));
+  }, [session.id]);
+
+  const toggleSessionNotif = useCallback((key: keyof NotifSettings) => {
+    setSessionNotifOverrideState(prev => {
+      const effective = prev ?? getEffectiveNotifSettings(session.id);
+      const next = { ...effective, [key]: !effective[key] };
+      setSessionNotifOverride(session.id, next);
+      return next;
+    });
+  }, [session.id]);
+
+  const clearSessionNotifOverride = useCallback(() => {
+    setSessionNotifOverride(session.id, null);
+    setSessionNotifOverrideState(null);
+  }, [session.id]);
+
+  const effectiveNotif = sessionNotifOverride ?? getEffectiveNotifSettings(session.id);
+
   const handleFileLink = useCallback((link: FileLink) => {
     setFileViewerLink(link);
   }, []);
@@ -145,13 +184,14 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
     setFileViewerLink(null);
   }, []);
 
-  const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number }) => {
+  const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number; bps1?: number; bps5?: number; bps15?: number }) => {
     setSessionActive(update.isActive);
     setTotalBytes(update.totalBytes);
     if (update.isActive) {
       setLastActiveTime(Date.now());
     }
-  }, []);
+    smartNotifUpdate(update);
+  }, [smartNotifUpdate]);
 
   // Idle time ticker
   useEffect(() => {
@@ -378,6 +418,46 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
                       </div>
                     </>
                   )}
+
+                  {/* Smart notification toggles (per-session override) */}
+                  <div className="border-t border-[#2d2d44] my-1.5" />
+                  <div className="text-[#e2e8f0] font-semibold text-xs mb-1.5 flex items-center gap-1.5">
+                    <Bell className="w-3 h-3 text-[#64748b]" />
+                    Smart Notifications
+                    {sessionNotifOverride && (
+                      <button
+                        className="text-[10px] text-[#64748b] hover:text-[#94a3b8] ml-auto"
+                        onClick={clearSessionNotifOverride}
+                        onMouseDown={e => e.preventDefault()}
+                      >
+                        reset
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-1">
+                    <span className="flex items-center gap-1.5 text-[#94a3b8]">
+                      <Activity className="w-3 h-3 text-[#64748b]" />
+                      Activity stopped
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="toggle toggle-xs toggle-primary"
+                      checked={effectiveNotif.activityStopped}
+                      onChange={() => toggleSessionNotif("activityStopped")}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-1">
+                    <span className="flex items-center gap-1.5 text-[#94a3b8]">
+                      <Zap className="w-3 h-3 text-[#64748b]" />
+                      Activity spiked
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="toggle toggle-xs toggle-primary"
+                      checked={effectiveNotif.activitySpiked}
+                      onChange={() => toggleSessionNotif("activitySpiked")}
+                    />
+                  </div>
                 </div>
               </div>
             )}

@@ -7,7 +7,7 @@ import type { Session } from "../../shared/types";
 import { groupByCwd, sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { useSessionEvents } from "../hooks/use-session-events";
 import { useTimeAgo } from "../hooks/use-time-ago";
-import { ArrowDown, ArrowUp, Maximize, Minimize, LayoutGrid } from "lucide-react";
+import { ArrowDown, ArrowUp, Maximize, Minimize, LayoutGrid, Settings } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -380,6 +380,16 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
         {/* Layout switcher — desktop only */}
         {sessions.length > 0 && <LayoutSwitcher />}
+
+        {/* Settings */}
+        <button
+          className="flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
+          onClick={() => navigate("/settings")}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
 
         {/* Fullscreen toggle */}
         <button
