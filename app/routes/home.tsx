@@ -463,7 +463,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 </code>
                 <span className="text-xs text-[#64748b]">
                   {runningCount > 0 && (
-                    <span className="text-[#22c55e] mr-1">{runningCount} running</span>
+                    <span className="text-[#94a3b8] mr-1">{runningCount} running</span>
                   )}
                   {group.sessions.length - runningCount > 0 && (
                     <span>{group.sessions.length - runningCount} exited</span>

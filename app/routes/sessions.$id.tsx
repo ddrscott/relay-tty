@@ -791,7 +791,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-[#64748b]">Status</span>
-                  <span className={session.status === "running" ? "text-[#22c55e]" : "text-[#64748b]"}>
+                  <span className={session.status === "running" ? "text-[#94a3b8]" : "text-[#64748b]"}>
                     {session.status}
                   </span>
                 </div>
