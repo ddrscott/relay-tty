@@ -364,15 +364,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        {/* Gallery button — mobile only (LayoutSwitcher handles desktop) */}
+        {/* Grid button — mobile only (LayoutSwitcher handles desktop) */}
         {sessions.length > 0 && (
           <button
             className="lg:hidden flex items-center p-1.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors border border-[#2d2d44] rounded-lg"
             onClick={() => navigate("/grid")}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
-            aria-label="Gallery view"
-            title="Gallery"
+            aria-label="Grid view"
+            title="Grid"
           >
             <LayoutGrid className="w-4 h-4" />
           </button>

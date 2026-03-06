@@ -125,7 +125,7 @@ export class WsHandler {
       return;
     }
 
-    // Event stream for session list changes (gallery views)
+    // Event stream for session list changes (used by all views for revalidation)
     if (url.pathname === "/ws/events") {
       this.wss.handleUpgrade(req, socket, head, (ws) => {
         this.initKeepAlive(ws);
