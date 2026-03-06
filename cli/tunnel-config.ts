@@ -13,6 +13,7 @@ export interface TunnelConfig {
   api_key: string;
   slug: string;
   url: string;
+  jwt_secret?: string;
 }
 
 /** Read saved tunnel config, or null if not yet set up. */
@@ -41,6 +42,27 @@ export function getMachineId(): string {
     fs.writeFileSync(MACHINE_ID_FILE, id + "\n");
     return id;
   }
+}
+
+/**
+ * Get or create a JWT secret for tunnel auth.
+ * Reads from env, then tunnel config. If neither exists, generates one and saves it.
+ */
+export function getOrCreateJwtSecret(): string {
+  // 1. Explicit env var takes precedence
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+
+  // 2. Check tunnel config
+  const config = readTunnelConfig();
+  if (config?.jwt_secret) return config.jwt_secret;
+
+  // 3. Generate a new secret and save it
+  const secret = crypto.randomBytes(32).toString("base64url");
+  if (config) {
+    config.jwt_secret = secret;
+    writeTunnelConfig(config);
+  }
+  return secret;
 }
 
 /**

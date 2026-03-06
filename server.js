@@ -63,7 +63,7 @@ async function loadModules(load) {
     appUrl: APP_URL,
   });
 
-  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken };
+  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken };
 }
 
 async function start() {
@@ -84,7 +84,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken, verifyAccessToken: modules.verifyAccessToken };
         },
       })
     );
@@ -110,7 +110,7 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, generateToken: modules.generateToken, verifyAccessToken: modules.verifyAccessToken };
         },
       })
     );

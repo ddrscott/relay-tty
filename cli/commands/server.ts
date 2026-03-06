@@ -6,6 +6,50 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dim, cyan, boldGreen } from "../../server/log.js";
 
+/**
+ * Parse a human-readable duration string into seconds.
+ * Supports: 30s, 5m, 2h, 7d, 1y, or raw seconds.
+ */
+function parseDuration(input: string): number {
+  const match = input.match(/^(\d+)\s*([smhdy]?)$/i);
+  if (!match) {
+    const n = parseInt(input, 10);
+    if (isNaN(n) || n <= 0) throw new Error(`Invalid duration: ${input}`);
+    return n;
+  }
+  const value = parseInt(match[1], 10);
+  const unit = (match[2] || "s").toLowerCase();
+  switch (unit) {
+    case "s": return value;
+    case "m": return value * 60;
+    case "h": return value * 3600;
+    case "d": return value * 86400;
+    case "y": return value * 365 * 86400;
+    default: return value;
+  }
+}
+
+/** Format a TTL in seconds to a human-readable string. */
+function formatTtl(seconds: number): string {
+  if (seconds >= 365 * 86400) {
+    const years = Math.round(seconds / (365 * 86400));
+    return `${years}y`;
+  }
+  if (seconds >= 86400) {
+    const days = Math.round(seconds / 86400);
+    return `${days}d`;
+  }
+  if (seconds >= 3600) {
+    const hours = Math.round(seconds / 3600);
+    return `${hours}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
 /** Bind to port 0 in the high range, return the OS-assigned port. */
 function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -33,6 +77,7 @@ export function registerServerCommand(program: Command) {
     .description("start the server in the foreground")
     .option("-p, --port <port>", "port to listen on", "7680")
     .option("--tunnel", "expose server via relaytty.com tunnel")
+    .option("--token-ttl <duration>", "auth token lifetime (e.g., 7d, 30d, 1y; default: 1y)")
     .action(async (opts, cmd) => {
       // When --tunnel is used and the user didn't explicitly set a port,
       // pick a random available port so we don't clash with a normal server.
@@ -49,13 +94,25 @@ export function registerServerCommand(program: Command) {
       // dist/cli/commands/ → three levels up to project root
       const serverPath = join(__dirname, "..", "..", "..", "server.js");
 
+      // In tunnel mode, auto-generate JWT_SECRET if not set
+      const env: Record<string, string> = {
+        ...process.env as Record<string, string>,
+        PORT: port,
+        NODE_ENV: "production",
+      };
+
+      if (opts.tunnel && !env.JWT_SECRET) {
+        const { getOrCreateJwtSecret } = await import("../tunnel-config.js");
+        const secret = getOrCreateJwtSecret();
+        env.JWT_SECRET = secret;
+        // Also set in current process so auth.js module (loaded for token generation) uses the same secret
+        process.env.JWT_SECRET = secret;
+        console.log(dim("Auto-generated JWT secret for tunnel auth"));
+      }
+
       const child = spawn("node", [serverPath], {
         stdio: "inherit",
-        env: {
-          ...process.env,
-          PORT: port,
-          NODE_ENV: "production",
-        },
+        env,
       });
 
       child.on("exit", (code) => {
@@ -69,7 +126,8 @@ export function registerServerCommand(program: Command) {
 
       // Start tunnel if requested
       if (opts.tunnel) {
-        await startTunnel(parseInt(port, 10));
+        const tokenTtl = opts.tokenTtl ? parseDuration(opts.tokenTtl) : 365 * 86400; // default 1 year
+        await startTunnel(parseInt(port, 10), tokenTtl);
       }
     });
 
@@ -130,7 +188,7 @@ export function registerServerCommand(program: Command) {
     });
 }
 
-async function startTunnel(port: number): Promise<void> {
+async function startTunnel(port: number, tokenTtlSeconds: number): Promise<void> {
   const {
     readTunnelConfig,
     setupTunnel,
@@ -151,20 +209,28 @@ async function startTunnel(port: number): Promise<void> {
     localPort: port,
     onConnected: async (url) => {
       console.log(`\n  ${boldGreen("Tunnel active")}: ${cyan(url)}\n`);
-      // Try to show QR code with auth token
+      // Generate auth token and show QR code
       try {
-        const qrcode = await import("qrcode-terminal");
         const { generateAccessToken } = await import("../../server/auth.js");
-        const token = generateAccessToken(86400); // 24h
-        const qrUrl = token ? `${url}/api/auth/callback?token=${token}` : url;
+        const token = generateAccessToken(tokenTtlSeconds);
         if (token) {
-          console.log(dim("Scan to authenticate (24h):"));
+          const authUrl = `${url}/api/auth/callback?token=${token}`;
+          const ttlLabel = formatTtl(tokenTtlSeconds);
+          console.log(`  ${dim(`Auth URL (${ttlLabel}):`)} ${cyan(authUrl)}\n`);
+          try {
+            const qrcode = await import("qrcode-terminal");
+            console.log(dim(`  Scan to authenticate (${ttlLabel}):`));
+            qrcode.default.generate(authUrl, { small: true }, (qr: string) => {
+              process.stderr.write(qr + "\n");
+            });
+          } catch {
+            // qrcode-terminal not installed, skip
+          }
+        } else {
+          console.log(`  ${dim("Warning: could not generate auth token (JWT_SECRET not set)")}`);
         }
-        qrcode.default.generate(qrUrl, { small: true }, (qr: string) => {
-          process.stderr.write(qr + "\n");
-        });
       } catch {
-        // qrcode-terminal not installed, skip
+        // auth module not available
       }
     },
     onDisconnected: () => {

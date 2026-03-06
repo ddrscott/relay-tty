@@ -105,6 +105,14 @@ export function generateAccessToken(ttlSeconds = 86400): string | null {
 }
 
 /**
+ * Verify an access token. Returns true if valid, false otherwise.
+ * Used by the auth callback to validate incoming tokens before setting cookies.
+ */
+export function verifyAccessToken(token: string): boolean {
+  return verifyJwt(token) !== null;
+}
+
+/**
  * Generate a short-lived, read-only share token for a session.
  */
 export function generateShareToken(sessionId: string, ttlSeconds = 3600): string | null {
