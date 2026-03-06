@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 10_000;
@@ -9,10 +9,12 @@ const FALLBACK_POLL_MS = 10_000;
  * On "sessions-changed" messages, calls the provided `revalidate` callback.
  *
  * Falls back to 10s polling if the WebSocket stays disconnected.
+ * Returns the number of consecutive reconnect attempts (0 = connected).
  */
-export function useSessionEvents(revalidate: () => void): void {
+export function useSessionEvents(revalidate: () => void): { retryCount: number } {
   const revalidateRef = useRef(revalidate);
   revalidateRef.current = revalidate;
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -43,6 +45,7 @@ export function useSessionEvents(revalidate: () => void): void {
 
       ws.onopen = () => {
         reconnectDelay = RECONNECT_BASE_MS;
+        setRetryCount(0);
         stopFallbackPolling();
       };
 
@@ -55,6 +58,7 @@ export function useSessionEvents(revalidate: () => void): void {
       ws.onclose = () => {
         ws = null;
         if (disposed) return;
+        setRetryCount(c => c + 1);
         startFallbackPolling();
         reconnectTimer = setTimeout(() => {
           reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
@@ -79,4 +83,6 @@ export function useSessionEvents(revalidate: () => void): void {
       }
     };
   }, []);
+
+  return { retryCount };
 }

@@ -268,7 +268,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     }
   }, [isDesktop, sessions, sortedSessions, previewSessionId]);
 
-  useSessionEvents(revalidate);
+  const { retryCount: eventsRetryCount } = useSessionEvents(revalidate);
 
   const createSession = useCallback(
     async (command: string) => {
@@ -404,6 +404,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     </div>
   );
 
+  // Connection warning banner
+  const connectionBanner = eventsRetryCount >= 3 ? (
+    <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-warning/10 border border-warning/20 text-warning text-xs font-mono">
+      <span className="loading loading-spinner loading-xs" />
+      <span>Connection lost — retrying{eventsRetryCount > 5 ? ` (attempt ${eventsRetryCount})` : ""}...</span>
+    </div>
+  ) : null;
+
   // Session list content — used in both mobile and desktop sidebar
   const sessionList = (
     <div className="flex flex-col gap-4">
@@ -463,6 +471,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     return (
       <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
         {headerBar}
+        {connectionBanner}
 
         {sessions.length === 0 ? (
           <div className="text-center py-16">
@@ -510,6 +519,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return (
     <main className="h-screen bg-[#0a0a0f] overflow-auto container mx-auto p-4 max-w-2xl">
       {headerBar}
+      {connectionBanner}
 
       {sessions.length === 0 ? (
         <div className="text-center py-16">

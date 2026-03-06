@@ -106,6 +106,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const fitAddonRef = useRef<any>(null);
   const webglRef = useRef<any>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [retryCount, setRetryCount] = useState(0);
   const [contentReady, setContentReady] = useState(false);
   // True during buffer replay — suppresses onData forwarding so xterm's
   // CPR/DA responses to replayed DSR queries don't leak to the PTY as stdin.
@@ -660,6 +661,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       ws.onopen = () => {
         if (disposed) return;
         retryDelay = 1000;
+        setRetryCount(0);
         setStatus("connected");
 
         // RESUME must be sent before RESIZE to arrive within the 100ms handshake window
@@ -925,6 +927,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     function scheduleReconnect(term: any) {
       if (disposed) return;
+      setRetryCount(c => c + 1);
       retryTimer = setTimeout(() => {
         retryTimer = null;
         connect(term);
@@ -1022,5 +1025,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, status, contentReady, fit, sendBinary, replayingRef };
+  return { termRef, wsRef, fitAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef };
 }
