@@ -149,10 +149,15 @@ export class TunnelClient {
         if (key.startsWith("cf-")) headers.delete(key);
       }
 
+      // Use redirect: "manual" so redirects (e.g. auth callback 302 with
+      // Set-Cookie) are passed through the tunnel to the browser intact,
+      // rather than being followed locally (which loses Set-Cookie headers
+      // and returns the final page instead of the redirect).
       const res = await fetch(localUrl, {
         method: req.method,
         headers,
         body: req.method !== "GET" && req.method !== "HEAD" ? body : undefined,
+        redirect: "manual",
       });
 
       // Serialize response
