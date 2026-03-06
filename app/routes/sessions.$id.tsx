@@ -7,6 +7,7 @@ import { Terminal } from "../components/terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
+import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import {
   ArrowLeft,
   Bell,
@@ -874,6 +875,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <span className="truncate">{notifToast}</span>
           </div>
         )}
+
+        {/* iOS Safari: guide user to add to Home Screen for notifications */}
+        <IOSHomeScreenBanner />
 
         {/* Text viewer overlay — selectable DOM text for mobile copy */}
         {textViewerOpen && (
