@@ -313,7 +313,7 @@ export function SidebarDrawer({
                     <div key={group.cwd}>
                       {!isSingleGroup && (
                         <button
-                          className="w-full flex items-center gap-2 px-1 mb-2 text-left hover:bg-[#0f0f1a] rounded transition-colors"
+                          className="w-full flex items-center gap-2 py-1.5 -mx-3 px-4 mb-1 text-left hover:bg-[#0f0f1a] transition-colors sticky top-0 z-10 bg-[#0a0a0f]"
                           onClick={() => toggleGroup(group.cwd)}
                         >
                           <span className={`text-xs text-[#64748b] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
