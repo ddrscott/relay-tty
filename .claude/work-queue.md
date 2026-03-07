@@ -12,6 +12,7 @@
 - [x] Move reconnecting spinner to a small corner indicator — don't block terminal scrollback ([detail](work-queue/reconnect-indicator.md))
 - [x] Smart notification triggers — "activity stopped" and "activity spiked" toggles with settings UI ([detail](work-queue/smart-notifications.md))
 - [x] Tone down "X running" label in session view — use muted color instead of bright green to avoid competing with data stats
+- [x] Unify loading spinners — replace white center spinner with the lower-right reconnecting pill, use context-appropriate messages (loading, reconnecting, etc.)
 - ~[ ] Add footer bar to gallery cells~ *(rejected — gallery removed)*
 - ~[ ] Enable desktop grid gallery view on mobile~ *(rejected — gallery removed)*
 
