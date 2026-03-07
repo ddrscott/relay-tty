@@ -14,6 +14,7 @@ import {
   Bell,
   Activity,
   Zap,
+  Power,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import {
@@ -458,6 +459,26 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
                       onChange={() => toggleSessionNotif("activitySpiked")}
                     />
                   </div>
+
+                  {/* Close session */}
+                  {session.status === "running" && (
+                    <>
+                      <div className="border-t border-[#2d2d44] my-1.5" />
+                      <button
+                        className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
+                        onMouseDown={(e) => e.preventDefault()}
+                        tabIndex={-1}
+                        onClick={async () => {
+                          if (!confirm("Kill this session?")) return;
+                          await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
+                          onClose();
+                        }}
+                      >
+                        <Power className="w-3 h-3" />
+                        <span>Close session</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

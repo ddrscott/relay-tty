@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
-import { Link, useRevalidator } from "react-router";
+import { Link, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
@@ -27,6 +27,7 @@ import {
   CornerDownLeft,
   X,
   Zap,
+  Power,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import {
@@ -96,6 +97,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     hostname: string;
   };
   const { revalidate } = useRevalidator();
+  const navigate = useNavigate();
   const terminalRef = useRef<TerminalHandle>(null);
 
   // ── State-based session switching for keep-alive ──
@@ -894,6 +896,26 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                   <Settings className="w-3 h-3" />
                   <span>Global settings</span>
                 </Link>
+
+                {/* Close session */}
+                {session.status === "running" && (
+                  <>
+                    <div className="border-t border-[#2d2d44] my-1.5" />
+                    <button
+                      className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
+                      onMouseDown={(e) => e.preventDefault()}
+                      tabIndex={-1}
+                      onClick={async () => {
+                        if (!confirm("Kill this session?")) return;
+                        await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
+                        navigate("/");
+                      }}
+                    >
+                      <Power className="w-3 h-3" />
+                      <span>Close session</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
