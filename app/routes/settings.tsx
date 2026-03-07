@@ -113,6 +113,10 @@ export default function Settings() {
                 className="w-full bg-[#0a0a0f] border border-[#2d2d44] rounded-lg px-3 py-2 text-sm font-mono text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:border-[#3d3d5c] resize-none"
                 rows={5}
                 placeholder={"htop\nnpm run dev\npython3 -m http.server"}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 value={commandsText}
                 onChange={(e) => {
                   setCommandsText(e.target.value);
