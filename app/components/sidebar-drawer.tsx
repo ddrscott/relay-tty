@@ -212,7 +212,6 @@ export function SidebarDrawer({
                 tabIndex={0}
                 className="btn btn-sm btn-ghost text-xs text-[#64748b] hover:text-[#e2e8f0] gap-1"
                 disabled={creating}
-                onMouseDown={(e) => e.preventDefault()}
               >
                 + New
               </button>
@@ -244,7 +243,6 @@ export function SidebarDrawer({
                 <button
                   tabIndex={0}
                   className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
-                  onMouseDown={(e) => e.preventDefault()}
                 >
                   {sortDir === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
                   {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
