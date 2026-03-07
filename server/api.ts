@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import { generateShareToken } from "./auth.js";
@@ -9,6 +10,21 @@ import type {
   CreateSessionResponse,
   SessionListResponse,
 } from "../shared/types.js";
+
+const COMMANDS_FILE = path.join(os.homedir(), ".relay-tty", "commands.txt");
+
+/** Read custom commands from ~/.relay-tty/commands.txt, one per line. */
+export function readCustomCommands(): string[] {
+  try {
+    const raw = fs.readFileSync(COMMANDS_FILE, "utf-8");
+    return raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+  } catch {
+    return [];
+  }
+}
 
 /** Map file extensions to MIME types for the file viewer API */
 const MIME_TYPES: Record<string, string> = {
@@ -240,6 +256,24 @@ export function createApiRouter(
         res.status(500).json({ error: "Failed to read file" });
       }
     });
+  });
+
+  // GET /api/commands — list custom commands
+  router.get("/commands", (_req, res) => {
+    res.json({ commands: readCustomCommands() });
+  });
+
+  // PUT /api/commands — overwrite commands.txt
+  router.put("/commands", (req, res) => {
+    const { commands } = req.body as { commands: string[] };
+    if (!Array.isArray(commands)) {
+      res.status(400).json({ error: "commands must be an array of strings" });
+      return;
+    }
+    const content = commands.filter((c) => typeof c === "string" && c.trim()).join("\n") + "\n";
+    fs.mkdirSync(path.dirname(COMMANDS_FILE), { recursive: true });
+    fs.writeFileSync(COMMANDS_FILE, content);
+    res.json({ ok: true, commands: readCustomCommands() });
   });
 
   return router;

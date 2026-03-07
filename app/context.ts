@@ -5,5 +5,6 @@ declare module "react-router" {
     sessionStore: SessionStore;
     version: string;
     hostname: string;
+    readCustomCommands?: () => string[];
   }
 }

@@ -23,7 +23,8 @@ export const links: Route.LinksFunction = () => [
 
 export async function loader({ context }: Route.LoaderArgs) {
   const sessions = context.sessionStore.list();
-  return { sessions, version: context.version, hostname: context.hostname };
+  const customCommands: string[] = context.readCustomCommands ? context.readCustomCommands() : [];
+  return { sessions, version: context.version, hostname: context.hostname, customCommands };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -51,15 +52,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
-  const { sessions, hostname } = loaderData as {
+  const { sessions, hostname, customCommands } = loaderData as {
     sessions: any[];
     hostname: string;
+    customCommands: string[];
   };
   const { revalidate } = useRevalidator();
   useSessionEvents(revalidate);
 
   return (
-    <SidebarDrawer sessions={sessions} hostname={hostname}>
+    <SidebarDrawer sessions={sessions} hostname={hostname} customCommands={customCommands}>
       <Outlet />
     </SidebarDrawer>
   );

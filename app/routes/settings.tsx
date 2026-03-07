@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { Bell, BellOff, Activity, Zap, Menu } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { useRevalidator } from "react-router";
+import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check } from "lucide-react";
 import {
   getGlobalNotifSettings,
   setGlobalNotifSettings,
@@ -14,13 +15,27 @@ export function meta() {
 }
 
 export default function Settings() {
+  const { revalidate } = useRevalidator();
   const [settings, setSettings] = useState<NotifSettings>({
     activityStopped: false,
     activitySpiked: false,
   });
 
+  // Custom commands state
+  const [commandsText, setCommandsText] = useState("");
+  const [commandsSaved, setCommandsSaved] = useState(false);
+  const [commandsLoading, setCommandsLoading] = useState(true);
+
   useEffect(() => {
     setSettings(getGlobalNotifSettings());
+    // Load custom commands from server
+    fetch("/api/commands")
+      .then((r) => r.json())
+      .then(({ commands }) => {
+        setCommandsText(commands.join("\n"));
+        setCommandsLoading(false);
+      })
+      .catch(() => setCommandsLoading(false));
   }, []);
 
   function toggle(key: keyof NotifSettings) {
@@ -30,6 +45,21 @@ export default function Settings() {
       return next;
     });
   }
+
+  const saveCommands = useCallback(async () => {
+    const commands = commandsText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    await fetch("/api/commands", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+    });
+    setCommandsSaved(true);
+    revalidate(); // refresh sidebar
+    setTimeout(() => setCommandsSaved(false), 2000);
+  }, [commandsText, revalidate]);
 
   const notifPermission =
     typeof Notification !== "undefined" ? Notification.permission : "unsupported";
@@ -49,6 +79,49 @@ export default function Settings() {
           </label>
           <h1 className="text-xl font-bold font-mono text-[#e2e8f0]">Settings</h1>
         </div>
+
+        {/* Custom Commands section */}
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-[#64748b]" />
+            Quick Launch Commands
+          </h2>
+          <p className="text-xs font-mono text-[#64748b] mb-3">
+            Custom commands shown in the new session menu. One command per line.
+          </p>
+
+          {commandsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <span className="loading loading-spinner loading-sm text-[#64748b]" />
+            </div>
+          ) : (
+            <>
+              <textarea
+                className="w-full bg-[#0a0a0f] border border-[#2d2d44] rounded-lg px-3 py-2 text-sm font-mono text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:border-[#3d3d5c] resize-none"
+                rows={5}
+                placeholder={"htop\nnpm run dev\npython3 -m http.server"}
+                value={commandsText}
+                onChange={(e) => {
+                  setCommandsText(e.target.value);
+                  setCommandsSaved(false);
+                }}
+              />
+              <div className="flex items-center justify-end gap-2 mt-2">
+                {commandsSaved && (
+                  <span className="text-xs font-mono text-[#22c55e] flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Saved
+                  </span>
+                )}
+                <button
+                  className="btn btn-sm btn-primary font-mono text-xs"
+                  onClick={saveCommands}
+                >
+                  Save
+                </button>
+              </div>
+            </>
+          )}
+        </section>
 
         {/* Notifications section */}
         <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4">

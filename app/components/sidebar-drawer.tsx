@@ -102,10 +102,12 @@ function SidebarSessionItem({
 export function SidebarDrawer({
   sessions,
   hostname,
+  customCommands,
   children,
 }: {
   sessions: Session[];
   hostname: string;
+  customCommands: string[];
   children: React.ReactNode;
 }) {
   const navigate = useNavigate();
@@ -217,7 +219,7 @@ export function SidebarDrawer({
               </button>
               <ul
                 tabIndex={0}
-                className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-[60] w-44 p-1 shadow-lg"
+                className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-[60] w-56 p-1 shadow-lg max-h-64 overflow-y-auto"
               >
                 {SHELL_OPTIONS.map((opt) => (
                   <li key={opt.command}>
@@ -232,6 +234,25 @@ export function SidebarDrawer({
                     </button>
                   </li>
                 ))}
+                {customCommands.length > 0 && (
+                  <>
+                    <div className="border-t border-[#2d2d44] my-1" />
+                    {customCommands.map((cmd) => (
+                      <li key={cmd}>
+                        <button
+                          className="font-mono text-sm text-[#e2e8f0] hover:bg-[#0f0f1a] truncate"
+                          onClick={() => {
+                            (document.activeElement as HTMLElement)?.blur();
+                            createSession(cmd);
+                          }}
+                          title={cmd}
+                        >
+                          {cmd}
+                        </button>
+                      </li>
+                    ))}
+                  </>
+                )}
               </ul>
             </div>
 
