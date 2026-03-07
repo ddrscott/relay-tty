@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, Settings } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, Settings } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
@@ -158,6 +158,14 @@ export function SidebarDrawer({
     });
   }, []);
 
+  const allCollapsed = !isSingleGroup && groups.length > 0 && groups.every((g) => collapsed.has(g.cwd));
+  const toggleAll = useCallback(() => {
+    setCollapsed((prev) => {
+      if (groups.every((g) => prev.has(g.cwd))) return new Set();
+      return new Set(groups.map((g) => g.cwd));
+    });
+  }, [groups]);
+
   const setSort = useCallback((key: SortKey) => {
     if (key === sortKey) {
       const newDir = sortDir === "desc" ? "asc" : "desc";
@@ -260,6 +268,19 @@ export function SidebarDrawer({
             </div>
 
             <div className="flex-1" />
+
+            {/* Collapse/expand all */}
+            {!isSingleGroup && (
+              <button
+                className="flex items-center text-[#64748b] hover:text-[#e2e8f0] transition-colors p-1 rounded-lg"
+                onClick={toggleAll}
+                title={allCollapsed ? "Expand all" : "Collapse all"}
+              >
+                {allCollapsed
+                  ? <ChevronsUpDown className="w-3.5 h-3.5" />
+                  : <ChevronsDownUp className="w-3.5 h-3.5" />}
+              </button>
+            )}
 
             {/* Sort dropdown */}
             {sessions.length > 1 && (

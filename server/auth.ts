@@ -33,6 +33,10 @@ function isLocalhost(req: Request): boolean {
   // its presence means this "localhost" request is actually remote.
   if (req.headers["cf-connecting-ip"]) return false;
 
+  // Custom tunnel client (v1.9+) injects this header so auth is enforced.
+  // Older tunnel clients omit it and keep the localhost bypass (slug-only security).
+  if (req.headers["x-relay-tunnel"]) return false;
+
   return true;
 }
 
@@ -216,7 +220,8 @@ export function verifyWsAuth(req: { headers: Record<string, string | string[] | 
 
   // Same CF tunnel detection as authMiddleware
   const isCfTunnel = isLocal && !!req.headers["cf-connecting-ip"];
-  if (isLocal && !isCfTunnel) return true;
+  const isRelayTunnel = isLocal && !!req.headers["x-relay-tunnel"];
+  if (isLocal && !isCfTunnel && !isRelayTunnel) return true;
   if (!JWT_SECRET) return true;
 
   const cookieHeader = req.headers.cookie;
