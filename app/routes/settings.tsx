@@ -24,18 +24,25 @@ export default function Settings() {
   // Custom commands state
   const [commandsText, setCommandsText] = useState("");
   const [commandsSaved, setCommandsSaved] = useState(false);
+  const [commandsError, setCommandsError] = useState<string | null>(null);
   const [commandsLoading, setCommandsLoading] = useState(true);
 
   useEffect(() => {
     setSettings(getGlobalNotifSettings());
     // Load custom commands from server
     fetch("/api/commands")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(({ commands }) => {
         setCommandsText(commands.join("\n"));
         setCommandsLoading(false);
       })
-      .catch(() => setCommandsLoading(false));
+      .catch((err) => {
+        setCommandsError(`Failed to load commands: ${err.message}`);
+        setCommandsLoading(false);
+      });
   }, []);
 
   function toggle(key: keyof NotifSettings) {
@@ -47,18 +54,24 @@ export default function Settings() {
   }
 
   const saveCommands = useCallback(async () => {
-    const commands = commandsText
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#"));
-    await fetch("/api/commands", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ commands }),
-    });
-    setCommandsSaved(true);
-    revalidate(); // refresh sidebar
-    setTimeout(() => setCommandsSaved(false), 2000);
+    setCommandsError(null);
+    try {
+      const commands = commandsText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("#"));
+      const res = await fetch("/api/commands", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commands }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCommandsSaved(true);
+      revalidate(); // refresh sidebar
+      setTimeout(() => setCommandsSaved(false), 2000);
+    } catch (err: any) {
+      setCommandsError(`Failed to save: ${err.message}`);
+    }
   }, [commandsText, revalidate]);
 
   const notifPermission =
@@ -106,6 +119,11 @@ export default function Settings() {
                   setCommandsSaved(false);
                 }}
               />
+              {commandsError && (
+                <div className="mt-2 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#ef4444]/30 text-xs font-mono text-[#ef4444]">
+                  {commandsError}
+                </div>
+              )}
               <div className="flex items-center justify-end gap-2 mt-2">
                 {commandsSaved && (
                   <span className="text-xs font-mono text-[#22c55e] flex items-center gap-1">
