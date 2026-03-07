@@ -5,8 +5,11 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  useRevalidator,
 } from "react-router";
 import type { Route } from "./+types/root";
+import { SidebarDrawer } from "./components/sidebar-drawer";
+import { useSessionEvents } from "./hooks/use-session-events";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -17,6 +20,11 @@ export const links: Route.LinksFunction = () => [
   { rel: "manifest", href: "/manifest.webmanifest" },
   { rel: "apple-touch-icon", href: "/icon-192.svg" },
 ];
+
+export async function loader({ context }: Route.LoaderArgs) {
+  const sessions = context.sessionStore.list();
+  return { sessions, version: context.version, hostname: context.hostname };
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -42,8 +50,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
-  return <Outlet />;
+export default function App({ loaderData }: Route.ComponentProps) {
+  const { sessions, hostname } = loaderData as {
+    sessions: any[];
+    hostname: string;
+  };
+  const { revalidate } = useRevalidator();
+  useSessionEvents(revalidate);
+
+  return (
+    <SidebarDrawer sessions={sessions} hostname={hostname}>
+      <Outlet />
+    </SidebarDrawer>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

@@ -3,9 +3,7 @@ import { useRevalidator } from "react-router";
 import type { Route } from "./+types/lanes";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
-import { useSessionEvents } from "../hooks/use-session-events";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize } from "lucide-react";
-import { LayoutSwitcher } from "../components/layout-switcher";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -402,8 +400,6 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     window.history.replaceState({}, "", url.toString());
   }, [modalSessionId]);
 
-  useSessionEvents(revalidate);
-
   const createSession = useCallback(
     async (command: string) => {
       if (creating) return;
@@ -520,12 +516,22 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   return (
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
       <div className="flex items-center justify-between mb-4 shrink-0 w-full">
-        <h1 className="text-2xl font-bold font-mono text-[#64748b]">
-          relay-tty
-          {hostname && (
-            <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>
-          )}
-        </h1>
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="sidebar-drawer"
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer lg:hidden"
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+          >
+            <Menu className="w-5 h-5" />
+          </label>
+          <h1 className="text-2xl font-bold font-mono text-[#64748b]">
+            Lanes
+            {hostname && (
+              <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>
+            )}
+          </h1>
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-[#64748b]">
             {sessions.length} session{sessions.length !== 1 ? "s" : ""}
@@ -639,9 +645,6 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
               <Plus className="w-3 h-3" />
             </button>
           </div>
-
-          {/* Layout switcher — desktop only */}
-          {sessions.length > 0 && <LayoutSwitcher />}
 
           {/* Fullscreen toggle */}
           <button

@@ -16,7 +16,7 @@ export function LayoutSwitcher() {
   const navigate = useNavigate();
 
   return (
-    <div className="hidden lg:flex items-center gap-1 border border-[#2d2d44] rounded-lg p-0.5">
+    <div className="flex items-center gap-1 border border-[#2d2d44] rounded-lg p-0.5">
       {LAYOUTS.map(({ icon: Icon, title, path }) => {
         const active = location.pathname === path;
         return (

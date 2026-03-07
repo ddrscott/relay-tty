@@ -9,7 +9,7 @@ import { groupByCwd } from "../lib/session-groups";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import {
-  ArrowLeft,
+  Menu,
   Activity,
   Bell,
   BellOff,
@@ -641,9 +641,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-2 bg-[#0f0f1a] border-b border-[#1e1e2e]">
-        <Link to="/" className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
+        <label
+          htmlFor="sidebar-drawer"
+          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+        >
+          <Menu className="w-4 h-4" />
+        </label>
 
         {/* Hostname badge */}
         {hostname && (
@@ -1045,9 +1050,13 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                   {exitCode}
                 </code>
               </p>
-              <Link to="/" className="btn btn-primary btn-sm">
+              <label
+                htmlFor="sidebar-drawer"
+                className="btn btn-primary btn-sm cursor-pointer"
+                onMouseDown={(e) => e.preventDefault()}
+              >
                 Back to sessions
-              </Link>
+              </label>
             </div>
           </div>
         )}

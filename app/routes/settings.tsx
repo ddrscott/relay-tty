@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router";
-import { ArrowLeft, Bell, BellOff, Activity, Zap } from "lucide-react";
+import { Bell, BellOff, Activity, Zap, Menu } from "lucide-react";
 import {
   getGlobalNotifSettings,
   setGlobalNotifSettings,
@@ -20,7 +19,6 @@ export default function Settings() {
     activitySpiked: false,
   });
 
-  // Load from localStorage on mount (client-side only)
   useEffect(() => {
     setSettings(getGlobalNotifSettings());
   }, []);
@@ -41,12 +39,14 @@ export default function Settings() {
       <div className="container mx-auto p-4 max-w-lg">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <Link
-            to="/"
-            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0]"
+          <label
+            htmlFor="sidebar-drawer"
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer lg:hidden"
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
           >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
+            <Menu className="w-4 h-4" />
+          </label>
           <h1 className="text-xl font-bold font-mono text-[#e2e8f0]">Settings</h1>
         </div>
 
@@ -108,7 +108,6 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* Info note */}
         <p className="text-xs font-mono text-[#64748b] mt-4 px-1">
           Both triggers are off by default and use your existing notification permissions. Per-session overrides can be set from the info panel in each session view.
         </p>
