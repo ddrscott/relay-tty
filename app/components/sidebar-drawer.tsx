@@ -297,14 +297,14 @@ export function SidebarDrawer({
           </div>
 
           {/* Session list */}
-          <div className="flex-1 overflow-y-auto px-3 py-2">
+          <div className="flex-1 overflow-y-auto">
             {sessions.length === 0 ? (
-              <div className="text-center py-8">
+              <div className="text-center py-8 px-3">
                 <p className="text-[#64748b] text-sm mb-2">No sessions</p>
                 <code className="text-xs text-[#94a3b8]">relay bash</code>
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col">
                 {groups.map((group) => {
                   const isCollapsed = collapsed.has(group.cwd);
                   const runningCount = group.sessions.filter((s) => s.status === "running").length;
@@ -313,7 +313,7 @@ export function SidebarDrawer({
                     <div key={group.cwd}>
                       {!isSingleGroup && (
                         <button
-                          className="w-full flex items-center gap-2 py-1.5 -mx-3 px-4 mb-1 text-left hover:bg-[#0f0f1a] transition-colors sticky top-0 z-10 bg-[#0a0a0f]"
+                          className="w-full flex items-center gap-2 py-1.5 px-3 text-left hover:bg-[#0f0f1a] transition-colors sticky top-0 z-10 bg-[#0a0a0f] border-b border-[#1e1e2e]"
                           onClick={() => toggleGroup(group.cwd)}
                         >
                           <span className={`text-xs text-[#64748b] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
@@ -331,7 +331,7 @@ export function SidebarDrawer({
                       )}
 
                       {!isCollapsed && (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2 px-3 py-2">
                           {group.sessions.map((session) => (
                             <SidebarSessionItem
                               key={session.id}
