@@ -197,13 +197,16 @@ export function SidebarDrawer({
         <label htmlFor="sidebar-drawer" aria-label="close sidebar" className="drawer-overlay" />
         <div className="w-72 bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full">
           {/* Header */}
-          <div className="px-3 py-3 border-b border-[#1e1e2e]">
+          <div className="px-3 py-3 border-b border-[#1e1e2e] flex items-center justify-between">
             <h1 className="font-mono text-[#64748b]">
               <span className="text-sm font-normal">rly</span>
               {hostname && (
                 <span className="text-sm font-normal text-[#94a3b8]">@{hostname}</span>
               )}
             </h1>
+            <div className="hidden lg:block">
+              <LayoutSwitcher />
+            </div>
           </div>
 
           {/* New session + sort controls */}
@@ -346,17 +349,10 @@ export function SidebarDrawer({
             )}
           </div>
 
-          {/* Divider */}
-          <div className="border-t border-[#1e1e2e]" />
-
-          {/* Bottom section: layout switcher + settings */}
-          <div className="px-3 py-3 flex flex-col gap-2">
-            {/* Layout switcher */}
-            <LayoutSwitcher />
-
-            {/* Settings */}
+          {/* Footer */}
+          <div className="px-3 py-2 border-t border-[#1e1e2e] flex items-center justify-end">
             <button
-              className="flex items-center gap-2 px-2 py-1.5 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors w-full"
+              className="p-1.5 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors"
               onClick={() => {
                 const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
                 if (checkbox) checkbox.checked = false;
@@ -364,22 +360,11 @@ export function SidebarDrawer({
               }}
               onMouseDown={(e) => e.preventDefault()}
               tabIndex={-1}
+              aria-label="Settings"
+              title="Settings"
             >
               <Settings className="w-4 h-4" />
-              Settings
             </button>
-          </div>
-
-          {/* Footer */}
-          <div className="px-3 py-2 border-t border-[#1e1e2e]">
-            <a
-              href="https://relaytty.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-[#64748b] hover:text-[#94a3b8] font-mono transition-colors"
-            >
-              relaytty.com
-            </a>
           </div>
         </div>
       </div>
