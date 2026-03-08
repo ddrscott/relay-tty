@@ -22,7 +22,7 @@ export interface TunnelClientOptions {
   apiKey: string;
   slug: string;
   localPort: number;
-  tunnelUrl?: string; // default: wss://relaytty.com/ws/tunnel
+  tunnelUrl?: string; // default: wss://relaytty.com/ws/tunnel (or RELAY_API env var)
   onConnected?: (url: string, isReconnect: boolean) => void;
   onDisconnected?: (code: number, reason: string) => void;
   onError?: (err: Error) => void;
@@ -62,8 +62,10 @@ export class TunnelClient {
   private connect(): void {
     if (this.stopped) return;
 
-    const tunnelUrl =
-      this.opts.tunnelUrl || "wss://relaytty.com/ws/tunnel";
+    const defaultTunnelUrl = process.env.RELAY_API
+      ? process.env.RELAY_API.replace(/^https?:/, "wss:") + "/ws/tunnel"
+      : "wss://relaytty.com/ws/tunnel";
+    const tunnelUrl = this.opts.tunnelUrl || defaultTunnelUrl;
     const url = `${tunnelUrl}?key=${encodeURIComponent(this.opts.apiKey)}`;
 
     const ws = new WebSocket(url);
@@ -74,7 +76,12 @@ export class TunnelClient {
       const isReconnect = this.hasConnected;
       this.hasConnected = true;
       this.reconnectDelay = 1000; // reset backoff
-      const publicUrl = `https://${this.opts.slug}.relaytty.com`;
+      // Derive public URL from tunnel URL
+      // workers.dev domains don't support subdomain routing — use /t/<slug> path instead
+      const tunnelHost = new URL(tunnelUrl).hostname;
+      const publicUrl = tunnelHost.endsWith(".workers.dev")
+        ? `https://${tunnelHost}/t/${this.opts.slug}`
+        : `https://${this.opts.slug}.${tunnelHost}`;
       this.opts.onConnected?.(publicUrl, isReconnect);
     });
 

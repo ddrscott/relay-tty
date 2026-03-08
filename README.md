@@ -173,6 +173,10 @@ npm run build        # production build (React Router + CLI + Rust pty-host)
 npm start            # production server
 ```
 
+### Tunnel Test Environment
+
+A fully isolated test environment is available for testing changes before deploying to production. See [docs/testing.md](docs/testing.md) for setup instructions.
+
 ### Rust pty-host (optional but recommended)
 
 The PTY session host is written in Rust for reliability. Without a Rust toolchain, relay-tty falls back to the Node.js implementation automatically.

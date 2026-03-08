@@ -218,7 +218,12 @@ async function startTunnel(port: number, tokenTtlSeconds: number): Promise<void>
         const { generateAccessToken } = await import("../../server/auth.js");
         const token = generateAccessToken(tokenTtlSeconds);
         if (token) {
-          const authUrl = `${url}/api/auth/callback?token=${token}`;
+          // For /t/<slug> path-based routing (workers.dev), use ?redirect= so the
+          // cookie is set before hitting the auth callback
+          const authPath = `/api/auth/callback?token=${token}`;
+          const authUrl = url.includes("/t/")
+            ? `${url}?redirect=${encodeURIComponent(authPath)}`
+            : `${url}${authPath}`;
           const ttlLabel = formatTtl(tokenTtlSeconds);
           console.log(`  ${dim(`Auth URL (${ttlLabel}):`)} ${cyan(authUrl)}\n`);
           try {

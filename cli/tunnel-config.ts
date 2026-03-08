@@ -7,7 +7,7 @@ const CONFIG_DIR = path.join(os.homedir(), ".config", "relay-tty");
 const TUNNEL_FILE = path.join(CONFIG_DIR, "tunnel.json");
 export const MACHINE_ID_FILE = path.join(CONFIG_DIR, "machine-id");
 
-const RELAY_API = "https://relaytty.com";
+const RELAY_API = process.env.RELAY_API || "https://relaytty.com";
 
 export interface TunnelConfig {
   api_key: string;
