@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Links,
   Meta,
@@ -70,6 +71,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   let message = "Oops!";
   let details = "An unexpected error occurred.";
+  let isNetworkError = false;
 
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
@@ -79,12 +81,37 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
         : error.statusText || details;
   } else if (error instanceof Error) {
     details = error.message;
+    isNetworkError = error.message === "Failed to fetch" || error.message === "Load failed";
   }
+
+  // Auto-reload when network returns after a network error
+  useEffect(() => {
+    if (!isNetworkError) return;
+    const reload = () => window.location.reload();
+    window.addEventListener("online", reload);
+    // Also reload when user switches back to the tab (network may already be back)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) reload();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("online", reload);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [isNetworkError]);
 
   return (
     <main className="container mx-auto p-8">
       <h1 className="text-4xl font-bold">{message}</h1>
-      <p className="mt-4 text-base-content/70">{details}</p>
+      <p className="mt-4 text-base-content/70">
+        {isNetworkError ? "Connection lost. Reconnecting when network returns..." : details}
+      </p>
+      <button
+        className={`btn mt-6 ${isNetworkError ? "btn-primary" : "btn-ghost"}`}
+        onClick={() => window.location.reload()}
+      >
+        {isNetworkError ? "Reconnect Now" : "Reload"}
+      </button>
     </main>
   );
 }

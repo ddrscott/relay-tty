@@ -25,9 +25,14 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
 
+    function safeRevalidate() {
+      if (navigator.onLine === false) return;
+      revalidateRef.current();
+    }
+
     function startFallbackPolling() {
       if (fallbackTimer || disposed) return;
-      fallbackTimer = setInterval(() => revalidateRef.current(), FALLBACK_POLL_MS);
+      fallbackTimer = setInterval(safeRevalidate, FALLBACK_POLL_MS);
     }
 
     function stopFallbackPolling() {
@@ -51,7 +56,7 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
 
       ws.onmessage = (ev) => {
         if (ev.data === "sessions-changed") {
-          revalidateRef.current();
+          safeRevalidate();
         }
       };
 
@@ -71,10 +76,22 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
       };
     }
 
+    // When the phone wakes up or network returns, revalidate + reconnect WS
+    function handleOnline() {
+      safeRevalidate();
+      // Kick a reconnect if WS is dead
+      if (!ws && !reconnectTimer) {
+        reconnectDelay = RECONNECT_BASE_MS;
+        connect();
+      }
+    }
+    window.addEventListener("online", handleOnline);
+
     connect();
 
     return () => {
       disposed = true;
+      window.removeEventListener("online", handleOnline);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       stopFallbackPolling();
       if (ws) {
