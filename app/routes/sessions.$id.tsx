@@ -988,11 +988,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Notification toast — in-app fallback when Web Notifications are unavailable */}
         {notifToast && (
           <div
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#3b82f6]/40 text-[#93c5fd] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1.5 shadow-lg max-w-[80%] cursor-pointer"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#22c55e]/50 text-[#22c55e] rounded-xl px-4 py-3 text-base font-mono flex items-start gap-2.5 shadow-xl max-w-[90%] cursor-pointer animate-banner-in"
             onClick={() => setNotifToast(null)}
           >
-            <BellRing className="w-4 h-4 shrink-0" />
-            <span className="truncate">{notifToast}</span>
+            <BellRing className="w-5 h-5 shrink-0 mt-0.5" />
+            <span className="line-clamp-3">{notifToast}</span>
           </div>
         )}
 
