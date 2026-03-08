@@ -681,12 +681,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           ws.send(msg);
         }
 
-        // Start heartbeat: send PING every 10s, detect zombie connections after 15s silence
+        // Start heartbeat: send PING every 10s, detect zombie connections after 45s silence.
+        // Tunnel connections (browser → DO → tunnel → local) can lose individual
+        // PONG responses; 45s tolerates ~4 missed heartbeats before giving up.
         if (heartbeatTimer) clearInterval(heartbeatTimer);
         heartbeatTimer = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
-            if (Date.now() - lastServerMessage > 15_000) {
-              // No data from server for 15s despite pings — zombie connection
+            if (Date.now() - lastServerMessage > 45_000) {
+              // No data from server for 45s despite pings — zombie connection
               ws.close();
               return;
             }

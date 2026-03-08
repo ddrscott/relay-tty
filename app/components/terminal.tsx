@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { useTerminalInput } from "../hooks/use-terminal-input";
 import { encodeDataMessage } from "../lib/ws-messages";
@@ -132,7 +132,26 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     }
   }, [fontSize, fit, termRef]);
 
-  const pillLabel = status === "connected" ? null
+  // Debounce the reconnecting pill — brief disconnections (tunnel hiccups,
+  // tab switches) shouldn't flash a distracting indicator.
+  const [showPill, setShowPill] = useState(false);
+  const disconnected = status !== "connected";
+  useEffect(() => {
+    if (!disconnected) {
+      setShowPill(false);
+      return;
+    }
+    // Show immediately on first connect (no delay for "Connecting"),
+    // but delay "Reconnecting" by 1.5s so brief reconnects are invisible.
+    if (retryCount === 0) {
+      setShowPill(true);
+      return;
+    }
+    const t = setTimeout(() => setShowPill(true), 1500);
+    return () => clearTimeout(t);
+  }, [disconnected, retryCount]);
+
+  const pillLabel = !showPill ? null
     : retryCount > 0 ? `Reconnecting${retryCount > 2 ? ` (${retryCount})` : ""}`
     : "Connecting";
 

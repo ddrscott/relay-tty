@@ -1,4 +1,4 @@
-import { useRef, forwardRef } from "react";
+import { useRef, useState, useEffect, forwardRef } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 
 interface ReadOnlyTerminalProps {
@@ -20,7 +20,22 @@ export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
       onAuthError,
     });
 
-    const pillLabel = status === "connected" ? null
+    const [showPill, setShowPill] = useState(false);
+    const disconnected = status !== "connected";
+    useEffect(() => {
+      if (!disconnected) {
+        setShowPill(false);
+        return;
+      }
+      if (retryCount === 0) {
+        setShowPill(true);
+        return;
+      }
+      const t = setTimeout(() => setShowPill(true), 1500);
+      return () => clearTimeout(t);
+    }, [disconnected, retryCount]);
+
+    const pillLabel = !showPill ? null
       : retryCount > 0 ? `Reconnecting${retryCount > 2 ? ` (${retryCount})` : ""}`
       : "Connecting";
 
