@@ -120,6 +120,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // ── View mode (terminal vs chat) ──
   const [viewMode, setViewModeState] = useState<ViewMode>(getViewMode);
+  // Sessions detected as fullscreen TUI apps — chat mode is incompatible
+  const [tuiSessions, setTuiSessions] = useState<Set<string>>(() => new Set());
   const toggleViewMode = useCallback(() => {
     setViewModeState((prev) => {
       const next = prev === "terminal" ? "chat" : "terminal";
@@ -146,6 +148,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       setActiveId(initialSession.id);
     }
   }, [initialSession.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Effective view mode — auto-switch to terminal for fullscreen TUI sessions
+  const effectiveViewMode = viewMode === "chat" && tuiSessions.has(activeId) ? "terminal" : viewMode;
 
   // The "session" used for UI chrome — find it from allSessions or fall back
   const session = allSessions.find(s => s.id === activeId) ?? initialSession;
@@ -515,6 +520,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       onCopy: () => { if (activeIdRef.current === sid) handleCopyRef.current(); },
       onActivityUpdate: (update: { isActive: boolean; totalBytes: number }) => { if (activeIdRef.current === sid) handleActivityUpdateRef.current(update); },
       onFileLink: (link: FileLink) => { if (activeIdRef.current === sid) handleFileLinkRef.current(link); },
+      onFullscreenDetected: () => {
+        setTuiSessions(prev => { const next = new Set(prev); next.add(sid); return next; });
+      },
     };
   }
   function getGatedCallbacks(sid: string) {
@@ -988,14 +996,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               }}>
                 {/* Chat mode: render both Terminal (hidden) and ChatTerminal (visible) so
                     switching view modes is instant with no carousel animation or WS reconnect.
-                    Terminal stays mounted to preserve its xterm buffer. */}
-                {(viewMode === "terminal" || sid !== activeId) && (
-                  <div className={viewMode === "chat" && sid === activeId ? "hidden" : "w-full h-full"}>
+                    Terminal stays mounted to preserve its xterm buffer.
+                    effectiveViewMode auto-overrides to "terminal" for TUI sessions. */}
+                {(effectiveViewMode === "terminal" || sid !== activeId) && (
+                  <div className={effectiveViewMode === "chat" && sid === activeId ? "hidden" : "w-full h-full"}>
                     <Terminal
-                      ref={sid === activeId && viewMode === "terminal" ? terminalRef : undefined}
+                      ref={sid === activeId && effectiveViewMode === "terminal" ? terminalRef : undefined}
                       sessionId={sid}
                       fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
-                      active={sid === activeId && viewMode === "terminal"}
+                      active={sid === activeId && effectiveViewMode === "terminal"}
                       onExit={cbs.onExit}
                       onTitleChange={cbs.onTitleChange}
                       onScrollChange={cbs.onScrollChange}
@@ -1008,7 +1017,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                     />
                   </div>
                 )}
-                {viewMode === "chat" && sid === activeId && (
+                {effectiveViewMode === "chat" && sid === activeId && (
                   <ChatTerminal
                     ref={chatRef}
                     sessionId={sid}
@@ -1019,6 +1028,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                     onReplayProgress={cbs.onReplayProgress}
                     onNotification={cbs.onNotification}
                     onActivityUpdate={cbs.onActivityUpdate}
+                    onFullscreenDetected={cbs.onFullscreenDetected}
                   />
                 )}
               </div>

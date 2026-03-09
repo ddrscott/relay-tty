@@ -349,6 +349,28 @@ impl OutputBuffer {
         }
     }
 
+    /// Find the last ED mode 2 (`ESC [ 2 J`) in a slice.
+    /// Returns the byte offset of the ESC, or None if not found.
+    /// Only matches mode 2 (erase display), not mode 3 (erase scrollback),
+    /// because clearTerminal() sends `ESC[2J ESC[3J ESC[H` and we want
+    /// to truncate at the `2J` to keep the full sequence intact.
+    fn find_last_screen_clear(data: &[u8]) -> Option<usize> {
+        if data.len() < 4 {
+            return None;
+        }
+        // Scan backwards for \x1b [ 2 J
+        for i in (0..=data.len() - 4).rev() {
+            if data[i] == 0x1b
+                && data[i + 1] == b'['
+                && data[i + 2] == b'2'
+                && data[i + 3] == b'J'
+            {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     /// Called on resize — discards old alt screen content that will be redrawn.
     fn notify_resize(&mut self) {
         if self.in_alt_screen {
@@ -359,6 +381,8 @@ impl OutputBuffer {
 
     /// Read the entire buffer contents (for full replay).
     /// Returns main buffer + alt buffer (if in alt screen).
+    /// Truncates at the last full-screen clear (ED mode 2/3) to avoid
+    /// replaying dead frames from TUI apps that redraw via clearTerminal().
     fn read(&self) -> Vec<u8> {
         let main = if !self.filled {
             self.buffer[..self.write_pos].to_vec()
@@ -369,13 +393,22 @@ impl OutputBuffer {
             sanitize_start(result)
         };
 
-        if self.in_alt_screen && !self.alt_buf.is_empty() {
-            let mut combined = Vec::with_capacity(main.len() + self.alt_buf.len());
-            combined.extend_from_slice(&main);
-            combined.extend_from_slice(&self.alt_buf);
-            combined
+        let combined = if self.in_alt_screen && !self.alt_buf.is_empty() {
+            let mut c = Vec::with_capacity(main.len() + self.alt_buf.len());
+            c.extend_from_slice(&main);
+            c.extend_from_slice(&self.alt_buf);
+            c
         } else {
             main
+        };
+
+        // Truncate at the last full-screen clear — everything before is dead.
+        // Apps like Claude Code (ink) send clearTerminal() = ESC[2J ESC[3J ESC[H
+        // on every render cycle, so only the last frame matters for replay.
+        if let Some(pos) = Self::find_last_screen_clear(&combined) {
+            combined[pos..].to_vec()
+        } else {
+            combined
         }
     }
 
@@ -2615,6 +2648,75 @@ mod tests {
         assert_eq!(buf.total_written, 26.0);
         assert_eq!(buf.read(), b"plain text no escapes here");
         assert!(!buf.in_alt_screen);
+    }
+
+    #[test]
+    fn read_truncates_at_screen_clear_normal_mode() {
+        let mut buf = OutputBuffer::new(1024);
+        // Even in normal mode, read() truncates at last screen clear
+        // (this is how Claude Code works — no alt screen, just clearTerminal())
+        buf.write(b"before\x1b[2Jafter");
+        assert!(!buf.in_alt_screen);
+        // read() returns from the last clear onward
+        assert_eq!(buf.read(), b"\x1b[2Jafter");
+        // raw data is still in the ring buffer (for read_from delta)
+        assert_eq!(buf.read_raw(), b"before\x1b[2Jafter");
+    }
+
+    #[test]
+    fn read_truncates_at_screen_clear_alt_mode() {
+        // Alt screen with ED(2) — read() truncates combined output
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"main-content\x1b[?1049h");
+        buf.write(b"frame1\x1b[2J\x1b[3J\x1b[Hframe2");
+        let replay = buf.read();
+        let text = String::from_utf8_lossy(&replay);
+        assert!(text.starts_with("\x1b[2J"));
+        assert!(text.contains("frame2"));
+        assert!(!text.contains("frame1"));
+        assert!(!text.contains("main-content"));
+    }
+
+    #[test]
+    fn read_truncates_at_last_clear_terminal() {
+        // Simulates Claude Code (ink) behavior: no alt screen, just
+        // clearTerminal() = ESC[2J ESC[3J ESC[H on every render
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"shell prompt stuff\r\n$ claude\r\n");
+        // First render: clearTerminal + frame
+        buf.write(b"\x1b[2J\x1b[3J\x1b[Hframe1-full-screen-content");
+        // Second render
+        buf.write(b"\x1b[2J\x1b[3J\x1b[Hframe2-updated-content");
+        // Third render
+        buf.write(b"\x1b[2J\x1b[3J\x1b[Hframe3-latest");
+
+        let replay = buf.read();
+        let text = String::from_utf8_lossy(&replay);
+        // Should only contain the last frame (from last ESC[2J onward)
+        assert!(text.starts_with("\x1b[2J\x1b[3J\x1b[Hframe3"));
+        assert!(!text.contains("frame1"));
+        assert!(!text.contains("frame2"));
+        assert!(!text.contains("shell prompt"));
+    }
+
+    #[test]
+    fn read_no_truncation_without_clears() {
+        // Plain shell with no screen clears — full replay preserved
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"$ ls\r\nfile1 file2\r\n$ pwd\r\n/home/user\r\n");
+        assert_eq!(buf.read(), b"$ ls\r\nfile1 file2\r\n$ pwd\r\n/home/user\r\n");
+    }
+
+    #[test]
+    fn read_from_delta_not_truncated() {
+        // Delta replay (read_from) should NOT truncate — client is live
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"before");
+        let offset = buf.total_written;
+        buf.write(b"\x1b[2Jafter-clear");
+        let delta = buf.read_from(offset).unwrap();
+        // Delta includes everything since offset, no truncation
+        assert_eq!(delta, b"\x1b[2Jafter-clear");
     }
 
     #[test]

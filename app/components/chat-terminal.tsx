@@ -15,7 +15,7 @@ import {
   useImperativeHandle,
 } from "react";
 import { usePtyStream } from "../hooks/use-pty-stream";
-import { stripAnsi, processCarriageReturns, findTurnBoundary, parseReplayBuffer } from "../lib/ansi";
+import { stripAnsi, processCarriageReturns, findTurnBoundary, parseReplayBuffer, detectFullscreenApp } from "../lib/ansi";
 import { encodeDataMessage } from "../lib/ws-messages";
 import {
   SendHorizontal,
@@ -49,6 +49,9 @@ interface ChatTerminalProps {
   onReplayProgress?: (progress: number | null) => void;
   onNotification?: (message: string) => void;
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
+  /** Fired when fullscreen TUI content is detected (alt screen, screen clears).
+   *  Parent should switch to terminal view — chat mode can't render TUI apps. */
+  onFullscreenDetected?: () => void;
   active?: boolean;
 }
 
@@ -69,10 +72,14 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
       onReplayProgress,
       onNotification,
       onActivityUpdate,
+      onFullscreenDetected,
       active = true,
     },
     ref,
   ) {
+    const fullscreenFiredRef = useRef(false);
+    const onFullscreenDetectedRef = useRef(onFullscreenDetected);
+    onFullscreenDetectedRef.current = onFullscreenDetected;
     const [turns, setTurns] = useState<ChatTurn[]>([]);
     const [inputText, setInputText] = useState("");
     const [sessionExited, setSessionExited] = useState(false);
@@ -106,6 +113,13 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
     const handleData = useCallback((payload: Uint8Array) => {
       const text = decoder.current.decode(payload, { stream: true });
       if (!text) return;
+
+      // Detect fullscreen TUI apps (alt screen, screen clears) in live data
+      if (!fullscreenFiredRef.current && detectFullscreenApp(text)) {
+        fullscreenFiredRef.current = true;
+        onFullscreenDetectedRef.current?.();
+        return; // no point parsing TUI content as chat turns
+      }
 
       const turnId = currentTurnIdRef.current;
 
@@ -152,6 +166,15 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
         }
 
         const text = new TextDecoder().decode(payload);
+
+        // Detect fullscreen TUI apps before attempting to parse as chat turns
+        if (!fullscreenFiredRef.current && detectFullscreenApp(text)) {
+          fullscreenFiredRef.current = true;
+          onFullscreenDetectedRef.current?.();
+          replayDoneRef.current = true;
+          onReplayProgress?.(null);
+          return; // don't parse TUI content as chat turns
+        }
 
         // Parse replay buffer into turns using best available strategy:
         // iTerm2 RemoteHost → FinalTerm 133 → heuristic prompt detection
@@ -289,6 +312,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
       setIsRunning(false);
       currentTurnIdRef.current = null;
       replayDoneRef.current = false;
+      fullscreenFiredRef.current = false;
     }, [sessionId]);
 
     return (

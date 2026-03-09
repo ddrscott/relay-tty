@@ -328,3 +328,22 @@ function parseWithHeuristic(text: string): ParsedTurn[] {
   // Filter empty turns
   return turns.filter((t) => t.command || t.output);
 }
+
+// ── Fullscreen TUI detection ────────────────────────────────────────
+
+/** Byte sequences that indicate a fullscreen/TUI app (not chat-compatible) */
+const ALT_SCREEN_ENTER = "\x1b[?1049h";
+const ED_MODE_2 = "\x1b[2J";
+
+/**
+ * Detect whether text contains fullscreen TUI indicators.
+ * Returns true if the content came from an app like vim, htop, Claude Code, etc.
+ * that renders full-screen content incompatible with chat-style parsing.
+ *
+ * Detects:
+ *   - Alt screen enter (CSI ?1049h) — vim, htop, less, etc.
+ *   - Screen clear (CSI 2 J) — Claude Code / ink's clearTerminal()
+ */
+export function detectFullscreenApp(text: string): boolean {
+  return text.includes(ALT_SCREEN_ENTER) || text.includes(ED_MODE_2);
+}
