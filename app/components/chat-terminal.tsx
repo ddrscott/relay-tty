@@ -15,7 +15,7 @@ import {
   useImperativeHandle,
 } from "react";
 import { usePtyStream } from "../hooks/use-pty-stream";
-import { stripAnsi, processCarriageReturns, PROMPT_MARKER, extractCommandFromSegment } from "../lib/ansi";
+import { stripAnsi, processCarriageReturns, findTurnBoundary, parseReplayBuffer } from "../lib/ansi";
 import { encodeDataMessage } from "../lib/ws-messages";
 import {
   SendHorizontal,
@@ -100,38 +100,33 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
     }, []);
 
     // ── Process live DATA from PTY ──
-    // Simple approach: accumulate ALL output into the current turn.
-    // Prompt markers (OSC 1337;RemoteHost) only signal "command done" —
-    // they mark the turn complete but don't control accumulation.
-    // This avoids race conditions where delayed prompt DATA resets the
-    // current turn ref and causes output to be silently discarded.
+    // Accumulate output into the current turn. Turn boundary markers
+    // (RemoteHost, 133;D, 133;A) signal "command done" and mark the
+    // turn complete. Output before the marker is kept; after is discarded.
     const handleData = useCallback((payload: Uint8Array) => {
       const text = decoder.current.decode(payload, { stream: true });
       if (!text) return;
 
       const turnId = currentTurnIdRef.current;
 
-      // Append output to the current turn (if any)
       if (turnId !== null) {
-        // Check if this chunk contains a prompt marker → turn is complete
-        const hasMarker = text.includes(PROMPT_MARKER);
+        const boundary = findTurnBoundary(text);
+        const hasBoundary = boundary !== null;
 
-        // Extract just the output before the marker (discard prompt text after it)
         let output = text;
-        if (hasMarker) {
-          const idx = text.indexOf(PROMPT_MARKER);
-          output = idx > 0 ? text.slice(0, idx) : "";
+        if (hasBoundary) {
+          output = boundary.index > 0 ? text.slice(0, boundary.index) : "";
         }
 
         if (output) {
           setTurns((prev) =>
             prev.map((t) =>
               t.id === turnId
-                ? { ...t, outputRaw: t.outputRaw + output, complete: hasMarker || t.complete }
+                ? { ...t, outputRaw: t.outputRaw + output, complete: hasBoundary || t.complete }
                 : t,
             ),
           );
-        } else if (hasMarker) {
+        } else if (hasBoundary) {
           setTurns((prev) =>
             prev.map((t) =>
               t.id === turnId ? { ...t, complete: true } : t,
@@ -139,7 +134,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
           );
         }
 
-        if (hasMarker) {
+        if (hasBoundary) {
           currentTurnIdRef.current = null;
           setIsRunning(false);
         }
@@ -158,25 +153,16 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
 
         const text = new TextDecoder().decode(payload);
 
-        // Split on prompt markers — each segment between markers is one turn.
-        // FinalTerm markers (133;B/C) delimit command vs output within each segment.
-        // Command text extracted from OSC 2 title (avoids zsh line-editor artifacts).
-        const parts = text.split(PROMPT_MARKER);
-        const replayTurns: ChatTurn[] = [];
-
-        for (let i = 1; i < parts.length; i++) {
-          const raw = parts[i];
-          const { command, output } = extractCommandFromSegment(raw);
-          if (!command && !output) continue;
-
-          replayTurns.push({
-            id: ++nextTurnId,
-            command,
-            outputRaw: output,
-            complete: true,
-            timestamp: Date.now(),
-          });
-        }
+        // Parse replay buffer into turns using best available strategy:
+        // iTerm2 RemoteHost → FinalTerm 133 → heuristic prompt detection
+        const parsed = parseReplayBuffer(text);
+        const replayTurns: ChatTurn[] = parsed.map(({ command, output }) => ({
+          id: ++nextTurnId,
+          command,
+          outputRaw: output,
+          complete: true,
+          timestamp: Date.now(),
+        }));
 
         setTurns(replayTurns);
         currentTurnIdRef.current = null; setIsRunning(false);
@@ -389,7 +375,10 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
               <input
                 ref={inputRef}
                 type="text"
+                inputMode="text"
+                enterKeyHint="send"
                 className="flex-1 bg-transparent text-[#e2e8f0] font-mono text-sm outline-none placeholder:text-[#64748b]"
+                style={{ fontSize: "16px" }}
                 placeholder="Type a command..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -403,6 +392,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck={false}
+                data-gramm="false"
               />
               <button
                 className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] px-2"
