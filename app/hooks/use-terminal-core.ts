@@ -873,8 +873,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     function handleBufferReplay(term: any, payload: Uint8Array) {
       const isReconnect = byteOffset > 0;
-      if (isReconnect && payload.length === 0) {
-        // Empty delta — content is already rendered from cache
+      if (payload.length === 0) {
+        // Empty buffer — nothing to replay. For reconnects, content is
+        // already rendered from cache. For first connect (brand new session
+        // with no output yet), just show the terminal immediately.
+        // Critical: do NOT set replayingRef here — an empty write to xterm
+        // may not fire its callback, which would leave replayingRef stuck
+        // at true and silently drop all keyboard input.
         markContentReady();
         return;
       }

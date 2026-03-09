@@ -4,6 +4,8 @@ import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
 import { Terminal } from "../components/terminal";
+import type { ChatTerminalHandle } from "../components/chat-terminal";
+import { ChatTerminal } from "../components/chat-terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
@@ -28,6 +30,8 @@ import {
   X,
   Zap,
   Power,
+  TerminalSquare,
+  MessageSquare,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import {
@@ -47,6 +51,19 @@ function formatBytes(bytes: number): string {
 // ── Per-session font size persistence ──
 const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
 const MAX_KEEP_ALIVE = 8;
+
+// ── View mode persistence (terminal vs chat) ──
+type ViewMode = "terminal" | "chat";
+const VIEW_MODE_KEY = "relay-tty-viewmode";
+
+function getViewMode(): ViewMode {
+  if (typeof window === "undefined") return "terminal";
+  return (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) || "terminal";
+}
+
+function setViewMode(mode: ViewMode) {
+  localStorage.setItem(VIEW_MODE_KEY, mode);
+}
 
 function getSessionFontSize(id: string): number {
   if (typeof window === "undefined") return 14;
@@ -99,6 +116,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const { revalidate } = useRevalidator();
   const navigate = useNavigate();
   const terminalRef = useRef<TerminalHandle>(null);
+  const chatRef = useRef<ChatTerminalHandle>(null);
+
+  // ── View mode (terminal vs chat) ──
+  const [viewMode, setViewModeState] = useState<ViewMode>(getViewMode);
+  const toggleViewMode = useCallback(() => {
+    setViewModeState((prev) => {
+      const next = prev === "terminal" ? "chat" : "terminal";
+      setViewMode(next);
+      return next;
+    });
+  }, []);
 
   // ── State-based session switching for keep-alive ──
   // React Router v7 remounts route components on param changes, which would
@@ -601,8 +629,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // Send a key from on-screen buttons, applying sticky modifiers
   const sendKey = useCallback((key: string) => {
-    if (!terminalRef.current) return;
-    terminalRef.current.sendText(applyModifiers(key));
+    const handle = terminalRef.current ?? chatRef.current;
+    if (!handle) return;
+    handle.sendText(applyModifiers(key));
   }, [applyModifiers]);
 
   // Set input transform on terminal so keyboard input also gets modifiers
@@ -617,11 +646,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // Send input bar text to terminal
   const sendPad = useCallback(() => {
-    if (!terminalRef.current || !padText.trim()) return;
+    const handle = terminalRef.current ?? chatRef.current;
+    if (!handle || !padText.trim()) return;
     // Send text first, then \r separately — if sent together, bracketed
     // paste mode wraps everything and \r won't trigger command execution.
-    terminalRef.current.sendText(padText);
-    setTimeout(() => terminalRef.current?.sendText("\r"), 50);
+    handle.sendText(padText);
+    setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
     setPadText("");
   }, [padText]);
 
@@ -747,6 +777,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <Bell className="w-3.5 h-3.5" />
           </span>
         )}
+
+        {/* View mode toggle: terminal ↔ chat */}
+        <button
+          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
+          onClick={toggleViewMode}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          aria-label={viewMode === "terminal" ? "Switch to chat view" : "Switch to terminal view"}
+          title={viewMode === "terminal" ? "Chat view" : "Terminal view"}
+        >
+          {viewMode === "terminal" ? (
+            <MessageSquare className="w-4 h-4" />
+          ) : (
+            <TerminalSquare className="w-4 h-4" />
+          )}
+        </button>
 
         {/* Info button */}
         <div className="relative shrink-0" ref={infoRef}>
@@ -940,21 +986,41 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 left: `${relIdx * 100}%`,
                 visibility: Math.abs(relIdx) <= 1 ? 'visible' : 'hidden',
               }}>
-                <Terminal
-                  ref={sid === activeId ? terminalRef : undefined}
-                  sessionId={sid}
-                  fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
-                  active={sid === activeId}
-                  onExit={cbs.onExit}
-                  onTitleChange={cbs.onTitleChange}
-                  onScrollChange={cbs.onScrollChange}
-                  onReplayProgress={cbs.onReplayProgress}
-                  onNotification={cbs.onNotification}
-                  onFontSizeChange={cbs.onFontSizeChange}
-                  onCopy={cbs.onCopy}
-                  onActivityUpdate={cbs.onActivityUpdate}
-                  onFileLink={cbs.onFileLink}
-                />
+                {/* Chat mode: render both Terminal (hidden) and ChatTerminal (visible) so
+                    switching view modes is instant with no carousel animation or WS reconnect.
+                    Terminal stays mounted to preserve its xterm buffer. */}
+                {(viewMode === "terminal" || sid !== activeId) && (
+                  <div className={viewMode === "chat" && sid === activeId ? "hidden" : "w-full h-full"}>
+                    <Terminal
+                      ref={sid === activeId && viewMode === "terminal" ? terminalRef : undefined}
+                      sessionId={sid}
+                      fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
+                      active={sid === activeId && viewMode === "terminal"}
+                      onExit={cbs.onExit}
+                      onTitleChange={cbs.onTitleChange}
+                      onScrollChange={cbs.onScrollChange}
+                      onReplayProgress={cbs.onReplayProgress}
+                      onNotification={cbs.onNotification}
+                      onFontSizeChange={cbs.onFontSizeChange}
+                      onCopy={cbs.onCopy}
+                      onActivityUpdate={cbs.onActivityUpdate}
+                      onFileLink={cbs.onFileLink}
+                    />
+                  </div>
+                )}
+                {viewMode === "chat" && sid === activeId && (
+                  <ChatTerminal
+                    ref={chatRef}
+                    sessionId={sid}
+                    active
+                    onExit={cbs.onExit}
+                    onTitleChange={cbs.onTitleChange}
+                    onScrollChange={cbs.onScrollChange}
+                    onReplayProgress={cbs.onReplayProgress}
+                    onNotification={cbs.onNotification}
+                    onActivityUpdate={cbs.onActivityUpdate}
+                  />
+                )}
               </div>
             );
           })}
@@ -968,8 +1034,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#7dcea0] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#a8e6c3] transition-all shadow-lg"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); terminalRef.current?.scrollToBottom(); }}
-            onClick={() => terminalRef.current?.scrollToBottom()}
+            onTouchEnd={(e) => { e.preventDefault(); (terminalRef.current ?? chatRef.current)?.scrollToBottom(); }}
+            onClick={() => (terminalRef.current ?? chatRef.current)?.scrollToBottom()}
             aria-label="Jump to bottom"
           >
             <ChevronsDown className="w-4 h-4" />

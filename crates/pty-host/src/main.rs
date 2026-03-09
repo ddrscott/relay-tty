@@ -707,12 +707,19 @@ impl ThroughputTracker {
 // ── PTY helpers (using nix/libc) ────────────────────────────────────
 
 /// Spawn a child in a new PTY. Returns (master_fd, child_pid).
+///
+/// When `login` is true, argv[0] is set to `-<basename>` (e.g. `-zsh`),
+/// which is the standard Unix convention used by iTerm2, tmux, and
+/// Terminal.app to tell a shell to behave as a login shell. This causes
+/// the shell to source login profiles (/etc/zprofile, ~/.zprofile, etc.)
+/// without needing a wrapper shell like `zsh -l -c "exec zsh"`.
 fn spawn_pty(
     command: &str,
     args: &[String],
     cols: u16,
     rows: u16,
     cwd: &str,
+    login: bool,
 ) -> io::Result<(OwnedFd, libc::pid_t)> {
     let mut winsize = libc::winsize {
         ws_row: rows,
@@ -750,7 +757,20 @@ fn spawn_pty(
             eprintln!("pty-host: invalid command name");
             process::exit(127);
         });
-        let c_args: Vec<std::ffi::CString> = std::iter::once(c_command.clone())
+
+        // argv[0]: when login is true, use "-<basename>" convention (like iTerm2/tmux).
+        // This tells the shell to behave as a login shell without needing a wrapper.
+        let argv0 = if login {
+            let basename = std::path::Path::new(command)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(command);
+            std::ffi::CString::new(format!("-{}", basename)).unwrap_or_else(|_| c_command.clone())
+        } else {
+            c_command.clone()
+        };
+
+        let c_args: Vec<std::ffi::CString> = std::iter::once(argv0)
             .chain(args.iter().map(|a| {
                 std::ffi::CString::new(a.as_str()).unwrap_or_else(|_| {
                     eprintln!("pty-host: invalid argument");
@@ -837,7 +857,13 @@ async fn main() {
     let rows: u16 = args[3].parse().unwrap_or(24);
     let cwd_arg = &args[4];
     let command = &args[5];
-    let cmd_args: Vec<String> = args[6..].to_vec();
+    let raw_args: Vec<String> = args[6..].to_vec();
+
+    // Check for --login flag: signals that spawn_pty should use the "-<basename>"
+    // argv[0] convention (like iTerm2/tmux) to make the shell a login shell.
+    // Strip --login from the args passed to the child process.
+    let login = raw_args.iter().any(|a| a == "--login");
+    let cmd_args: Vec<String> = raw_args.iter().filter(|a| *a != "--login").cloned().collect();
 
     // Display command from env vars (set by pty-manager for login-shell wrapping)
     let display_command = env::var("RELAY_ORIG_COMMAND").unwrap_or_else(|_| command.clone());
@@ -869,7 +895,7 @@ async fn main() {
     };
 
     // Spawn PTY
-    let (master_fd, child_pid) = match spawn_pty(command, &cmd_args, cols, rows, &cwd) {
+    let (master_fd, child_pid) = match spawn_pty(command, &cmd_args, cols, rows, &cwd, login) {
         Ok(v) => v,
         Err(err) => {
             eprintln!(

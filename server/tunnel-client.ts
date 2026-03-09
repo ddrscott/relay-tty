@@ -90,6 +90,10 @@ export class TunnelClient {
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
+      // Only handle close if this is still the active connection.
+      // Stale close events from replaced connections must not clobber
+      // the current WS or schedule duplicate reconnects.
+      if (this.ws !== ws) return;
       this.ws = null;
       this.opts.onDisconnected?.(code, reason.toString("utf-8"));
       this.scheduleReconnect();

@@ -125,18 +125,8 @@ export class PtyManager extends EventEmitter {
     const id = randomBytes(4).toString("hex");
     const effectiveCwd = cwd || process.env.HOME || "/";
 
-    // When spawning from the server, process.env may be minimal
-    // (e.g. systemd/launchd). Wrap the command in a login shell so
-    // the user's profile (~/.bash_profile, ~/.zshrc, etc.) is sourced.
-    // This gives browser-created sessions the same environment as CLI-spawned ones.
-    //
     // We pass the original command/args as RELAY_ORIG_COMMAND/RELAY_ORIG_ARGS
     // env vars so pty-host can record the correct metadata for display.
-    const userShell = process.env.SHELL || "/bin/sh";
-    const fullCmd = args.length > 0
-      ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
-      : `exec ${shellEscape(command)}`;
-
     const spawnEnv = {
       ...process.env,
       RELAY_ORIG_COMMAND: command,
@@ -144,7 +134,29 @@ export class PtyManager extends EventEmitter {
     };
 
     const spawnCmd = this.resolveRustBinaryPath();
-    const spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+    let spawnArgs: string[];
+
+    if (isShellCommand(command)) {
+      // Shell commands: spawn directly as a login shell using the standard
+      // Unix argv[0] convention (same as iTerm2/tmux/Terminal.app).
+      // pty-host detects the --login flag and sets argv[0] to "-<shell>"
+      // which tells the shell to behave as a login shell and source
+      // /etc/zprofile, ~/.zprofile, ~/.zshrc, ~/.zlogin etc.
+      //
+      // Previous approach wrapped via `zsh -l -c "exec zsh"` which created
+      // a double-shell where the outer login shell's profile output bled
+      // through as visible garbage before the inner shell started.
+      spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, "--login", ...args];
+    } else {
+      // Non-shell commands: wrap in a login shell so the user's profile
+      // (~/.bash_profile, ~/.zshrc, etc.) is sourced. This gives
+      // browser-created sessions the same environment as CLI-spawned ones.
+      const userShell = process.env.SHELL || "/bin/sh";
+      const fullCmd = args.length > 0
+        ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
+        : `exec ${shellEscape(command)}`;
+      spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
+    }
 
     // Spawn pty-host as detached process — survives server death
     const child = cpSpawn(spawnCmd, spawnArgs, {
@@ -510,6 +522,13 @@ export class PtyManager extends EventEmitter {
       this.monitors.delete(id);
     });
   }
+}
+
+/** Known interactive shells — spawned directly as login shells, not wrapped. */
+const KNOWN_SHELLS = new Set(["sh", "bash", "zsh", "fish", "ksh", "tcsh", "csh", "dash"]);
+
+function isShellCommand(cmd: string): boolean {
+  return KNOWN_SHELLS.has(path.basename(cmd));
 }
 
 /** Escape a string for safe inclusion in a shell command */

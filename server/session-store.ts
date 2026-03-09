@@ -54,7 +54,7 @@ export class SessionStore extends EventEmitter {
 
   setTitle(id: string, title: string): void {
     const session = this.sessions.get(id);
-    if (session) {
+    if (session && session.title !== title) {
       session.title = title;
       this.emitChange();
     }
