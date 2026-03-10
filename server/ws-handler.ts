@@ -11,6 +11,9 @@ import { WS_MSG } from "../shared/types.js";
 /** Ping interval to keep connections alive through proxies (e.g. Cloudflare Tunnel ~100s idle timeout) */
 const PING_INTERVAL_MS = 30_000;
 
+/** Backpressure: pause pty socket reads when WS send buffer exceeds this (1 MB) */
+const WS_HIGH_WATER_MARK = 1 * 1024 * 1024;
+
 /**
  * Bridges WebSocket clients to pty-host Unix sockets.
  *
@@ -204,6 +207,14 @@ export class WsHandler {
 
     const ptySocket = net.createConnection(socketPath);
     let pending = Buffer.alloc(0);
+    let paused = false;
+
+    const checkBackpressure = () => {
+      if (paused && ws.bufferedAmount < WS_HIGH_WATER_MARK) {
+        paused = false;
+        ptySocket.resume();
+      }
+    };
 
     ptySocket.on("data", (chunk) => {
       pending = Buffer.concat([pending, chunk]);
@@ -213,8 +224,14 @@ export class WsHandler {
         const payload = Buffer.from(pending.subarray(4, 4 + msgLen));
         pending = pending.subarray(4 + msgLen);
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(payload);
+          ws.send(payload, checkBackpressure);
         }
+      }
+
+      // Pause pty reads if WS send buffer is backing up
+      if (!paused && ws.bufferedAmount > WS_HIGH_WATER_MARK) {
+        paused = true;
+        ptySocket.pause();
       }
     });
 
@@ -273,6 +290,16 @@ export class WsHandler {
     });
 
     // pty-host → WS client: parse frames, forward payloads as WS binary messages
+    // Backpressure: pause pty socket when WS send buffer is too full
+    let paused = false;
+
+    const checkBackpressure = () => {
+      if (paused && ws.bufferedAmount < WS_HIGH_WATER_MARK) {
+        paused = false;
+        ptySocket.resume();
+      }
+    };
+
     ptySocket.on("data", (chunk) => {
       pending = Buffer.concat([pending, chunk]);
 
@@ -286,8 +313,14 @@ export class WsHandler {
         // Forward the payload directly as a WS binary message
         // The payload is already in WS_MSG format: [type][data]
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(payload);
+          ws.send(payload, checkBackpressure);
         }
+      }
+
+      // Pause pty reads if WS send buffer is backing up
+      if (!paused && ws.bufferedAmount > WS_HIGH_WATER_MARK) {
+        paused = true;
+        ptySocket.pause();
       }
     });
 
