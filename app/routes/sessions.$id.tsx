@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
-import { Link, useNavigate, useRevalidator } from "react-router";
+import { useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
@@ -10,26 +10,18 @@ import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
+import { SessionInfoPanel } from "../components/session-info-panel";
+import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
+import { SessionTextViewer } from "../components/session-text-viewer";
+import { SessionPicker } from "../components/session-picker";
 import {
   Menu,
-  Activity,
   Bell,
   BellOff,
   BellRing,
-  ChevronDown,
-  ChevronUp,
   ChevronsDown,
   Info,
-  SendHorizontal,
-  Settings,
-  Copy,
-  Keyboard as KeyboardIcon,
-  TextSelect,
   ClipboardCheck,
-  CornerDownLeft,
-  X,
-  Zap,
-  Power,
   TerminalSquare,
   MessageSquare,
 } from "lucide-react";
@@ -40,13 +32,6 @@ import {
   setSessionNotifOverride,
   type NotifSettings,
 } from "../lib/notif-settings";
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
-}
 
 // ── Per-session font size persistence ──
 const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
@@ -217,9 +202,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [atBottom, setAtBottom] = useState(true);
   const [ctrlOn, setCtrlOn] = useState(false);
   const [altOn, setAltOn] = useState(false);
-  const [padExpanded, setPadExpanded] = useState(false);
-  const [padText, setPadText] = useState("");
-  const padRef = useRef<HTMLTextAreaElement>(null);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
@@ -258,17 +240,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setTextViewerOpen(false);
     setPickerOpen(false);
     setInfoOpen(false);
-    setInputBarOpen(false);
-    setPadText("");
-    setPadExpanded(false);
     setCtrlOn(false);
     setAltOn(false);
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mobile detection + input bar state ──
   const [isMobile, setIsMobile] = useState(false);
-  const [inputBarOpen, setInputBarOpen] = useState(false);
-  const toolbarRef = useRef<HTMLDivElement>(null);
 
   // Detect mobile on mount and window resize
   useEffect(() => {
@@ -668,28 +645,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, [ctrlOn, altOn, applyModifiers]);
 
-  // Send input bar text to terminal
-  const sendPad = useCallback(() => {
-    const handle = terminalRef.current ?? chatRef.current;
-    if (!handle || !padText.trim()) return;
-    // Send text first, then \r separately — if sent together, bracketed
-    // paste mode wraps everything and \r won't trigger command execution.
-    handle.sendText(padText);
-    setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
-    setPadText("");
-  }, [padText]);
-
-  // Toggle input bar open: shows text input + virtual keyboard
-  const toggleInputBar = useCallback(() => {
-    setInputBarOpen((v) => {
-      if (!v) {
-        setPadExpanded(false);
-        // Focus the input after it renders
-        setTimeout(() => padRef.current?.focus(), 50);
-      }
-      return !v;
-    });
-  }, []);
 
   return (
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
@@ -724,50 +679,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
           {/* Session picker dropdown — grouped by cwd */}
           {pickerOpen && allSessions.length > 1 && (
-            <div className="absolute top-full left-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64">
-              {groups.map((group, gi) => (
-                <div key={group.cwd}>
-                  {gi > 0 && (
-                    <div className="border-t border-[#2d2d44] mx-2 my-1" />
-                  )}
-                  {groups.length > 1 && (
-                    <div className="px-3 pt-2 pb-1">
-                      <code className="text-xs text-[#64748b] font-mono">
-                        {group.label}
-                      </code>
-                    </div>
-                  )}
-                  {group.sessions.map((s) => (
-                    <button
-                      key={s.id}
-                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-[#0f0f1a] transition-colors ${
-                        s.id === session.id ? "bg-[#0f0f1a]" : ""
-                      } ${s.status === "exited" ? "opacity-50" : ""}`}
-                      onClick={() => goTo(s.id)}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        s.status === "running" ? "bg-[#22c55e]" : "bg-[#64748b]/30"
-                      }`} />
-                      <code className="text-sm font-mono truncate flex-1 text-[#e2e8f0]">
-                        {s.title || `${s.command} ${s.args.join(" ")}`}
-                      </code>
-                      <span className="text-xs text-[#64748b] font-mono shrink-0">
-                        {s.id}
-                      </span>
-                      {s.status === "exited" && (
-                        <span
-                          className={`text-xs shrink-0 ${
-                            s.exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"
-                          }`}
-                        >
-                          {s.exitCode}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
+            <SessionPicker
+              groups={groups}
+              activeSessionId={session.id}
+              onSelect={goTo}
+            />
           )}
         </div>
 
@@ -828,171 +744,28 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <Info className="w-4 h-4" />
           </button>
           {infoOpen && (
-            <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
-              <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
-                <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
-
-                {/* Font size controls */}
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-[#64748b]">Font size</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-                      onClick={() => handleSetFontSize(activeFontSize - 2)}
-                      onMouseDown={(e) => e.preventDefault()}
-                    >
-                      A-
-                    </button>
-                    <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{activeFontSize}</span>
-                    <button
-                      className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-                      onClick={() => handleSetFontSize(activeFontSize + 2)}
-                      onMouseDown={(e) => e.preventDefault()}
-                    >
-                      A+
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border-t border-[#2d2d44] my-1.5" />
-
-                {hostname && (
-                  <div className="flex justify-between gap-4">
-                    <span className="text-[#64748b]">Host</span>
-                    <span className="text-[#e2e8f0]">{hostname}</span>
-                  </div>
-                )}
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Session</span>
-                  <span className="text-[#e2e8f0]">{session.id} ({currentIndex + 1}/{allSessions.length})</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Status</span>
-                  <span className={session.status === "running" ? "text-[#94a3b8]" : "text-[#64748b]"}>
-                    {session.status}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Command</span>
-                  <span className="text-[#e2e8f0] truncate max-w-40">{session.command}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Size</span>
-                  <span className="text-[#e2e8f0]">{session.cols}x{session.rows}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">CWD</span>
-                  <span className="text-[#e2e8f0] truncate max-w-40" title={session.cwd}>{session.cwd}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Created</span>
-                  <span className="text-[#e2e8f0]">{new Date(session.createdAt).toLocaleString()}</span>
-                </div>
-                {session.exitCode !== undefined && (
-                  <div className="flex justify-between gap-4">
-                    <span className="text-[#64748b]">Exit code</span>
-                    <span className={session.exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>
-                      {session.exitCode}
-                    </span>
-                  </div>
-                )}
-                {session.status === "running" && (
-                  <>
-                    <div className="border-t border-[#2d2d44] my-1.5" />
-                    <div className="flex justify-between gap-4">
-                      <span className="text-[#64748b]">Output</span>
-                      <span className="text-[#e2e8f0]">{formatBytes(totalBytes)}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-[#64748b]">Activity</span>
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            sessionActive
-                              ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)]"
-                              : "bg-[#64748b]/40"
-                          }`}
-                        />
-                        <span className={sessionActive ? "text-[#22c55e]" : "text-[#64748b]"}>
-                          {sessionActive ? "active" : idleDisplay ? `idle ${idleDisplay}` : "idle"}
-                        </span>
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                {/* Smart notification toggles (per-session override) */}
-                <div className="border-t border-[#2d2d44] my-1.5" />
-                <div className="text-[#e2e8f0] font-semibold text-xs mb-1.5 flex items-center gap-1.5">
-                  <Bell className="w-3 h-3 text-[#64748b]" />
-                  Smart Notifications
-                  {sessionNotifOverride && (
-                    <button
-                      className="text-[10px] text-[#64748b] hover:text-[#94a3b8] ml-auto"
-                      onClick={clearSessionNotifOverride}
-                      onMouseDown={e => e.preventDefault()}
-                    >
-                      reset
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-3 py-1">
-                  <span className="flex items-center gap-1.5 text-[#94a3b8]">
-                    <Activity className="w-3 h-3 text-[#64748b]" />
-                    Activity stopped
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="toggle toggle-xs toggle-primary"
-                    checked={effectiveNotif.activityStopped}
-                    onChange={() => toggleSessionNotif("activityStopped")}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3 py-1">
-                  <span className="flex items-center gap-1.5 text-[#94a3b8]">
-                    <Zap className="w-3 h-3 text-[#64748b]" />
-                    Activity spiked
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="toggle toggle-xs toggle-primary"
-                    checked={effectiveNotif.activitySpiked}
-                    onChange={() => toggleSessionNotif("activitySpiked")}
-                  />
-                </div>
-
-                {/* Link to global settings */}
-                <div className="border-t border-[#2d2d44] my-1.5" />
-                <Link
-                  to="/settings"
-                  className="flex items-center gap-1.5 text-[#64748b] hover:text-[#94a3b8] transition-colors"
-                  onClick={() => setInfoOpen(false)}
-                >
-                  <Settings className="w-3 h-3" />
-                  <span>Global settings</span>
-                </Link>
-
-                {/* Close session */}
-                {session.status === "running" && (
-                  <>
-                    <div className="border-t border-[#2d2d44] my-1.5" />
-                    <button
-                      className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
-                      onMouseDown={(e) => e.preventDefault()}
-                      tabIndex={-1}
-                      onClick={async () => {
-                        if (!confirm("Kill this session?")) return;
-                        await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
-                        navigate("/");
-                      }}
-                    >
-                      <Power className="w-3 h-3" />
-                      <span>Close session</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+            <SessionInfoPanel
+              session={session}
+              version={version}
+              hostname={hostname}
+              currentIndex={currentIndex}
+              totalSessions={allSessions.length}
+              activeFontSize={activeFontSize}
+              onSetFontSize={handleSetFontSize}
+              totalBytes={totalBytes}
+              sessionActive={sessionActive}
+              idleDisplay={idleDisplay}
+              effectiveNotif={effectiveNotif}
+              sessionNotifOverride={sessionNotifOverride}
+              onToggleNotif={toggleSessionNotif}
+              onClearNotifOverride={clearSessionNotifOverride}
+              onClose={() => setInfoOpen(false)}
+              onKillSession={async () => {
+                if (!confirm("Kill this session?")) return;
+                await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
+                navigate("/");
+              }}
+            />
           )}
         </div>
       </div>
@@ -1093,32 +866,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
         {/* Text viewer overlay — selectable DOM text for mobile copy */}
         {textViewerOpen && (
-          <div className="absolute inset-0 z-20 flex flex-col bg-[#0a0a0f]/95">
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2d2d44]">
-              <span className="text-sm font-mono text-[#94a3b8] flex-1">Visible text</span>
-              <button
-                className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0] gap-1"
-                onClick={() => {
-                  navigator.clipboard.writeText(textViewerContent).then(() => {
-                    handleCopy();
-                  });
-                }}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy all
-              </button>
-              <button
-                className="btn btn-xs btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); setTextViewerOpen(false); }}
-                onClick={() => setTextViewerOpen(false)}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <pre className="flex-1 overflow-auto px-3 py-2 text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-all select-all">{textViewerContent}</pre>
-          </div>
+          <SessionTextViewer
+            content={textViewerContent}
+            onCopy={handleCopy}
+            onClose={() => setTextViewerOpen(false)}
+          />
         )}
 
         {/* Buffer replay progress */}
@@ -1167,113 +919,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
       {/* ── Mobile: always-visible toolbar ── */}
       {isMobile && (
-        <div
-          ref={toolbarRef}
-          className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e]"
-          onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
-        >
-          {/* Input bar — opens when user taps keyboard button */}
-          {inputBarOpen && (
-            <div className="flex items-center gap-1 px-1.5 py-1 border-b border-[#1e1e2e]">
-              <button
-                className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
-                onClick={() => setPadExpanded((v) => !v)}
-                aria-label={padExpanded ? "Single line" : "Multi-line"}
-              >
-                {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
-              </button>
-              <textarea
-                ref={padRef}
-                className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-base rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
-                rows={padExpanded ? 3 : 1}
-                wrap={padExpanded ? "soft" : "off"}
-                style={padExpanded
-                  ? { paddingTop: "0.3em", paddingBottom: "0.3em" }
-                  : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
-                }
-                value={padText}
-                onChange={(e) => setPadText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
-                placeholder="Type a command..."
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                enterKeyHint="send"
-                autoFocus
-              />
-              <button
-                className="btn btn-primary h-10 min-h-0 px-3 min-w-0 rounded-none"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
-                onClick={sendPad}
-                disabled={!padText.trim()}
-              >
-                <SendHorizontal className="w-5 h-5" />
-              </button>
-            </div>
-          )}
-
-          {/* Key row: scrollable keys | pinned keyboard */}
-          <div className="flex items-center h-10">
-            {/* Scrollable keys */}
-            <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none">
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[D"); }} onClick={() => sendKey("\x1b[D")}>&larr;</button>
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[B"); }} onClick={() => sendKey("\x1b[B")}>&darr;</button>
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[A"); }} onClick={() => sendKey("\x1b[A")}>&uarr;</button>
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b[C"); }} onClick={() => sendKey("\x1b[C")}>&rarr;</button>
-              <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\t"); }} onClick={() => sendKey("\t")}>Tab</button>
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\r"); }} onClick={() => sendKey("\r")}>
-                <CornerDownLeft className="w-5 h-5" />
-              </button>
-              <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); sendKey("\x1b"); }} onClick={() => sendKey("\x1b")}>Esc</button>
-              <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-              <button
-                className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
-                tabIndex={-1}
-                onTouchEnd={(e) => { e.preventDefault(); setCtrlOn(!ctrlOn); }}
-                onClick={() => setCtrlOn(!ctrlOn)}
-              >Ctrl</button>
-              <button
-                className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
-                tabIndex={-1}
-                onTouchEnd={(e) => { e.preventDefault(); setAltOn(!altOn); }}
-                onClick={() => setAltOn(!altOn)}
-              >Alt</button>
-              <button
-                className={`btn h-10 min-h-0 min-w-0 shrink-0 px-3 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
-                onClick={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
-                aria-label="Select text for copying"
-              >
-                <TextSelect className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-            {/* Pinned right: keyboard */}
-            <button
-              className={`btn h-10 min-h-0 shrink-0 px-3 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
-              onClick={toggleInputBar}
-              aria-label="Keyboard input"
-            >
-              <KeyboardIcon className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+        <SessionMobileToolbar
+          key={activeId}
+          ctrlOn={ctrlOn}
+          altOn={altOn}
+          onCtrlToggle={() => setCtrlOn(!ctrlOn)}
+          onAltToggle={() => setAltOn(!altOn)}
+          onSendKey={sendKey}
+          textViewerOpen={textViewerOpen}
+          onTextViewerToggle={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
+          onSendText={(text) => {
+            const handle = terminalRef.current ?? chatRef.current;
+            if (!handle) return;
+            handle.sendText(text);
+            setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
+          }}
+        />
       )}
     </main>
   );
