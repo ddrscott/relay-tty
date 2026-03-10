@@ -605,6 +605,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     enabled: isMobile && !textViewerOpen && !pickerOpen && allSessions.length > 1,
   });
 
+  // Prevent browser auto-scroll on the terminal area container.
+  // Mobile browsers call scrollIntoViewIfNeeded() when xterm's hidden textarea
+  // is focused (e.g. during alt-screen transitions), which can shift the
+  // overflow:hidden container's scrollLeft by ~10px. This makes touches land
+  // on the neighboring session instead of the active one.
+  useEffect(() => {
+    const el = terminalAreaRef.current;
+    if (!el) return;
+    const resetScroll = () => {
+      if (el.scrollLeft !== 0) el.scrollLeft = 0;
+      if (el.scrollTop !== 0) el.scrollTop = 0;
+    };
+    el.addEventListener("scroll", resetScroll, { passive: true });
+    return () => el.removeEventListener("scroll", resetScroll);
+  }, []);
+
   // Reset track transform synchronously when activeId changes (before paint)
   // so the strip repositions without a visible flash.
   const prevActiveRef = useRef(activeId);
