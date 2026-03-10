@@ -90,11 +90,17 @@ async function createSession(
 ): Promise<CreateResult> {
   // Always spawn pty-host directly from the CLI so sessions inherit
   // the user's environment, not the server's.
-  const { id, socketPath } = spawnDirect(command, args, cols, rows, cwd);
+  const { id, socketPath, pid } = spawnDirect(command, args, cols, rows, cwd);
 
-  const ready = await waitForSocket(socketPath);
+  let ready: boolean;
+  try {
+    ready = await waitForSocket(socketPath, 3000, pid);
+  } catch (err: any) {
+    process.stderr.write(`Failed to start session: ${err.message}\n`);
+    process.exit(1);
+  }
   if (!ready) {
-    process.stderr.write(`Failed to start session\n`);
+    process.stderr.write(`Failed to start session — timed out waiting for pty-host\n`);
     process.exit(1);
   }
 

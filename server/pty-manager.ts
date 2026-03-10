@@ -160,7 +160,7 @@ export class PtyManager extends EventEmitter {
 
     // Await socket readiness before returning — caller gets a session that's ready to connect
     const socketPath = path.join(SOCKETS_DIR, `${id}.sock`);
-    await this.waitForSocket(id, socketPath);
+    await this.waitForSocket(id, socketPath, child.pid);
 
     return session;
   }
@@ -373,9 +373,24 @@ export class PtyManager extends EventEmitter {
     } catch {}
   }
 
-  private async waitForSocket(id: string, socketPath: string, retries = 30): Promise<void> {
-    for (let i = 0; i < retries; i++) {
-      await new Promise((r) => setTimeout(r, 100));
+  /**
+   * Wait for a pty-host socket to become connectable.
+   * Checks child PID liveness each iteration — fails immediately if the
+   * process has exited instead of waiting for the full timeout.
+   * Uses exponential backoff: 50ms → 100ms → 200ms → ... capped at 500ms.
+   */
+  private async waitForSocket(id: string, socketPath: string, pid?: number, timeoutMs = 3000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let delay = 50;
+
+    while (Date.now() < deadline) {
+      // Check if the child process is still alive before polling
+      if (pid !== undefined && !isPidAlive(pid)) {
+        const msg = `pty-host process (PID ${pid}) exited before socket became ready for session ${id}`;
+        console.error(msg);
+        throw new Error(msg);
+      }
+
       if (fs.existsSync(socketPath)) {
         const alive = await this.probeSocket(socketPath);
         if (alive) {
@@ -383,8 +398,10 @@ export class PtyManager extends EventEmitter {
           return;
         }
       }
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 500);
     }
-    console.error(`Failed to connect to pty-host for session ${id}`);
+    console.error(`Timed out waiting for pty-host socket for session ${id}`);
   }
 
   private probeSocket(socketPath: string): Promise<boolean> {
