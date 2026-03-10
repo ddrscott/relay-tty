@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { resolveRustBinaryPath, buildSpawnArgs } from "../shared/spawn-utils.js";
 
 const DATA_DIR = path.join(os.homedir(), ".relay-tty");
 const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
@@ -22,13 +22,13 @@ export function spawnDirect(
   const id = randomBytes(4).toString("hex");
   const effectiveCwd = cwd || process.cwd();
 
-  const spawnCmd = resolveRustBinaryPath();
-  const spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, ...args];
+  const spawnCmd = resolveRustBinaryPath(import.meta.url);
+  const spawnArgs = buildSpawnArgs(id, cols, rows, effectiveCwd, command, args);
 
   const child = cpSpawn(spawnCmd, spawnArgs, {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, RELAY_SESSION_ID: id },
+    env: { ...process.env, RELAY_SESSION_ID: id, RELAY_ORIG_COMMAND: command, RELAY_ORIG_ARGS: JSON.stringify(args) },
   });
   child.unref();
 
@@ -68,37 +68,4 @@ export async function waitForSocket(socketPath: string, timeoutMs = 3000): Promi
  */
 export function getSocketPath(id: string): string {
   return path.join(SOCKETS_DIR, `${id}.sock`);
-}
-
-/**
- * Resolve the Rust relay-pty-host binary path.
- * Throws if not found — the Rust binary is required.
- */
-function resolveRustBinaryPath(): string {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const projectRoot = __dirname.includes("/dist/")
-    ? path.resolve(__dirname, "..", "..")
-    : path.resolve(__dirname, "..");
-
-  // Check locations in order of preference:
-  // 1. Pre-built binary at bin/relay-pty-host (npm distribution)
-  // 2. Cargo build output at crates/pty-host/target/release/relay-pty-host
-  const candidates = [
-    path.join(projectRoot, "bin", "relay-pty-host"),
-    path.join(projectRoot, "crates", "pty-host", "target", "release", "relay-pty-host"),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // Not found or not executable
-    }
-  }
-
-  throw new Error(
-    "relay-pty-host binary not found. Install via npm (downloads automatically) " +
-    "or build locally: cargo build --release --manifest-path crates/pty-host/Cargo.toml"
-  );
 }

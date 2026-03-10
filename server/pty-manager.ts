@@ -5,10 +5,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import type { SessionStore } from "./session-store.js";
 import type { Session } from "../shared/types.js";
 import { WS_MSG } from "../shared/types.js";
+import { resolveRustBinaryPath, buildSpawnArgs } from "../shared/spawn-utils.js";
 import { dim } from "./log.js";
 
 const DATA_DIR = path.join(os.homedir(), ".relay-tty");
@@ -133,30 +133,8 @@ export class PtyManager extends EventEmitter {
       RELAY_ORIG_ARGS: JSON.stringify(args),
     };
 
-    const spawnCmd = this.resolveRustBinaryPath();
-    let spawnArgs: string[];
-
-    if (isShellCommand(command)) {
-      // Shell commands: spawn directly as a login shell using the standard
-      // Unix argv[0] convention (same as iTerm2/tmux/Terminal.app).
-      // pty-host detects the --login flag and sets argv[0] to "-<shell>"
-      // which tells the shell to behave as a login shell and source
-      // /etc/zprofile, ~/.zprofile, ~/.zshrc, ~/.zlogin etc.
-      //
-      // Previous approach wrapped via `zsh -l -c "exec zsh"` which created
-      // a double-shell where the outer login shell's profile output bled
-      // through as visible garbage before the inner shell started.
-      spawnArgs = [id, String(cols), String(rows), effectiveCwd, command, "--login", ...args];
-    } else {
-      // Non-shell commands: wrap in a login shell so the user's profile
-      // (~/.bash_profile, ~/.zshrc, etc.) is sourced. This gives
-      // browser-created sessions the same environment as CLI-spawned ones.
-      const userShell = process.env.SHELL || "/bin/sh";
-      const fullCmd = args.length > 0
-        ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
-        : `exec ${shellEscape(command)}`;
-      spawnArgs = [id, String(cols), String(rows), effectiveCwd, userShell, "-l", "-c", fullCmd];
-    }
+    const spawnCmd = resolveRustBinaryPath(import.meta.url);
+    const spawnArgs = buildSpawnArgs(id, cols, rows, effectiveCwd, command, args);
 
     // Spawn pty-host as detached process — survives server death
     const child = cpSpawn(spawnCmd, spawnArgs, {
@@ -395,39 +373,6 @@ export class PtyManager extends EventEmitter {
     } catch {}
   }
 
-  /**
-   * Resolve the Rust relay-pty-host binary path.
-   * Throws if not found — the Rust binary is required.
-   */
-  private resolveRustBinaryPath(): string {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const projectRoot = __dirname.includes("/dist/")
-      ? path.resolve(__dirname, "..", "..")
-      : path.resolve(__dirname, "..");
-
-    // Check locations in order of preference:
-    // 1. Pre-built binary at bin/relay-pty-host (npm distribution)
-    // 2. Cargo build output at crates/pty-host/target/release/relay-pty-host
-    const candidates = [
-      path.join(projectRoot, "bin", "relay-pty-host"),
-      path.join(projectRoot, "crates", "pty-host", "target", "release", "relay-pty-host"),
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {
-        // Not found or not executable
-      }
-    }
-
-    throw new Error(
-      "relay-pty-host binary not found. Install via npm (downloads automatically) " +
-      "or build locally: cargo build --release --manifest-path crates/pty-host/Cargo.toml"
-    );
-  }
-
   private async waitForSocket(id: string, socketPath: string, retries = 30): Promise<void> {
     for (let i = 0; i < retries; i++) {
       await new Promise((r) => setTimeout(r, 100));
@@ -522,19 +467,4 @@ export class PtyManager extends EventEmitter {
       this.monitors.delete(id);
     });
   }
-}
-
-/** Known interactive shells — spawned directly as login shells, not wrapped. */
-const KNOWN_SHELLS = new Set(["sh", "bash", "zsh", "fish", "ksh", "tcsh", "csh", "dash"]);
-
-function isShellCommand(cmd: string): boolean {
-  return KNOWN_SHELLS.has(path.basename(cmd));
-}
-
-/** Escape a string for safe inclusion in a shell command */
-function shellEscape(s: string): string {
-  // If the string is safe (alphanumeric + common safe chars), return as-is
-  if (/^[a-zA-Z0-9._\-/=:@]+$/.test(s)) return s;
-  // Otherwise, single-quote it, escaping any embedded single quotes
-  return "'" + s.replace(/'/g, "'\\''") + "'";
 }

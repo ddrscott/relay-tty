@@ -17,5 +17,11 @@
 - ~[ ] Add footer bar to gallery cells~ *(rejected — gallery removed)*
 - ~[ ] Enable desktop grid gallery view on mobile~ *(rejected — gallery removed)*
 
+- [x] Extract shared spawn logic into common module ([detail](work-queue/extract-shared-spawn.md))
+- [ ] Add backpressure to WS handler for slow clients ([detail](work-queue/ws-backpressure.md))
+- [ ] Break up sessions.$id.tsx into smaller components ([detail](work-queue/sessions-component-split.md))
+- [ ] Type xterm.js interfaces instead of `any` in terminal pool ([detail](work-queue/type-xterm-interfaces.md))
+- [ ] Improve spawn failure detection — check child PID liveness during socket polling ([detail](work-queue/spawn-failure-detection.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
