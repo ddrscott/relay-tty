@@ -5,9 +5,44 @@
  * Used by both the interactive Terminal and ReadOnlyTerminal components.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { Terminal } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
+import type { WebglAddon } from "@xterm/addon-webgl";
 import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
+
+// ── Narrow interfaces for xterm.js internals ────────────────────────
+// xterm v5 _core access is required for scroll hacks (momentum scrolling,
+// viewport sync after buffer replay). These interfaces type only the
+// properties actually used — they are NOT part of xterm's public API.
+
+/** Subset of xterm's internal viewport used by touch scroll + replay sync */
+interface XtermViewport {
+  syncScrollArea(immediate?: boolean): void;
+  _innerRefresh(): void;
+  _handleScroll(): void;
+}
+
+/** Subset of xterm's internal render service for measuring row height */
+interface XtermRenderService {
+  dimensions: {
+    css: {
+      cell: {
+        height: number;
+      };
+    };
+  };
+}
+
+/** Subset of xterm's _core internals accessed by this module */
+interface XtermCore {
+  viewport?: XtermViewport;
+  _renderService?: XtermRenderService;
+}
+
+/** Terminal instance with typed access to _core internals */
+type TerminalWithCore = Terminal & { _core?: XtermCore };
 
 /** Size of chunks fed to xterm.js during buffer replay (bytes) */
 const REPLAY_CHUNK_SIZE = 64 * 1024;
@@ -20,9 +55,9 @@ const REPLAY_CHUNK_SIZE = 64 * 1024;
 interface PooledTerminal {
   /** Wrapper div containing xterm's rendered DOM */
   wrapper: HTMLDivElement;
-  term: any;
-  fitAddon: any;
-  webgl: any | null;
+  term: Terminal;
+  fitAddon: FitAddon;
+  webgl: WebglAddon | null;
   byteOffset: number;
   cacheWriter: BufferCacheWriter | null;
   cacheSessionId: string | null;
@@ -95,16 +130,16 @@ export interface TerminalCoreOpts {
 }
 
 export interface TerminalCoreRef {
-  term: any | null;
+  term: Terminal | null;
   ws: WebSocket | null;
-  fitAddon: any | null;
+  fitAddon: FitAddon | null;
 }
 
 export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | null>, opts: TerminalCoreOpts) {
-  const termRef = useRef<any>(null);
+  const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const fitAddonRef = useRef<any>(null);
-  const webglRef = useRef<any>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const webglRef = useRef<WebglAddon | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [retryCount, setRetryCount] = useState(0);
   const [contentReady, setContentReady] = useState(false);
@@ -318,7 +353,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             replayingRef.current = true;
             await new Promise<void>((resolve) => {
               const syncAndScroll = () => {
-                const core = (term as any)._core;
+                const core = (term as TerminalWithCore)._core;
                 if (core?.viewport) core.viewport.syncScrollArea(true);
                 term.scrollToBottom();
                 // Delay clearing replayingRef — xterm.js emits DA/DSR
@@ -367,7 +402,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── Mobile keyboard: disable autocomplete, keep raw typing ─────
 
-    function setupMobileInput(term: any, container: HTMLElement) {
+    function setupMobileInput(term: Terminal, container: HTMLElement) {
       const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement;
       if (!textarea) return;
 
@@ -395,7 +430,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── Pixel-smooth touch scrolling with momentum ──────────────────
 
-    function setupTouchScrolling(term: any, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }) {
+    function setupTouchScrolling(term: Terminal, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }) {
       const screen = container.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
@@ -410,7 +445,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       xtermEl.addEventListener("gesturestart", blockNativeZoom, { passive: false });
       xtermEl.addEventListener("gesturechange", blockNativeZoom, { passive: false });
 
-      const core = (term as any)._core;
+      const core = (term as TerminalWithCore)._core;
       const viewport = core?.viewport;
 
       const measureRowHeight = () =>
@@ -653,7 +688,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── WebSocket connection + message handling ─────────────────────
 
-    function connect(term: any) {
+    function connect(term: Terminal) {
       if (disposed) return;
 
       setStatus("connecting");
@@ -745,7 +780,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       return result;
     }
 
-    function handleWsMessage(term: any, type: number, payload: Uint8Array) {
+    function handleWsMessage(term: Terminal, type: number, payload: Uint8Array) {
       switch (type) {
         case WS_MSG.BUFFER_REPLAY:
           handleBufferReplay(term, payload);
@@ -859,7 +894,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
     }
 
-    function flushThrottleBuffer(term: any) {
+    function flushThrottleBuffer(term: Terminal) {
       if (throttleBuffer.length === 0) return;
       // Merge all buffered chunks into a single write
       const total = throttleBuffer.reduce((sum, c) => sum + c.length, 0);
@@ -873,7 +908,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       term.write(merged);
     }
 
-    function handleBufferReplay(term: any, payload: Uint8Array) {
+    function handleBufferReplay(term: Terminal, payload: Uint8Array) {
       const isReconnect = byteOffset > 0;
       if (payload.length === 0) {
         // Empty buffer — nothing to replay. For reconnects, content is
@@ -907,7 +942,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, 5000);
 
       const syncAndScroll = () => {
-        const core = (term as any)._core;
+        const core = (term as TerminalWithCore)._core;
         if (core?.viewport) core.viewport.syncScrollArea(true);
         term.scrollToBottom();
       };
@@ -971,7 +1006,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       writeNextChunk();
     }
 
-    function scheduleReconnect(term: any) {
+    function scheduleReconnect(term: Terminal) {
       if (disposed) return;
       setRetryCount(c => c + 1);
       retryTimer = setTimeout(() => {
@@ -1069,7 +1104,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         terminalPool.set(poolKey, {
           wrapper: xtermWrapper,
           term: termRef.current,
-          fitAddon: fitAddonRef.current,
+          fitAddon: fitAddonRef.current!,
           webgl: webglRef.current,
           byteOffset,
           cacheWriter,

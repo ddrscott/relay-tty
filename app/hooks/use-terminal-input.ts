@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { Terminal } from "@xterm/xterm";
 import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
 
 /**
@@ -26,7 +27,7 @@ function isTerminalResponse(data: string): boolean {
 
 interface UseTerminalInputOpts {
   /** xterm Terminal instance ref */
-  termRef: React.RefObject<any>;
+  termRef: React.RefObject<Terminal | null>;
   /** sendBinary from useTerminalCore */
   sendBinary: (msg: Uint8Array) => void;
   /** Ref that is true during buffer replay (suppress onData to avoid CPR/DA leak) */
