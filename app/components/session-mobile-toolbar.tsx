@@ -176,7 +176,7 @@ export function SessionMobileToolbar({
 
       {/* Input bar — in normal flex flow. Height changes don't trigger
            SIGWINCH because the ResizeObserver only fires on width changes. */}
-      <div className={`toolbar-row border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
+      {inputBarOpen && <div className="toolbar-row border-b border-[#1e1e2e]">
         <button
           className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
           tabIndex={-1}
@@ -220,7 +220,7 @@ export function SessionMobileToolbar({
         >
           <SendHorizontal className="w-5 h-5" />
         </button>
-      </div>
+      </div>}
 
       {/* Key row: scrollable keys | pinned keyboard */}
       <div className="flex items-center h-11">
