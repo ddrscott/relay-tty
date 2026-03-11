@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
+import type { NotificationStore } from "./notification-store.js";
 import { generateShareToken } from "./auth.js";
 import type {
   CreateSessionRequest,
@@ -77,6 +78,7 @@ const MAX_BINARY_SIZE = 100 * 1024 * 1024;
 
 interface ApiOptions {
   appUrl?: string;
+  notificationStore?: NotificationStore;
 }
 
 export function createApiRouter(
@@ -465,6 +467,64 @@ export function createApiRouter(
         res.status(500).json({ error: `Upload failed: ${err.message}` });
       }
     });
+  });
+
+  // ── Notification history API ──
+
+  // GET /api/notifications — list all stored notifications
+  router.get("/notifications", (_req, res) => {
+    const store = options.notificationStore;
+    if (!store) {
+      res.json({ notifications: [] });
+      return;
+    }
+    res.json({ notifications: store.list() });
+  });
+
+  // POST /api/notifications — record a new notification
+  router.post("/notifications", (req, res) => {
+    const store = options.notificationStore;
+    if (!store) {
+      res.status(500).json({ error: "Notification store not available" });
+      return;
+    }
+    const { sessionId, sessionName, message } = req.body as {
+      sessionId: string;
+      sessionName: string;
+      message: string;
+    };
+    if (!sessionId || !message) {
+      res.status(400).json({ error: "sessionId and message are required" });
+      return;
+    }
+    const entry = store.add(sessionId, sessionName || sessionId, message);
+    res.status(201).json({ notification: entry });
+  });
+
+  // DELETE /api/notifications/:id — delete a single notification
+  router.delete("/notifications/:id", (req, res) => {
+    const store = options.notificationStore;
+    if (!store) {
+      res.status(500).json({ error: "Notification store not available" });
+      return;
+    }
+    const deleted = store.delete(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: "Notification not found" });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  // DELETE /api/notifications — clear all notifications
+  router.delete("/notifications", (_req, res) => {
+    const store = options.notificationStore;
+    if (!store) {
+      res.status(500).json({ error: "Notification store not available" });
+      return;
+    }
+    store.clear();
+    res.json({ ok: true });
   });
 
   return router;

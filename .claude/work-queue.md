@@ -45,7 +45,7 @@
 - [x] Replace view mode toggle button with a radio pill selector (xterm / chat) in session settings menu
 - [x] Make granted-notification bell icon tappable — opens session settings menu to notification toggles
 - [x] Move activity dot inline with session name — dot before name text inside the name container
-- [ ] Notification history panel — bell icon opens list of received notifications, tap to jump to session ([detail](work-queue/notification-history.md))
+- [x] Notification history panel — bell icon opens list of received notifications, tap to jump to session ([detail](work-queue/notification-history.md))
 - [ ] Make markdown-style `[text](path)` links in terminal output clickable — open target file on tap ([detail](work-queue/terminal-url-links.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->

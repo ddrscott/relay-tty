@@ -16,6 +16,8 @@ import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
 import { SearchBar } from "../components/search-bar";
+import { NotificationPanel } from "../components/notification-panel";
+import type { NotificationEntry } from "../components/notification-panel";
 import {
   Menu,
   Bell,
@@ -224,6 +226,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+  const notifPanelRef = useRef<HTMLDivElement>(null);
+  const [notifHistory, setNotifHistory] = useState<NotificationEntry[]>([]);
+  const [notifLastSeenCount, setNotifLastSeenCount] = useState(0);
   const [sessionActive, setSessionActive] = useState(true);
   const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
   const [lastActiveTime, setLastActiveTime] = useState<number>(
@@ -386,6 +392,24 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setNotifToast(message);
     notifToastTimer.current = setTimeout(() => setNotifToast(null), 4000);
 
+    // Record to server-side notification history
+    fetch("/api/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.id,
+        sessionName: title,
+        message,
+      }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.notification) {
+          setNotifHistory(prev => [...prev, data.notification]);
+        }
+      })
+      .catch(() => {});
+
     // System notification when tab is hidden (user not looking at the page).
     // Use ServiceWorkerRegistration.showNotification() when available — this is
     // the only API that works on iOS PWAs. Falls back to new Notification() for
@@ -488,6 +512,30 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const timer = setInterval(updateIdleDisplay, 1000);
     return () => clearInterval(timer);
   }, [sessionActive, lastActiveTime]);
+
+  // ── Notification history: fetch on mount, close panel on outside click ──
+  useEffect(() => {
+    fetch("/api/notifications")
+      .then(r => r.ok ? r.json() : { notifications: [] })
+      .then(data => {
+        setNotifHistory(data.notifications ?? []);
+        setNotifLastSeenCount(data.notifications?.length ?? 0);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!notifPanelOpen) return;
+    // Mark all as seen when opening
+    setNotifLastSeenCount(notifHistory.length);
+    function onClickOutside(e: MouseEvent) {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node)) {
+        setNotifPanelOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [notifPanelOpen, notifHistory.length]);
 
   // Pinch-to-zoom: adjust font size by delta, persisted per-session
   const handleFontSizeChange = useCallback((delta: number) => {
@@ -935,16 +983,50 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
         {notifPermission === "granted" && (
-          <button
-            className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
-            onClick={() => setInfoOpen(true)}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-            aria-label="Notification settings"
-            title="Notification settings"
-          >
-            <Bell className="w-3.5 h-3.5" />
-          </button>
+          <div className="relative shrink-0" ref={notifPanelRef}>
+            <button
+              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] relative"
+              onClick={() => setNotifPanelOpen(!notifPanelOpen)}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+              aria-label="Notification history"
+              title="Notification history"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {notifHistory.length > notifLastSeenCount && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-[#ef4444] text-white text-[9px] font-bold flex items-center justify-center px-0.5 leading-none">
+                  {Math.min(notifHistory.length - notifLastSeenCount, 99)}
+                </span>
+              )}
+            </button>
+            {notifPanelOpen && (
+              <NotificationPanel
+                notifications={notifHistory}
+                activeSessionIds={new Set(allSessions.map(s => s.id))}
+                onClose={() => setNotifPanelOpen(false)}
+                onClear={() => {
+                  fetch("/api/notifications", { method: "DELETE" }).catch(() => {});
+                  setNotifHistory([]);
+                  setNotifLastSeenCount(0);
+                }}
+                onDelete={(id) => {
+                  fetch(`/api/notifications/${id}`, { method: "DELETE" }).catch(() => {});
+                  setNotifHistory(prev => prev.filter(n => n.id !== id));
+                }}
+                onNavigate={(sessionId) => {
+                  setNotifPanelOpen(false);
+                  if (sessionId === activeId) return;
+                  // Use state-based switching if session is in the list
+                  if (allSessions.some(s => s.id === sessionId)) {
+                    setActiveId(sessionId);
+                    window.history.replaceState(null, "", `/sessions/${sessionId}`);
+                  } else {
+                    navigate(`/sessions/${sessionId}`);
+                  }
+                }}
+              />
+            )}
+          </div>
         )}
 
         {/* Search */}

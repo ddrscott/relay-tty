@@ -51,8 +51,11 @@ async function loadModules(load) {
   const authModule = await load("auth");
   app.use(authModule.authMiddleware);
 
+  const notifStoreModule = await load("notification-store");
+  const notificationStore = new notifStoreModule.NotificationStore();
+
   const apiModule = await load("api");
-  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL }));
+  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore }));
 
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
@@ -84,7 +87,7 @@ async function loadModules(load) {
     res.redirect("/");
   });
 
-  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands };
+  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir };
 }
 
 async function start() {
