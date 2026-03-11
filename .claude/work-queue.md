@@ -30,6 +30,11 @@
 - [x] Track foreground process name via tcgetpgrp in pty-host ([detail](work-queue/foreground-process-tracking.md))
 - [x] File viewer steals focus on close, triggering virtual keyboard and losing terminal scroll position on mobile ([detail](work-queue/file-viewer-keyboard-steal.md))
 - [x] Fix detach from TUI (Claude Code) leaving relay session stuck — requires Ctrl+C to recover ([detail](work-queue/detach-alt-screen-stuck.md))
+- [x] Clipboard image paste — Cmd+V with image auto-uploads and inserts file path ([detail](work-queue/clipboard-image-paste.md))
+- [ ] Drag-and-drop file upload onto terminal with visual drop zone ([detail](work-queue/drag-drop-upload.md))
+- [ ] Mobile scrollback search — find text in terminal history ([detail](work-queue/mobile-scrollback-search.md))
+- [ ] Cross-device clipboard sync — copy on phone, paste on desktop and vice versa ([detail](work-queue/clipboard-sync.md))
+- [ ] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

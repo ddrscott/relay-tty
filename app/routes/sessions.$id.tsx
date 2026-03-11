@@ -542,11 +542,17 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
         throw new Error(err.error || `HTTP ${res.status}`);
       }
-      const { path: filePath } = await res.json();
+      const { path: filePath, name: uploadedName } = await res.json();
       // Insert file path into terminal
       const handle = terminalRef.current ?? chatRef.current;
       if (handle && filePath) {
         handle.sendText(filePath);
+      }
+      // Show brief upload confirmation toast
+      if (uploadedName) {
+        if (notifToastTimer.current) clearTimeout(notifToastTimer.current);
+        setNotifToast(`Uploaded ${uploadedName}`);
+        notifToastTimer.current = setTimeout(() => setNotifToast(null), 3000);
       }
     } catch (err: any) {
       console.error("Upload failed:", err.message);
@@ -561,6 +567,57 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const file = e.target.files?.[0];
     if (file) handleUpload(file);
   }, [handleUpload]);
+
+  // ── Clipboard image paste ──
+  // Intercept paste events containing image data (screenshots, copied images).
+  // Convert to a File with a timestamped name and upload via the existing
+  // handleUpload flow. Text-only pastes fall through to xterm's normal handler.
+  const handleUploadRef = useRef(handleUpload);
+  handleUploadRef.current = handleUpload;
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (!e.clipboardData) return;
+
+      // Check for image items in clipboard
+      const items = e.clipboardData.items;
+      let imageItem: DataTransferItem | null = null;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          imageItem = items[i];
+          break;
+        }
+      }
+
+      if (!imageItem) return; // No image — let xterm handle text paste normally
+
+      // Don't intercept if the paste target is a textarea or input (e.g. scratchpad)
+      const target = e.target as HTMLElement;
+      if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+
+      // Generate a timestamped filename: paste-20260311-143052.png
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const ext = blob.type === "image/jpeg" ? ".jpg"
+        : blob.type === "image/webp" ? ".webp"
+        : blob.type === "image/gif" ? ".gif"
+        : ".png";
+      const filename = `paste-${ts}${ext}`;
+
+      const file = new File([blob], filename, { type: blob.type });
+      handleUploadRef.current(file);
+    }
+
+    document.addEventListener("paste", onPaste, { capture: true });
+    return () => document.removeEventListener("paste", onPaste, { capture: true });
+  }, []);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
