@@ -93,14 +93,13 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     throw new Response("Session not found", { status: 404 });
   }
   const allSessions = context.sessionStore.list();
-  return { session, allSessions, version: context.version, hostname: context.hostname };
+  return { session, allSessions, hostname: context.hostname };
 }
 
 export default function SessionView({ loaderData }: Route.ComponentProps) {
-  const { session: initialSession, allSessions, version, hostname } = loaderData as {
+  const { session: initialSession, allSessions, hostname } = loaderData as {
     session: Session;
     allSessions: Session[];
-    version: string;
     hostname: string;
   };
   const { revalidate } = useRevalidator();
@@ -982,7 +981,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           {infoOpen && (
             <SessionInfoPanel
               session={session}
-              version={version}
               hostname={hostname}
               currentIndex={currentIndex}
               totalSessions={allSessions.length}

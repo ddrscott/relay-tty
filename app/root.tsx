@@ -53,8 +53,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
-  const { sessions, hostname, customCommands } = loaderData as {
+  const { sessions, version, hostname, customCommands } = loaderData as {
     sessions: any[];
+    version: string;
     hostname: string;
     customCommands: string[];
   };
@@ -62,7 +63,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
   useSessionEvents(revalidate);
 
   return (
-    <SidebarDrawer sessions={sessions} hostname={hostname} customCommands={customCommands}>
+    <SidebarDrawer sessions={sessions} version={version} hostname={hostname} customCommands={customCommands}>
       <Outlet />
     </SidebarDrawer>
   );

@@ -102,11 +102,13 @@ function SidebarSessionItem({
 export function SidebarDrawer({
   sessions,
   hostname,
+  version,
   customCommands,
   children,
 }: {
   sessions: Session[];
   hostname: string;
+  version: string;
   customCommands: string[];
   children: React.ReactNode;
 }) {
@@ -371,7 +373,8 @@ export function SidebarDrawer({
           </div>
 
           {/* Footer */}
-          <div className="px-3 py-2 border-t border-[#1e1e2e] flex items-center justify-end">
+          <div className="px-3 py-2 border-t border-[#1e1e2e] flex items-center justify-between">
+            <span className="text-xs font-mono text-[#64748b]/60">v{version}</span>
             <button
               className="p-1.5 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors"
               onClick={() => {

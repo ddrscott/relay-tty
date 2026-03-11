@@ -20,7 +20,6 @@ function formatBytes(bytes: number): string {
 
 interface SessionInfoPanelProps {
   session: Session;
-  version: string;
   hostname: string;
   currentIndex: number;
   totalSessions: number;
@@ -41,7 +40,6 @@ interface SessionInfoPanelProps {
 
 export function SessionInfoPanel({
   session,
-  version,
   hostname,
   currentIndex,
   totalSessions,
@@ -62,8 +60,6 @@ export function SessionInfoPanel({
   return (
     <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
       <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
-        <div className="text-[#e2e8f0] font-semibold text-sm mb-2">relay-tty v{version}</div>
-
         {/* Font size controls */}
         <div className="flex items-center justify-between gap-4">
           <span className="text-[#64748b]">Font size</span>
