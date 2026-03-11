@@ -82,27 +82,37 @@ export function SessionInfoPanel({
           </div>
         </div>
 
-        {/* View mode toggle: terminal ↔ chat */}
+        {/* View mode selector: xterm / chat */}
         <div className="flex items-center justify-between gap-4">
           <span className="text-[#64748b]">View</span>
-          <button
-            className="btn btn-ghost btn-xs font-mono text-[#94a3b8] flex items-center gap-1.5"
-            onClick={onToggleViewMode}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-          >
-            {viewMode === "terminal" ? (
-              <>
-                <MessageSquare className="w-3 h-3" />
-                <span>Chat</span>
-              </>
-            ) : (
-              <>
-                <TerminalSquare className="w-3 h-3" />
-                <span>Terminal</span>
-              </>
-            )}
-          </button>
+          <div className="flex rounded-lg overflow-hidden border border-[#2d2d44]">
+            <button
+              className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
+                viewMode === "terminal"
+                  ? "bg-primary text-primary-content"
+                  : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
+              }`}
+              onClick={() => viewMode !== "terminal" && onToggleViewMode()}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+            >
+              <TerminalSquare className="w-3 h-3" />
+              <span>xterm</span>
+            </button>
+            <button
+              className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
+                viewMode === "chat"
+                  ? "bg-primary text-primary-content"
+                  : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
+              }`}
+              onClick={() => viewMode !== "chat" && onToggleViewMode()}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>chat</span>
+            </button>
+          </div>
         </div>
 
         <div className="border-t border-[#2d2d44] my-1.5" />

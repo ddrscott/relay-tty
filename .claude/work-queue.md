@@ -42,7 +42,7 @@
 - [x] Move chat/terminal view toggler into info menu, change info menu icon from Info (circle-i) to Settings (gear)
 - [x] Vertically center the session caption in the session toolbar
 - [x] Move 'relay-tty $version' tag from session settings menu to sidebar footer
-- [ ] Replace view mode toggle button with a radio pill selector (xterm / chat) in session settings menu
+- [x] Replace view mode toggle button with a radio pill selector (xterm / chat) in session settings menu
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
