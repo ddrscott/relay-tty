@@ -1032,7 +1032,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Search */}
         <button
           className={`btn btn-ghost btn-xs shrink-0 ${searchOpen ? "text-[#3b82f6]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-          onClick={() => setSearchOpen(v => !v)}
+          onClick={() => { setSearchOpen(v => !v); setFileBrowserOpen(false); }}
           onMouseDown={(e) => e.preventDefault()}
           tabIndex={-1}
           aria-label="Search terminal"
@@ -1050,7 +1050,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         />
         <button
           className={`btn btn-ghost btn-xs shrink-0 ${fileBrowserOpen ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-          onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
+          onClick={() => { setFileBrowserOpen(v => !v); setSearchOpen(false); }}
           onMouseDown={(e) => e.preventDefault()}
           tabIndex={-1}
           aria-label="File manager"
@@ -1329,21 +1329,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {/* File browser panel */}
-        {fileBrowserOpen && FileBrowserComponent && (
-          <FileBrowserComponent
-            sessionId={session.id}
-            initialPath={session.cwd}
-            onClose={() => {
-              if (isMobile && document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
-              }
-              setFileBrowserOpen(false);
-            }}
-            onUploadFile={handleUpload}
-            uploading={uploading}
-          />
-        )}
       </div>
 
       {/* ── Mobile: always-visible toolbar ── */}
@@ -1379,6 +1364,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             if (handle) handle.sendText(text);
           }}
           onClose={() => setClipboardPanelOpen(false)}
+        />
+      )}
+
+      {/* File browser — covers entire main area (header + terminal) */}
+      {fileBrowserOpen && FileBrowserComponent && (
+        <FileBrowserComponent
+          sessionId={session.id}
+          initialPath={session.cwd}
+          onClose={() => {
+            if (isMobile && document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+            setFileBrowserOpen(false);
+          }}
+          onUploadFile={handleUpload}
+          uploading={uploading}
         />
       )}
     </main>
