@@ -154,6 +154,10 @@ export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
     function detach() {
       s.userDetached = true;
       s.cleanExit = true;
+      // Send DETACH message so pty-host can SIGHUP the foreground process group
+      // (e.g., kill a TUI like Claude Code that's holding the alt screen)
+      const detachMsg = Buffer.from([WS_MSG.DETACH]);
+      s.sendMessage(detachMsg);
       finish();
       process.stderr.write("\r\nDetached.\r\n");
       opts.onDetach?.();
@@ -319,6 +323,9 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
     function detach() {
       s.userDetached = true;
       s.cleanExit = true;
+      // Send DETACH message so pty-host can SIGHUP the foreground process group
+      const detachMsg = Buffer.from([WS_MSG.DETACH]);
+      s.sendMessage(detachMsg);
       finish();
       process.stderr.write("\r\nDetached.\r\n");
       opts.onDetach?.();

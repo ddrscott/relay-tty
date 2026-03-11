@@ -52,6 +52,8 @@ export const WS_MSG = {
   PING: 0x20,
   /** Server→client: 1-byte heartbeat response. */
   PONG: 0x21,
+  /** Client→server: CLI detaching — pty-host should SIGHUP the foreground process group if it differs from the shell. */
+  DETACH: 0x22,
 } as const;
 
 export interface CreateSessionRequest {

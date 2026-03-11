@@ -36,6 +36,7 @@ const WS_MSG_SYNC: u8 = 0x11;
 const WS_MSG_SESSION_STATE: u8 = 0x12;
 const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 const WS_MSG_SESSION_METRICS: u8 = 0x14;
+const WS_MSG_DETACH: u8 = 0x22;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -1019,6 +1020,9 @@ async fn main() {
     // Channel for resize requests from clients
     let (resize_tx, mut resize_rx) = mpsc::channel::<(u16, u16)>(16);
 
+    // Channel for detach signals from clients (SIGHUP foreground process group)
+    let (detach_tx, mut detach_rx) = mpsc::channel::<()>(4);
+
     // Create Unix socket listener
     let std_listener = StdUnixListener::bind(&socket_path)
         .unwrap_or_else(|e| {
@@ -1231,6 +1235,23 @@ async fn main() {
         }
     });
 
+    // ── Detach handler: SIGHUP foreground process group ─────────────
+    // When a CLI client sends DETACH (Ctrl+] detach), we SIGHUP the
+    // foreground process group in the PTY — but only if it differs from
+    // the shell (child_pid). This kills TUIs (Claude Code, vim, htop)
+    // so the shell prompt returns, matching real terminal close behavior.
+    tokio::spawn(async move {
+        while let Some(()) = detach_rx.recv().await {
+            let fg_pgrp = unsafe { libc::tcgetpgrp(master_raw_fd) };
+            if fg_pgrp > 0 && fg_pgrp != child_pid {
+                // Foreground process group differs from the shell — SIGHUP it
+                unsafe {
+                    libc::kill(-fg_pgrp, libc::SIGHUP);
+                }
+            }
+        }
+    });
+
     // ── Periodic JSON flush (every 5s) ──────────────────────────────
     let state_json = Arc::clone(&state);
     let session_path_json = session_path.clone();
@@ -1361,8 +1382,9 @@ async fn main() {
 
                         // Spawn client reader
                         let writer_client = Arc::clone(&writer);
+                        let detach_tx = detach_tx.clone();
                         tokio::spawn(async move {
-                            handle_client(reader, writer_client, state_client, input_tx, resize_tx).await;
+                            handle_client(reader, writer_client, state_client, input_tx, resize_tx, detach_tx).await;
                             broadcast_handle.abort();
                         });
                     }
@@ -1388,6 +1410,7 @@ async fn handle_client(
     state: Arc<RwLock<SharedState>>,
     input_tx: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u16, u16)>,
+    detach_tx: mpsc::Sender<()>,
 ) {
     // Wait for RESUME or timeout for full replay
     let mut pending = Vec::new();
@@ -1409,7 +1432,7 @@ async fn handle_client(
                 // Not a RESUME -- send full replay first, then process this message
                 send_full_replay(&writer, &state).await;
                 resume_handled = true;
-                process_client_message(msg_type, &data, &input_tx, &resize_tx).await;
+                process_client_message(msg_type, &data, &input_tx, &resize_tx, &detach_tx).await;
             }
         }
         Ok(None) => {
@@ -1465,7 +1488,7 @@ async fn handle_client(
 
             let msg_type = payload[0];
             let data = &payload[1..];
-            process_client_message(msg_type, data, &input_tx, &resize_tx).await;
+            process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx).await;
         }
     }
 }
@@ -1608,6 +1631,7 @@ async fn process_client_message(
     data: &[u8],
     input_tx: &mpsc::Sender<Vec<u8>>,
     resize_tx: &mpsc::Sender<(u16, u16)>,
+    detach_tx: &mpsc::Sender<()>,
 ) {
     match msg_type {
         WS_MSG_DATA => {
@@ -1619,6 +1643,9 @@ async fn process_client_message(
                 let new_rows = u16::from_be_bytes([data[2], data[3]]);
                 let _ = resize_tx.send((new_cols, new_rows)).await;
             }
+        }
+        WS_MSG_DETACH => {
+            let _ = detach_tx.send(()).await;
         }
         _ => {
             // Ignore other message types (RESUME handled separately)
