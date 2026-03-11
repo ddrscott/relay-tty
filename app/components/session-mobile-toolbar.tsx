@@ -142,26 +142,7 @@ export function SessionMobileToolbar({
       className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
-      {/* Ctrl shortcut slide-up menu */}
-      {ctrlMenuOpen && (
-        <div className="border-b border-[#1e1e2e] px-1 py-1.5">
-          <div className="flex flex-wrap gap-1">
-            {shortcuts.map((s) => (
-              <button
-                key={s.key}
-                className="btn btn-ghost btn-sm font-mono text-xs text-[#94a3b8] hover:text-[#e2e8f0] rounded-lg px-2.5 h-8 min-h-0"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
-                onClick={() => sendCtrlShortcut(s.key)}
-              >
-                <span className="text-[#7dd3fc]">^{s.key}</span>
-                <span className="text-[#64748b] ml-1">{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Ctrl shortcut menu is rendered as floating popover above the Ctrl button */}
 
       {/* Input bar — always rendered so the textarea exists for iOS focus.
            Hidden via CSS when closed to avoid the React-render vs iOS-gesture race. */}
@@ -215,32 +196,51 @@ export function SessionMobileToolbar({
       <div className="flex items-center h-11">
         {/* Scrollable keys */}
         <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none" style={{ touchAction: "pan-x" }} onTouchStart={onScrollAreaTouchStart}>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[D"))} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[B"))} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[A"))} onClick={() => onSendKey("\x1b[A")}>&uarr;</button>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[C"))} onClick={() => onSendKey("\x1b[C")}>&rarr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[D"))} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[B"))} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[A"))} onClick={() => onSendKey("\x1b[A")}>&uarr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[C"))} onClick={() => onSendKey("\x1b[C")}>&rarr;</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\t"))} onClick={() => onSendKey("\t")}>Tab</button>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\r"))} onClick={() => onSendKey("\r")}>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\t"))} onClick={() => onSendKey("\t")}>Tab</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\r"))} onClick={() => onSendKey("\r")}>
             <CornerDownLeft className="w-5 h-5" />
           </button>
-          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b"))} onClick={() => onSendKey("\x1b")}>Esc</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b"))} onClick={() => onSendKey("\x1b")}>Esc</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
+          <div className="relative shrink-0">
+            {ctrlMenuOpen && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#0f0f1a] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1 flex flex-col min-w-[7rem]">
+                {shortcuts.map((s) => (
+                  <button
+                    key={s.key}
+                    className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs hover:bg-[#1a1a2e] active:bg-[#1a1a2e] whitespace-nowrap"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
+                    onClick={() => sendCtrlShortcut(s.key)}
+                  >
+                    <span className="text-[#7dd3fc]">^{s.key}</span>
+                    <span className="text-[#64748b]">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+              tabIndex={-1}
+              onTouchStart={handleCtrlTouchStart}
+              onTouchEnd={tapGuard(handleCtrlTouchEnd)}
+              onClick={handleCtrlClick}
+            >Ctrl</button>
+          </div>
           <button
-            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
-            tabIndex={-1}
-            onTouchStart={handleCtrlTouchStart}
-            onTouchEnd={tapGuard(handleCtrlTouchEnd)}
-            onClick={handleCtrlClick}
-          >Ctrl</button>
-          <button
-            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
             onTouchEnd={tapGuard(onAltToggle)}
             onClick={onAltToggle}
           >Alt</button>
           <button
-            className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 min-w-0 shrink-0 px-2.5 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onTouchEnd={tapGuard(onTextViewerToggle)}
@@ -251,7 +251,7 @@ export function SessionMobileToolbar({
           </button>
           {onFileBrowserToggle && (
             <button
-              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${fileBrowserOpen ? "btn-success" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-2.5 rounded-none ${fileBrowserOpen ? "btn-success" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={tapGuard(onFileBrowserToggle)}
@@ -263,7 +263,7 @@ export function SessionMobileToolbar({
           )}
           {onClipboardToggle && (
             <button
-              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${hasSharedClipboard ? "btn-info" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-2.5 rounded-none ${hasSharedClipboard ? "btn-info" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={tapGuard(onClipboardToggle)}
@@ -278,7 +278,7 @@ export function SessionMobileToolbar({
         <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
         {/* Pinned right: keyboard */}
         <button
-          className={`btn h-11 min-h-0 shrink-0 px-3.5 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+          className={`btn h-11 min-h-0 shrink-0 px-2.5 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
           tabIndex={-1}
           onMouseDown={(e) => e.preventDefault()}
           onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
