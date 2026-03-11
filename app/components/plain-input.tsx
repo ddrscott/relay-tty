@@ -24,18 +24,20 @@ type PlainInputProps = Omit<ComponentPropsWithoutRef<"textarea">, "rows" | "wrap
 export const PlainInput = forwardRef<
   HTMLTextAreaElement,
   PlainInputProps
->(function PlainInput({ type: _type, style, ...props }, ref) {
+>(function PlainInput({ type: _type, style, className, ...props }, ref) {
   return (
     <textarea
       rows={1}
       wrap="off"
       {...props}
       ref={ref}
+      className={`plain-input-no-scrollbar${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         resize: "none",
         overflowX: "auto",
         overflowY: "hidden",
+        scrollbarWidth: "none",
       }}
       autoComplete="off"
       autoCorrect="off"
