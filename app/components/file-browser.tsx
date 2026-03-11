@@ -31,6 +31,7 @@ import {
   FileCode,
   Home,
 } from "lucide-react";
+import { PlainInput } from "./plain-input";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -492,17 +493,13 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
         </button>
 
         {searchOpen && (
-          <input
+          <PlainInput
             ref={searchRef}
             type="text"
             className="flex-1 min-w-0 bg-[#19191f] border border-[#2d2d44] rounded px-2 py-0.5 text-xs text-[#e2e8f0] font-mono placeholder:text-[#64748b] focus:outline-none focus:border-[#3b82f6]"
             placeholder="Filter files..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
           />
         )}
 

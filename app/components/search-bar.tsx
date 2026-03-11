@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback, type KeyboardEvent } from "react";
 import { ChevronUp, ChevronDown, X, CaseSensitive } from "lucide-react";
+import { PlainInput } from "./plain-input";
 import type { TerminalHandle } from "./terminal";
 
 interface SearchBarProps {
@@ -91,7 +92,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
       }}
     >
-      <input
+      <PlainInput
         ref={inputRef}
         type="text"
         className="flex-1 px-2 py-1 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b]"
@@ -99,13 +100,6 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        data-form-type="other"
-        data-lpignore="true"
-        data-1p-ignore="true"
       />
 
       {/* Match count */}

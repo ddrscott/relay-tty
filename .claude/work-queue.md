@@ -37,6 +37,7 @@
 - [x] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
 - [x] File system browser & media viewer — replace upload button with full file manager panel ([detail](work-queue/file-browser.md))
 - [x] Move search button from mobile input toolbar to session top toolbar, disable autofill on search input ([detail](work-queue/search-button-move.md))
+- [x] Extract shared `PlainInput` component — uniform autocomplete/autofill suppression for all text inputs ([detail](work-queue/plain-input-component.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

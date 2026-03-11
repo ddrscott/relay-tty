@@ -24,6 +24,7 @@ import {
   OctagonX,
   ClipboardCheck,
 } from "lucide-react";
+import { PlainInput } from "./plain-input";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -396,7 +397,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
               <span className="text-[#22c55e] font-mono text-sm font-bold shrink-0">
                 $
               </span>
-              <input
+              <PlainInput
                 ref={inputRef}
                 type="text"
                 inputMode="text"
@@ -412,11 +413,6 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
                     sendCommand(inputText);
                   }
                 }}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                data-gramm="false"
               />
               <button
                 className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] px-2"
