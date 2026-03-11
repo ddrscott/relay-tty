@@ -72,6 +72,16 @@ const FILE_PATH_RE =
   /(?:(?:\.\.?\/|\/)[^\s:'"`\])}>,;!]+\.[a-zA-Z0-9]+|[a-zA-Z0-9_\-.]+(?:\/[a-zA-Z0-9_\-.]+)+\.[a-zA-Z0-9]+)(?::(\d+))?(?::(\d+))?/g;
 
 /**
+ * Regex that matches markdown-style [text](path) links in terminal output.
+ *
+ * Captures:
+ *   group 0: full match including brackets and parens
+ *   group 1: display text (inside [])
+ *   group 2: target path (inside ())
+ */
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+
+/**
  * Create an xterm.js ILinkProvider for file paths.
  *
  * @param term - xterm.js Terminal instance
@@ -134,6 +144,45 @@ export function createFileLinkProvider(
           text: fullMatch,
           activate(_event: MouseEvent, _text: string) {
             onActivate({ path: filePath, line: lineNum, column: colNum });
+          },
+          hover(_event: MouseEvent, _text: string) {
+            // tooltip handled by xterm default styling
+          },
+          leave(_event: MouseEvent, _text: string) {
+            // cleanup
+          },
+        });
+      }
+
+      // Second pass: markdown-style [text](path) links
+      MARKDOWN_LINK_RE.lastIndex = 0;
+      while ((match = MARKDOWN_LINK_RE.exec(text)) !== null) {
+        const fullMatch = match[0];
+        const targetPath = match[2];
+
+        // Only match when the target looks like a file path (has recognized extension)
+        const dotIdx = targetPath.lastIndexOf(".");
+        if (dotIdx === -1) continue;
+        const ext = targetPath.slice(dotIdx + 1).toLowerCase();
+        if (!FILE_EXTENSIONS.has(ext)) continue;
+
+        const startX = match.index;
+        const endX = match.index + fullMatch.length;
+
+        // Skip if this range overlaps with an existing link (from file path detection)
+        const overlaps = links.some(
+          (l) => startX < l.range.end.x - 1 && endX > l.range.start.x - 1
+        );
+        if (overlaps) continue;
+
+        links.push({
+          range: {
+            start: { x: startX + 1, y: bufferLineNumber },
+            end: { x: endX + 1, y: bufferLineNumber },
+          },
+          text: fullMatch,
+          activate(_event: MouseEvent, _text: string) {
+            onActivate({ path: targetPath });
           },
           hover(_event: MouseEvent, _text: string) {
             // tooltip handled by xterm default styling
