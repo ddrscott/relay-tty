@@ -76,11 +76,15 @@ export function SessionMobileToolbar({
 
   const toggleInputBar = useCallback(() => {
     setInputBarOpen((v) => {
-      if (!v) {
+      const opening = !v;
+      if (opening) {
         setPadExpanded(false);
-        setTimeout(() => padRef.current?.focus(), 50);
+        // Focus synchronously within the user gesture so iOS shows the keyboard.
+        // The textarea is always in the DOM (hidden when closed) to avoid the
+        // race between React render and iOS's user-gesture focus window.
+        padRef.current?.focus();
       }
-      return !v;
+      return opening;
     });
   }, []);
 
@@ -89,60 +93,58 @@ export function SessionMobileToolbar({
       className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
-      {/* Input bar -- opens when user taps keyboard button */}
-      {inputBarOpen && (
-        <div className="toolbar-row border-b border-[#1e1e2e]">
-          <button
-            className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
-            onClick={() => setPadExpanded((v) => !v)}
-            aria-label={padExpanded ? "Single line" : "Multi-line"}
-          >
-            {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
-          </button>
-          <textarea
-            ref={padRef}
-            className="toolbar-input resize-none"
-            rows={padExpanded ? 3 : 1}
-            wrap={padExpanded ? "soft" : "off"}
-            style={padExpanded
-              ? { paddingTop: "0.3em", paddingBottom: "0.3em" }
-              : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
-            }
-            value={padText}
-            onChange={(e) => setPadText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
-            placeholder="Type a command..."
-            autoComplete="one-time-code"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            data-form-type="other"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-gramm="false"
-            enterKeyHint="send"
-            autoFocus
-          />
-          <button
-            className="btn btn-primary toolbar-btn rounded-none"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
-            onClick={sendPad}
-            disabled={!padText.trim()}
-          >
-            <SendHorizontal className="w-5 h-5" />
-          </button>
-        </div>
-      )}
+      {/* Input bar — always rendered so the textarea exists for iOS focus.
+           Hidden via CSS when closed to avoid the React-render vs iOS-gesture race. */}
+      <div className={`toolbar-row border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
+        <button
+          className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
+          onClick={() => setPadExpanded((v) => !v)}
+          aria-label={padExpanded ? "Single line" : "Multi-line"}
+        >
+          {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+        </button>
+        <textarea
+          ref={padRef}
+          className="toolbar-input resize-none"
+          rows={padExpanded ? 3 : 1}
+          wrap={padExpanded ? "soft" : "off"}
+          style={padExpanded
+            ? { paddingTop: "0.3em", paddingBottom: "0.3em" }
+            : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
+          }
+          value={padText}
+          onChange={(e) => setPadText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
+          placeholder="Type a command..."
+          autoComplete="one-time-code"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-form-type="other"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-gramm="false"
+          enterKeyHint="send"
+        />
+        <button
+          className="btn btn-primary toolbar-btn rounded-none"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
+          onClick={sendPad}
+          disabled={!padText.trim()}
+        >
+          <SendHorizontal className="w-5 h-5" />
+        </button>
+      </div>
 
       {/* Key row: scrollable keys | pinned keyboard */}
       <div className="flex items-center h-11">
         {/* Scrollable keys */}
-        <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none" onTouchStart={onScrollAreaTouchStart}>
+        <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none" style={{ touchAction: "pan-x" }} onTouchStart={onScrollAreaTouchStart}>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[D"))} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[B"))} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[A"))} onClick={() => onSendKey("\x1b[A")}>&uarr;</button>
