@@ -889,12 +889,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         )}
 
         {/* Session title -- tap to open picker */}
-        <div className="relative flex-1 min-w-0" ref={pickerRef}>
+        <div className="relative flex-1 min-w-0 flex items-center" ref={pickerRef}>
           <button
             className="text-left w-full truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
             onClick={() => setPickerOpen(!pickerOpen)}
           >
-            <code className="text-sm font-mono truncate block text-[#e2e8f0]">
+            <code className="text-sm font-mono truncate block text-[#e2e8f0] leading-snug">
               {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
             </code>
           </button>

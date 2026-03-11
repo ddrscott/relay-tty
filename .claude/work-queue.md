@@ -40,7 +40,8 @@
 - [x] Extract shared `PlainInput` component — uniform autocomplete/autofill suppression for all text inputs ([detail](work-queue/plain-input-component.md))
 - [x] Add X close button to file browser sidebar toolbar upper-right corner
 - [x] Move chat/terminal view toggler into info menu, change info menu icon from Info (circle-i) to Settings (gear)
-- [ ] Vertically center the session caption in the session toolbar
+- [x] Vertically center the session caption in the session toolbar
+- [ ] Move 'relay-tty $version' tag from session settings menu to sidebar footer
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
