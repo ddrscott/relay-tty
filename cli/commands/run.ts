@@ -16,6 +16,14 @@ export function registerRunCommand(program: Command) {
       const cols = process.stdout.columns || 80;
       const rows = process.stdout.rows || 24;
 
+      // Detect nested relay session — force detach mode to avoid sessions-within-sessions
+      const outerSessionId = process.env.RELAY_SESSION_ID;
+      if (outerSessionId && !opts.detach) {
+        process.stderr.write(`Nested relay session detected (inside ${outerSessionId}).\n`);
+        process.stderr.write(`Creating session in detached mode to avoid nesting.\n`);
+        opts.detach = true;
+      }
+
       const host = resolveHost(opts.host);
       const cwd = process.cwd();
       const result = await createSession(host, command, args, cols, rows, cwd);
@@ -39,6 +47,10 @@ export function registerRunCommand(program: Command) {
           } else {
             process.stdout.write(`${result.id}\n`);
           }
+        }
+        if (outerSessionId) {
+          process.stderr.write(`Reattach: relay attach ${result.id}\n`);
+          process.stderr.write(`Tip: Ctrl+] to detach from current session first\n`);
         }
         return;
       }

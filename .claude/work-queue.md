@@ -22,6 +22,7 @@
 - [x] Break up sessions.$id.tsx into smaller components ([detail](work-queue/sessions-component-split.md))
 - [x] Type xterm.js interfaces instead of `any` in terminal pool ([detail](work-queue/type-xterm-interfaces.md))
 - [x] Improve spawn failure detection — check child PID liveness during socket polling ([detail](work-queue/spawn-failure-detection.md))
+- [x] Handle nested relay sessions — detach current session before entering new one ([detail](work-queue/nested-relay-detach.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

@@ -15,6 +15,15 @@ export function registerAttachCommand(program: Command) {
         process.exit(1);
       }
 
+      // Detect nested relay session — cannot attach from inside another session
+      const outerSessionId = process.env.RELAY_SESSION_ID;
+      if (outerSessionId) {
+        process.stderr.write(`Nested relay session detected (inside ${outerSessionId}).\n`);
+        process.stderr.write(`Cannot attach from within an existing relay session.\n`);
+        process.stderr.write(`Tip: Ctrl+] to detach from current session, then: relay attach ${id}\n`);
+        process.exit(1);
+      }
+
       const host = resolveHost(opts.host);
 
       // Try server first
