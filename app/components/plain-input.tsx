@@ -38,6 +38,7 @@ export const PlainInput = forwardRef<
         overflowX: "auto",
         overflowY: "hidden",
         scrollbarWidth: "none",
+        touchAction: "pan-x",  // iOS: prevent vertical drag/snapback
       }}
       autoComplete="off"
       autoCorrect="off"
