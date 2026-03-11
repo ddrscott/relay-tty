@@ -6,7 +6,6 @@ import {
   CornerDownLeft,
   FolderOpen,
   Keyboard as KeyboardIcon,
-  Search,
   SendHorizontal,
   TextSelect,
 } from "lucide-react";
@@ -24,8 +23,6 @@ interface SessionMobileToolbarProps {
   onSendText: (text: string) => void;
   fileBrowserOpen?: boolean;
   onFileBrowserToggle?: () => void;
-  searchOpen?: boolean;
-  onSearchToggle?: () => void;
   hasSharedClipboard?: boolean;
   onClipboardToggle?: () => void;
 }
@@ -41,8 +38,6 @@ export function SessionMobileToolbar({
   onSendText,
   fileBrowserOpen,
   onFileBrowserToggle,
-  searchOpen,
-  onSearchToggle,
   hasSharedClipboard,
   onClipboardToggle,
 }: SessionMobileToolbarProps) {
@@ -190,18 +185,6 @@ export function SessionMobileToolbar({
               aria-label="File manager"
             >
               <FolderOpen className="w-5 h-5" />
-            </button>
-          )}
-          {onSearchToggle && (
-            <button
-              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${searchOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={tapGuard(onSearchToggle)}
-              onClick={onSearchToggle}
-              aria-label="Search terminal"
-            >
-              <Search className="w-5 h-5" />
             </button>
           )}
           {onClipboardToggle && (

@@ -29,6 +29,7 @@ import {
   Upload,
   FolderOpen,
   ImageIcon,
+  Search,
   X,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
@@ -940,6 +941,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </span>
         )}
 
+        {/* Search */}
+        <button
+          className={`btn btn-ghost btn-xs shrink-0 ${searchOpen ? "text-[#3b82f6]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+          onClick={() => setSearchOpen(v => !v)}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          aria-label="Search terminal"
+          title="Search terminal"
+        >
+          <Search className="w-4 h-4" />
+        </button>
+
         {/* File manager */}
         <input
           ref={fileInputRef}
@@ -1278,8 +1291,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           }}
           fileBrowserOpen={fileBrowserOpen}
           onFileBrowserToggle={() => setFileBrowserOpen(v => !v)}
-          searchOpen={searchOpen}
-          onSearchToggle={() => setSearchOpen(v => !v)}
           hasSharedClipboard={!!sharedClipboard}
           onClipboardToggle={handleClipboardToggle}
         />

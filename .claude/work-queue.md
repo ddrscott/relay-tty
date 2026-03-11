@@ -36,6 +36,7 @@
 - [x] Cross-device clipboard sync — copy on phone, paste on desktop and vice versa ([detail](work-queue/clipboard-sync.md))
 - [x] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
 - [x] File system browser & media viewer — replace upload button with full file manager panel ([detail](work-queue/file-browser.md))
+- [x] Move search button from mobile input toolbar to session top toolbar, disable autofill on search input ([detail](work-queue/search-button-move.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
