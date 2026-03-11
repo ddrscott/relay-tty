@@ -4,6 +4,7 @@ import {
   ChevronUp,
   CornerDownLeft,
   Keyboard as KeyboardIcon,
+  Search,
   SendHorizontal,
   TextSelect,
   Upload,
@@ -22,6 +23,8 @@ interface SessionMobileToolbarProps {
   onSendText: (text: string) => void;
   onUploadFile?: (file: File) => void;
   uploading?: boolean;
+  searchOpen?: boolean;
+  onSearchToggle?: () => void;
 }
 
 export function SessionMobileToolbar({
@@ -35,6 +38,8 @@ export function SessionMobileToolbar({
   onSendText,
   onUploadFile,
   uploading,
+  searchOpen,
+  onSearchToggle,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -199,6 +204,18 @@ export function SessionMobileToolbar({
                 )}
               </button>
             </>
+          )}
+          {onSearchToggle && (
+            <button
+              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${searchOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={tapGuard(onSearchToggle)}
+              onClick={onSearchToggle}
+              aria-label="Search terminal"
+            >
+              <Search className="w-5 h-5" />
+            </button>
           )}
         </div>
 

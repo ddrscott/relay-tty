@@ -17,6 +17,14 @@ export interface TerminalHandle {
   getSelection: () => string;
   /** Get visible viewport text as plain string */
   getVisibleText: () => string;
+  /** Search forward for the next match. Returns true if a match was found. */
+  findNext: (term: string, opts?: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => boolean;
+  /** Search backward for the previous match. Returns true if a match was found. */
+  findPrevious: (term: string, opts?: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }) => boolean;
+  /** Clear search decorations and selection */
+  clearSearch: () => void;
+  /** Register a callback for search result changes (returns unsubscribe function) */
+  onSearchResults: (cb: (info: { resultIndex: number; resultCount: number }) => void) => (() => void);
 }
 
 interface TerminalProps {
@@ -42,7 +50,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
 
-  const { termRef, status, retryCount, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
+  const { termRef, searchAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
     active,
@@ -119,7 +127,39 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     return lines.join("\n");
   }, [termRef]);
 
-  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText]);
+  const SEARCH_DECORATIONS = {
+    matchBackground: "#eab30844",
+    matchBorder: "#eab30866",
+    matchOverviewRuler: "#eab308",
+    activeMatchBackground: "#3b82f6aa",
+    activeMatchBorder: "#3b82f6",
+    activeMatchColorOverviewRuler: "#3b82f6",
+  };
+
+  const findNext = useCallback((term: string, searchOpts?: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }): boolean => {
+    const addon = searchAddonRef.current;
+    if (!addon || !term) return false;
+    return addon.findNext(term, { ...searchOpts, decorations: SEARCH_DECORATIONS, incremental: true });
+  }, [searchAddonRef]);
+
+  const findPrevious = useCallback((term: string, searchOpts?: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }): boolean => {
+    const addon = searchAddonRef.current;
+    if (!addon || !term) return false;
+    return addon.findPrevious(term, { ...searchOpts, decorations: SEARCH_DECORATIONS });
+  }, [searchAddonRef]);
+
+  const clearSearch = useCallback(() => {
+    searchAddonRef.current?.clearDecorations();
+  }, [searchAddonRef]);
+
+  const onSearchResults = useCallback((cb: (info: { resultIndex: number; resultCount: number }) => void): (() => void) => {
+    const addon = searchAddonRef.current;
+    if (!addon) return () => {};
+    const disposable = addon.onDidChangeResults(cb);
+    return () => disposable.dispose();
+  }, [searchAddonRef]);
+
+  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults]);
 
   // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
   useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef });

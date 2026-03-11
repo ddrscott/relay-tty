@@ -14,6 +14,7 @@ import { SessionInfoPanel } from "../components/session-info-panel";
 import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { SessionPicker } from "../components/session-picker";
+import { SearchBar } from "../components/search-bar";
 import {
   Menu,
   Bell,
@@ -207,6 +208,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
   const [textViewerOpen, setTextViewerOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [textViewerContent, setTextViewerContent] = useState("");
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -239,6 +241,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setIdleDisplay("");
     setFileViewerLink(null);
     setTextViewerOpen(false);
+    setSearchOpen(false);
     setPickerOpen(false);
     setInfoOpen(false);
     setCtrlOn(false);
@@ -255,6 +258,19 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Ctrl+Shift+F toggles search bar (desktop shortcut)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "F") {
+        e.preventDefault();
+        setSearchOpen(v => !v);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   // Update document.title when terminal title changes dynamically
@@ -1005,6 +1021,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
         {/* Overlays — outside the track so they don't translate during swipe */}
 
+        {/* Search bar */}
+        {searchOpen && (
+          <SearchBar
+            terminalRef={terminalRef}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
+
         {/* Jump to bottom */}
         {!atBottom && (
           <button
@@ -1124,6 +1148,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           }}
           onUploadFile={handleUpload}
           uploading={uploading}
+          searchOpen={searchOpen}
+          onSearchToggle={() => setSearchOpen(v => !v)}
         />
       )}
     </main>

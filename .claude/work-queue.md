@@ -32,7 +32,7 @@
 - [x] Fix detach from TUI (Claude Code) leaving relay session stuck — requires Ctrl+C to recover ([detail](work-queue/detach-alt-screen-stuck.md))
 - [x] Clipboard image paste — Cmd+V with image auto-uploads and inserts file path ([detail](work-queue/clipboard-image-paste.md))
 - [x] Drag-and-drop file upload onto terminal with visual drop zone ([detail](work-queue/drag-drop-upload.md))
-- [ ] Mobile scrollback search — find text in terminal history ([detail](work-queue/mobile-scrollback-search.md))
+- [x] Mobile scrollback search — find text in terminal history ([detail](work-queue/mobile-scrollback-search.md))
 - [ ] Cross-device clipboard sync — copy on phone, paste on desktop and vice versa ([detail](work-queue/clipboard-sync.md))
 - [ ] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
 

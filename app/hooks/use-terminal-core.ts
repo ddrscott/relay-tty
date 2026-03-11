@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { WebglAddon } from "@xterm/addon-webgl";
+import type { SearchAddon } from "@xterm/addon-search";
 import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
@@ -58,6 +59,7 @@ interface PooledTerminal {
   term: Terminal;
   fitAddon: FitAddon;
   webgl: WebglAddon | null;
+  searchAddon: SearchAddon | null;
   byteOffset: number;
   cacheWriter: BufferCacheWriter | null;
   cacheSessionId: string | null;
@@ -140,6 +142,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [retryCount, setRetryCount] = useState(0);
   const [contentReady, setContentReady] = useState(false);
@@ -281,6 +284,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         webglRef.current = webgl;
       } catch {
         // WebGL unavailable — falls back to default canvas renderer
+      }
+
+      // Search addon — loaded after WebGL for correct decoration rendering
+      try {
+        const { SearchAddon: SearchAddonImpl } = await import("@xterm/addon-search");
+        const searchAddon = new SearchAddonImpl();
+        term.loadAddon(searchAddon);
+        searchAddonRef.current = searchAddon;
+      } catch {
+        // Search addon unavailable — search will be a no-op
       }
 
       termRef.current = term;
@@ -1030,6 +1043,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       termRef.current = pooled.term;
       fitAddonRef.current = pooled.fitAddon;
       webglRef.current = pooled.webgl;
+      searchAddonRef.current = pooled.searchAddon;
       byteOffset = pooled.byteOffset;
       cacheWriter = pooled.cacheWriter;
 
@@ -1106,6 +1120,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           term: termRef.current,
           fitAddon: fitAddonRef.current!,
           webgl: webglRef.current,
+          searchAddon: searchAddonRef.current,
           byteOffset,
           cacheWriter,
           cacheSessionId,
@@ -1116,6 +1131,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         termRef.current = null;
         fitAddonRef.current = null;
         webglRef.current = null;
+        searchAddonRef.current = null;
       } else {
         // Normal dispose (read-only terminals, or no xterm initialized)
         try { webglRef.current?.dispose(); } catch {}
@@ -1135,5 +1151,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef };
+  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef };
 }
