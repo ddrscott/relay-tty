@@ -675,7 +675,7 @@ interface FileViewerPanelProps {
   onCloseAll: () => void;
 }
 
-function FileViewerPanel({ sessionId, filePath, onClose, onBack, onCloseAll }: FileViewerPanelProps) {
+function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewerPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string>("");
@@ -946,7 +946,6 @@ function MarkdownRenderer({ content }: { content: string }) {
 
 function CodeViewerEnhanced({ content, ext }: { content: string; ext: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [cmLoaded, setCmLoaded] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -975,7 +974,6 @@ function CodeViewerEnhanced({ content, ext }: { content: string; ext: string }) 
         }),
         parent: containerRef.current,
       });
-      setCmLoaded(true);
     }
 
     load();

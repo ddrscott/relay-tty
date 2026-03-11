@@ -22,8 +22,6 @@ interface SessionMobileToolbarProps {
   textViewerOpen: boolean;
   onTextViewerToggle: () => void;
   onSendText: (text: string) => void;
-  onUploadFile?: (file: File) => void;
-  uploading?: boolean;
   fileBrowserOpen?: boolean;
   onFileBrowserToggle?: () => void;
   searchOpen?: boolean;
@@ -41,8 +39,6 @@ export function SessionMobileToolbar({
   textViewerOpen,
   onTextViewerToggle,
   onSendText,
-  onUploadFile,
-  uploading,
   fileBrowserOpen,
   onFileBrowserToggle,
   searchOpen,

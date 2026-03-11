@@ -1276,8 +1276,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             handle.sendText(text);
             setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
           }}
-          onUploadFile={handleUpload}
-          uploading={uploading}
           fileBrowserOpen={fileBrowserOpen}
           onFileBrowserToggle={() => setFileBrowserOpen(v => !v)}
           searchOpen={searchOpen}
