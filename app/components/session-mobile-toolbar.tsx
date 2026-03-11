@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, type TouchEvent } from "react";
+import { useRef, useState, useCallback, useEffect, type TouchEvent } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -9,8 +9,10 @@ import {
   SendHorizontal,
   TextSelect,
 } from "lucide-react";
+import { getCtrlShortcuts, ctrlChar, type CtrlShortcut } from "../lib/ctrl-shortcuts";
 
 const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
+const LONG_PRESS_MS = 300; // ms — hold Ctrl longer than this to toggle sticky modifier
 
 interface SessionMobileToolbarProps {
   ctrlOn: boolean;
@@ -46,6 +48,22 @@ export function SessionMobileToolbar({
   const [inputBarOpen, setInputBarOpen] = useState(false);
   const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
+  const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
+  const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
+  const ctrlLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ctrlDidLongPressRef = useRef(false);
+
+  // Load shortcuts from localStorage on mount and when menu opens
+  useEffect(() => {
+    setShortcuts(getCtrlShortcuts());
+  }, []);
+
+  // Reload shortcuts when menu opens (in case user edited them in settings)
+  useEffect(() => {
+    if (ctrlMenuOpen) {
+      setShortcuts(getCtrlShortcuts());
+    }
+  }, [ctrlMenuOpen]);
 
   // Track touch start position so we can distinguish taps from scroll gestures
   const onScrollAreaTouchStart = useCallback((e: TouchEvent) => {
@@ -88,11 +106,63 @@ export function SessionMobileToolbar({
     });
   }, []);
 
+  // Ctrl button: short tap toggles menu, long press toggles sticky modifier
+  const handleCtrlTouchStart = useCallback(() => {
+    ctrlDidLongPressRef.current = false;
+    ctrlLongPressRef.current = setTimeout(() => {
+      ctrlDidLongPressRef.current = true;
+      onCtrlToggle();
+      setCtrlMenuOpen(false);
+    }, LONG_PRESS_MS);
+  }, [onCtrlToggle]);
+
+  const handleCtrlTouchEnd = useCallback(() => {
+    if (ctrlLongPressRef.current) {
+      clearTimeout(ctrlLongPressRef.current);
+      ctrlLongPressRef.current = null;
+    }
+    if (!ctrlDidLongPressRef.current) {
+      // Short tap — toggle shortcut menu
+      setCtrlMenuOpen((v) => !v);
+    }
+  }, []);
+
+  const handleCtrlClick = useCallback(() => {
+    // Desktop fallback (no touch events) — toggle menu
+    setCtrlMenuOpen((v) => !v);
+  }, []);
+
+  const sendCtrlShortcut = useCallback((key: string) => {
+    onSendKey(ctrlChar(key));
+    setCtrlMenuOpen(false);
+  }, [onSendKey]);
+
   return (
     <div
       className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
+      {/* Ctrl shortcut slide-up menu */}
+      {ctrlMenuOpen && (
+        <div className="border-b border-[#1e1e2e] px-1 py-1.5">
+          <div className="flex flex-wrap gap-1">
+            {shortcuts.map((s) => (
+              <button
+                key={s.key}
+                className="btn btn-ghost btn-sm font-mono text-xs text-[#94a3b8] hover:text-[#e2e8f0] rounded-lg px-2.5 h-8 min-h-0"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
+                onClick={() => sendCtrlShortcut(s.key)}
+              >
+                <span className="text-[#7dd3fc]">^{s.key}</span>
+                <span className="text-[#64748b] ml-1">{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input bar — always rendered so the textarea exists for iOS focus.
            Hidden via CSS when closed to avoid the React-render vs iOS-gesture race. */}
       <div className={`toolbar-row border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
@@ -157,10 +227,11 @@ export function SessionMobileToolbar({
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b"))} onClick={() => onSendKey("\x1b")}>Esc</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
           <button
-            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
-            onTouchEnd={tapGuard(onCtrlToggle)}
-            onClick={onCtrlToggle}
+            onTouchStart={handleCtrlTouchStart}
+            onTouchEnd={tapGuard(handleCtrlTouchEnd)}
+            onClick={handleCtrlClick}
           >Ctrl</button>
           <button
             className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
