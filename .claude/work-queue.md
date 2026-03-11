@@ -24,7 +24,10 @@
 - [x] Improve spawn failure detection — check child PID liveness during socket polling ([detail](work-queue/spawn-failure-detection.md))
 - [x] Handle nested relay sessions — detach current session before entering new one ([detail](work-queue/nested-relay-detach.md))
 - [x] Fix mobile toolbar scroll triggering button clicks on touchend ([detail](work-queue/mobile-toolbar-scroll-click.md))
-- [ ] Suppress RESIZE on WS reconnect — server restart should not SIGWINCH sessions ([detail](work-queue/reconnect-no-resize.md))
+- ~[ ] Suppress RESIZE on WS reconnect — server restart should not SIGWINCH sessions~ *(rejected — pty-host already deduplicates RESIZE at `main.rs:1226-1228`, skipping ioctl when cols/rows match current values)*
+- ~[ ] Clickable file paths in terminal — "open on device" via server file serving~ *(rejected — already fully implemented: `file-link-provider.ts` detects paths, `use-terminal-core.ts` registers the xterm link provider, `sessions.$id.tsx` wires `onFileLink` to open the `FileViewer` panel, and `server/api.ts` serves files via `GET /api/sessions/:id/files/*` with auth + path traversal protection)*
+- [x] Track shell CWD via OSC 7 in pty-host + fix file API array param crash ([detail](work-queue/osc7-cwd-tracking.md))
+- [ ] Track foreground process name via tcgetpgrp in pty-host ([detail](work-queue/foreground-process-tracking.md))
 - [x] Fix detach from TUI (Claude Code) leaving relay session stuck — requires Ctrl+C to recover ([detail](work-queue/detach-alt-screen-stuck.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->

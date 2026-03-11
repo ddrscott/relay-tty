@@ -595,6 +595,69 @@ fn parse_osc_title(data: &[u8]) -> Option<String> {
     None
 }
 
+/// Parse OSC 7 CWD notification from data. Returns the decoded path if found.
+/// Format: ESC ] 7 ; file://hostname/path BEL|ESC\
+/// The path is percent-decoded (e.g., %20 → space).
+fn parse_osc7_cwd(data: &[u8]) -> Option<String> {
+    let mut i = 0;
+    while i + 3 < data.len() {
+        if data[i] == 0x1b && data[i + 1] == 0x5d && data[i + 2] == b'7' {
+            // ESC ] 7
+            if i + 3 < data.len() && data[i + 3] == b';' {
+                // Find the terminator: BEL (0x07) or ESC\ (0x1b 0x5c)
+                let start = i + 4;
+                let mut end = start;
+                while end < data.len() {
+                    if data[end] == 0x07 {
+                        let url = String::from_utf8_lossy(&data[start..end]);
+                        return extract_path_from_file_url(&url);
+                    }
+                    if data[end] == 0x1b && end + 1 < data.len() && data[end + 1] == 0x5c {
+                        let url = String::from_utf8_lossy(&data[start..end]);
+                        return extract_path_from_file_url(&url);
+                    }
+                    end += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extract and percent-decode the path from a file:// URL.
+/// Handles `file:///path` (no host) and `file://hostname/path`.
+fn extract_path_from_file_url(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("file://")?;
+    // After "file://", the next component is either empty (file:///path)
+    // or a hostname (file://host/path). Either way, the path starts at the first '/'.
+    let path_start = rest.find('/')?;
+    let encoded_path = &rest[path_start..];
+    Some(percent_decode(encoded_path))
+}
+
+/// Percent-decode a string (e.g., %20 → space, %C3%A9 → é).
+fn percent_decode(input: &str) -> String {
+    let mut bytes = Vec::with_capacity(input.len());
+    let input_bytes = input.as_bytes();
+    let mut i = 0;
+    while i < input_bytes.len() {
+        if input_bytes[i] == b'%' && i + 2 < input_bytes.len() {
+            if let Ok(val) = u8::from_str_radix(
+                &input[i + 1..i + 3],
+                16,
+            ) {
+                bytes.push(val);
+                i += 3;
+                continue;
+            }
+        }
+        bytes.push(input_bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
 /// Extract OSC 9 notifications from data. Returns (cleaned_data, notifications).
 fn extract_osc9_notifications(data: &[u8]) -> (Vec<u8>, Vec<String>) {
     let mut notifications = Vec::new();
@@ -1122,6 +1185,15 @@ async fn main() {
                             let mut title_msg = vec![WS_MSG_TITLE];
                             title_msg.extend_from_slice(new_title.as_bytes());
                             let _ = broadcast_tx_pty.send(encode_frame(&title_msg));
+                        }
+                    }
+
+                    // Parse OSC 7 CWD notification
+                    if let Some(new_cwd) = parse_osc7_cwd(data) {
+                        let mut s = state_pty.write().await;
+                        if s.meta.cwd != new_cwd {
+                            s.meta.cwd = new_cwd;
+                            s.meta_dirty = true;
                         }
                     }
 
@@ -2028,6 +2100,84 @@ mod tests {
         let (cleaned, notifs) = extract_osc9_notifications(input);
         assert!(notifs.is_empty());
         assert_eq!(cleaned, b"data\x1b]9;unterminated");
+    }
+
+    // ── OSC 7 CWD parsing tests ───────────────────────────────────
+
+    #[test]
+    fn osc7_basic_path_bel() {
+        // ESC ] 7 ; file:///home/user BEL
+        let input = b"\x1b]7;file:///home/user\x07";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/home/user");
+    }
+
+    #[test]
+    fn osc7_basic_path_st() {
+        // ESC ] 7 ; file:///tmp ESC\
+        let input = b"\x1b]7;file:///tmp\x1b\\";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/tmp");
+    }
+
+    #[test]
+    fn osc7_with_hostname() {
+        // ESC ] 7 ; file://myhost/home/user BEL
+        let input = b"\x1b]7;file://myhost/home/user\x07";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/home/user");
+    }
+
+    #[test]
+    fn osc7_percent_encoded_spaces() {
+        // file:///home/my%20folder
+        let input = b"\x1b]7;file:///home/my%20folder\x07";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/home/my folder");
+    }
+
+    #[test]
+    fn osc7_percent_encoded_unicode() {
+        // file:///home/caf%C3%A9
+        let input = b"\x1b]7;file:///home/caf%C3%A9\x07";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/home/caf\u{e9}");
+    }
+
+    #[test]
+    fn osc7_embedded_in_data() {
+        let input = b"prompt\x1b]7;file:///usr/local\x07$ ls";
+        let cwd = parse_osc7_cwd(input);
+        assert_eq!(cwd.unwrap(), "/usr/local");
+    }
+
+    #[test]
+    fn osc7_not_found() {
+        let input = b"plain text with no OSC";
+        assert!(parse_osc7_cwd(input).is_none());
+    }
+
+    #[test]
+    fn osc7_not_file_url() {
+        // Non-file:// URL should return None
+        let input = b"\x1b]7;http:///tmp\x07";
+        assert!(parse_osc7_cwd(input).is_none());
+    }
+
+    #[test]
+    fn percent_decode_basic() {
+        assert_eq!(percent_decode("/hello%20world"), "/hello world");
+        assert_eq!(percent_decode("/no%2Fslash"), "/no/slash");
+        assert_eq!(percent_decode("/plain"), "/plain");
+        assert_eq!(percent_decode("%2F"), "/");
+    }
+
+    #[test]
+    fn percent_decode_invalid_hex() {
+        // Invalid percent sequences should be preserved as-is
+        assert_eq!(percent_decode("100%ZZ"), "100%ZZ");
+        assert_eq!(percent_decode("trailing%"), "trailing%");
+        assert_eq!(percent_decode("short%2"), "short%2");
     }
 
     // ── Frame encoding/decoding tests ───────────────────────────────

@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as crypto from "node:crypto";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import { generateShareToken } from "./auth.js";
@@ -11,7 +12,19 @@ import type {
   SessionListResponse,
 } from "../shared/types.js";
 
-const COMMANDS_FILE = path.join(os.homedir(), ".relay-tty", "commands.txt");
+const RELAY_DIR = path.join(os.homedir(), ".relay-tty");
+const COMMANDS_FILE = path.join(RELAY_DIR, "commands.txt");
+const UPLOAD_DIR_FILE = path.join(RELAY_DIR, "upload-dir.txt");
+const DEFAULT_UPLOAD_DIR = path.join(RELAY_DIR, "uploads");
+
+/** Read configured upload directory, defaulting to ~/.relay-tty/uploads. */
+export function readUploadDir(): string {
+  try {
+    const raw = fs.readFileSync(UPLOAD_DIR_FILE, "utf-8").trim();
+    if (raw) return raw;
+  } catch {}
+  return DEFAULT_UPLOAD_DIR;
+}
 
 /** Read custom commands from ~/.relay-tty/commands.txt, one per line. */
 export function readCustomCommands(): string[] {
@@ -164,8 +177,9 @@ export function createApiRouter(
       return;
     }
 
-    // Express 5 / path-to-regexp v8: named wildcard *filepath
-    const filePath = (req.params as any).filepath as string | undefined;
+    // Express 5 / path-to-regexp v8: named wildcard *filepath returns string[]
+    const rawFilepath = (req.params as any).filepath;
+    const filePath = Array.isArray(rawFilepath) ? rawFilepath.join("/") : rawFilepath as string | undefined;
     if (!filePath) {
       res.status(400).json({ error: "File path required" });
       return;
@@ -274,6 +288,93 @@ export function createApiRouter(
     fs.mkdirSync(path.dirname(COMMANDS_FILE), { recursive: true });
     fs.writeFileSync(COMMANDS_FILE, content);
     res.json({ ok: true, commands: readCustomCommands() });
+  });
+
+  // GET /api/upload-dir — read configured upload directory
+  router.get("/upload-dir", (_req, res) => {
+    res.json({ uploadDir: readUploadDir() });
+  });
+
+  // PUT /api/upload-dir — set upload directory
+  router.put("/upload-dir", (req, res) => {
+    const { uploadDir } = req.body as { uploadDir: string };
+    if (typeof uploadDir !== "string") {
+      res.status(400).json({ error: "uploadDir must be a string" });
+      return;
+    }
+    const trimmed = uploadDir.trim();
+    fs.mkdirSync(RELAY_DIR, { recursive: true });
+    if (trimmed && trimmed !== DEFAULT_UPLOAD_DIR) {
+      fs.writeFileSync(UPLOAD_DIR_FILE, trimmed + "\n");
+    } else {
+      // Reset to default — remove override file
+      try { fs.unlinkSync(UPLOAD_DIR_FILE); } catch {}
+    }
+    res.json({ ok: true, uploadDir: readUploadDir() });
+  });
+
+  // POST /api/upload — upload a file to the configured upload directory
+  // Accepts raw binary body with filename in X-Filename header.
+  // Max 100 MB.
+  router.post("/upload", (req, res) => {
+    const filename = req.headers["x-filename"];
+    if (!filename || typeof filename !== "string") {
+      res.status(400).json({ error: "X-Filename header required" });
+      return;
+    }
+
+    // Sanitize filename: strip path separators, allow only basename
+    const safeName = path.basename(filename);
+    if (!safeName || safeName === "." || safeName === "..") {
+      res.status(400).json({ error: "Invalid filename" });
+      return;
+    }
+
+    const uploadDir = readUploadDir();
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Deduplicate: if file exists, add a short random suffix
+    let finalName = safeName;
+    const ext = path.extname(safeName);
+    const base = safeName.slice(0, -ext.length || undefined);
+    if (fs.existsSync(path.join(uploadDir, finalName))) {
+      const suffix = crypto.randomBytes(3).toString("hex");
+      finalName = `${base}-${suffix}${ext}`;
+    }
+
+    const filePath = path.join(uploadDir, finalName);
+
+    // Collect body chunks (Express doesn't parse raw binary by default)
+    const chunks: Buffer[] = [];
+    let totalSize = 0;
+    const MAX_UPLOAD = 100 * 1024 * 1024;
+
+    req.on("data", (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_UPLOAD) {
+        res.status(413).json({ error: "File too large (max 100MB)" });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      if (res.headersSent) return;
+      const data = Buffer.concat(chunks);
+      try {
+        fs.writeFileSync(filePath, data);
+        res.json({ ok: true, path: filePath, name: finalName, size: data.length });
+      } catch (err: any) {
+        res.status(500).json({ error: `Write failed: ${err.message}` });
+      }
+    });
+
+    req.on("error", (err) => {
+      if (!res.headersSent) {
+        res.status(500).json({ error: `Upload failed: ${err.message}` });
+      }
+    });
   });
 
   return router;
