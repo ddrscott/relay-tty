@@ -393,8 +393,8 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
                 </button>
               </div>
             )}
-            <div className="flex items-center gap-2 px-3 py-2">
-              <span className="text-[#22c55e] font-mono text-sm font-bold shrink-0">
+            <div className="toolbar-row">
+              <span className="text-[#22c55e] font-mono text-base font-bold shrink-0">
                 $
               </span>
               <PlainInput
@@ -402,8 +402,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
                 type="text"
                 inputMode="text"
                 enterKeyHint="send"
-                className="flex-1 bg-transparent text-[#e2e8f0] font-mono text-sm outline-none placeholder:text-[#64748b]"
-                style={{ fontSize: "16px" }}
+                className="toolbar-input !bg-transparent !border-0"
                 placeholder="Type a command..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -415,13 +414,13 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
                 }}
               />
               <button
-                className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] px-2"
+                className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0]"
                 onClick={() => sendCommand(inputText)}
                 disabled={!inputText.trim()}
                 onMouseDown={(e) => e.preventDefault()}
                 tabIndex={-1}
               >
-                <SendHorizontal className="w-4 h-4" />
+                <SendHorizontal className="w-5 h-5" />
               </button>
             </div>
           </div>

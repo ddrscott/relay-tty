@@ -91,9 +91,9 @@ export function SessionMobileToolbar({
     >
       {/* Input bar -- opens when user taps keyboard button */}
       {inputBarOpen && (
-        <div className="flex items-center gap-1 px-1.5 py-1 border-b border-[#1e1e2e]">
+        <div className="toolbar-row border-b border-[#1e1e2e]">
           <button
-            className="btn btn-ghost h-10 min-h-0 px-3 min-w-0 text-[#64748b] hover:text-[#e2e8f0] rounded-none"
+            className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
@@ -104,7 +104,7 @@ export function SessionMobileToolbar({
           </button>
           <textarea
             ref={padRef}
-            className="flex-1 px-2 bg-[#19191f] text-[#e2e8f0] font-mono text-base rounded border border-[#2d2d44] resize-none focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b] leading-[1.6]"
+            className="toolbar-input resize-none"
             rows={padExpanded ? 3 : 1}
             wrap={padExpanded ? "soft" : "off"}
             style={padExpanded
@@ -127,7 +127,7 @@ export function SessionMobileToolbar({
             autoFocus
           />
           <button
-            className="btn btn-primary h-10 min-h-0 px-3 min-w-0 rounded-none"
+            className="btn btn-primary toolbar-btn rounded-none"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}

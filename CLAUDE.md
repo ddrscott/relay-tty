@@ -26,6 +26,16 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 - Android/mobile: disable autocomplete/autocorrect/autocapitalize/spellcheck on xterm's textarea to prevent composition events. Without these, keystrokes go through xterm's normal handler instead of `insertCompositionText` (which sends the full accumulated buffer each time, causing duplicates). Scratchpad available for longer input.
 - iOS: `.xterm-rows span { pointer-events: none }` fixes touch-on-text-span issue
 
+## Text Input & Toolbar Sizing
+**All text inputs** must use `<PlainInput>` (`app/components/plain-input.tsx`), never raw `<input>`. PlainInput renders a `<textarea rows=1>` because Android's Gboard autofill toolbar (passwords, credit cards, addresses) targets `<input>` elements but ignores `<textarea>`. The scratchpad textarea proved this is the only reliable suppression.
+
+**All toolbars with an input field** (scratchpad, xterm search, file filter, chat input) must use the shared CSS classes defined in `app/app.css`:
+- `.toolbar-row` — container: `flex items-center gap-1 px-1.5 py-1`
+- `.toolbar-btn` — buttons: `h-10`, icons `w-5 h-5`
+- `.toolbar-input` — input: `text-base` (prevents iOS zoom), monospace, border, rounded
+
+The scratchpad input bar is the **reference implementation**. When adding new toolbars with inputs, use these classes to maintain consistent sizing across all toolbars.
+
 ## Process Architecture
 Each session runs in a detached pty-host process (per-process isolation — one crash can't kill other sessions). Rust binary required (`crates/pty-host/`). Binary lookup: `bin/relay-pty-host` → `crates/pty-host/target/release/relay-pty-host`. Install downloads the binary automatically; build locally with `cargo build --release --manifest-path crates/pty-host/Cargo.toml`.
 

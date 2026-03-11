@@ -86,7 +86,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
 
   return (
     <div
-      className="absolute inset-0 z-20 flex items-center gap-1 px-2 bg-[#0f0f1a]"
+      className="toolbar-row absolute inset-0 z-20 bg-[#0f0f1a]"
       // Prevent clicks on the search bar from stealing focus from the input
       onMouseDown={(e) => {
         if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
@@ -95,7 +95,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
       <PlainInput
         ref={inputRef}
         type="text"
-        className="flex-1 px-2 py-1 bg-[#19191f] text-[#e2e8f0] font-mono text-sm rounded border border-[#2d2d44] focus:outline-none focus:border-[#3b82f6] placeholder:text-[#64748b]"
+        className="toolbar-input"
         placeholder="Search terminal..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -111,7 +111,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
 
       {/* Previous match */}
       <button
-        className="btn btn-ghost h-8 min-h-0 px-1.5 min-w-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded"
+        className="btn btn-ghost toolbar-btn text-[#94a3b8] hover:text-[#e2e8f0] rounded"
         tabIndex={-1}
         onMouseDown={(e) => e.preventDefault()}
         onTouchEnd={(e) => { e.preventDefault(); findPrevious(); }}
@@ -119,12 +119,12 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         aria-label="Previous match"
         disabled={!query || resultCount === 0}
       >
-        <ChevronUp className="w-4 h-4" />
+        <ChevronUp className="w-5 h-5" />
       </button>
 
       {/* Next match */}
       <button
-        className="btn btn-ghost h-8 min-h-0 px-1.5 min-w-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded"
+        className="btn btn-ghost toolbar-btn text-[#94a3b8] hover:text-[#e2e8f0] rounded"
         tabIndex={-1}
         onMouseDown={(e) => e.preventDefault()}
         onTouchEnd={(e) => { e.preventDefault(); findNext(); }}
@@ -132,12 +132,12 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         aria-label="Next match"
         disabled={!query || resultCount === 0}
       >
-        <ChevronDown className="w-4 h-4" />
+        <ChevronDown className="w-5 h-5" />
       </button>
 
       {/* Case sensitivity toggle */}
       <button
-        className={`btn h-8 min-h-0 px-1.5 min-w-0 rounded ${caseSensitive ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+        className={`btn toolbar-btn rounded ${caseSensitive ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
         tabIndex={-1}
         onMouseDown={(e) => e.preventDefault()}
         onTouchEnd={(e) => { e.preventDefault(); setCaseSensitive(v => !v); }}
@@ -145,19 +145,19 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         aria-label="Match case"
         title="Match case"
       >
-        <CaseSensitive className="w-4 h-4" />
+        <CaseSensitive className="w-5 h-5" />
       </button>
 
       {/* Close */}
       <button
-        className="btn btn-ghost h-8 min-h-0 px-1.5 min-w-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded"
+        className="btn btn-ghost toolbar-btn text-[#94a3b8] hover:text-[#e2e8f0] rounded"
         tabIndex={-1}
         onMouseDown={(e) => e.preventDefault()}
         onTouchEnd={(e) => { e.preventDefault(); onClose(); }}
         onClick={onClose}
         aria-label="Close search"
       >
-        <X className="w-4 h-4" />
+        <X className="w-5 h-5" />
       </button>
     </div>
   );

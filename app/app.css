@@ -42,6 +42,49 @@ body {
   display: none;
 }
 
+/*
+ * ── Input toolbar tokens ──
+ * All toolbars containing an input field (scratchpad, xterm search, file filter)
+ * share these sizing values for visual consistency.
+ * Reference: the scratchpad input bar in session-mobile-toolbar.tsx.
+ *
+ * Container:  .toolbar-row      → flex items-center gap-1 px-1.5 py-1
+ * Buttons:    .toolbar-btn      → h-10, icon w-5 h-5
+ * Input:      .toolbar-input    → text-base, font-mono, border, rounded, px-2
+ */
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;       /* gap-1 */
+  padding: 0.25rem 0.375rem; /* py-1 px-1.5 */
+}
+.toolbar-btn {
+  height: 2.5rem;     /* h-10 */
+  min-height: 0;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  min-width: 0;
+}
+.toolbar-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3em 0.5rem;
+  font-size: 1rem;    /* text-base — prevents iOS zoom on focus */
+  line-height: 1.6;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  background: #19191f;
+  color: #e2e8f0;
+  border: 1px solid #2d2d44;
+  border-radius: 0.25rem;
+}
+.toolbar-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+.toolbar-input::placeholder {
+  color: #64748b;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
