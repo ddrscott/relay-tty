@@ -1,26 +1,42 @@
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
 /**
- * A plain text input with mobile autocomplete, autocorrect, spellcheck,
- * and password-manager autofill uniformly suppressed.
+ * A plain text input that suppresses Android's Gboard autofill toolbar.
  *
- * Use this instead of raw <input> for all text fields in the app.
- * Passes through all standard input props; suppression attrs cannot be overridden.
+ * Android's autofill service targets <input> elements but leaves <textarea>
+ * alone. We render a single-line <textarea> styled identically to an input —
+ * rows=1, no resize, horizontal scroll, no wrapping. This is the same
+ * technique used by the scratchpad, which is the only input that reliably
+ * suppresses the Gboard toolbar (passwords, credit cards, addresses).
  *
- * Android's autofill service (Gboard suggestion strip with password/credit card/
- * address icons) ignores autocomplete="off" and "one-time-code" for type="text".
- * Using type="search" is the most reliable suppression — Gboard and Chrome skip
- * autofill entirely for search inputs. The default search clear-X is removed via CSS.
+ * Callers use this exactly like <input> — className, value, onChange,
+ * onKeyDown, placeholder, ref all work the same way. The `type` prop is
+ * accepted but ignored (textarea doesn't have types).
  */
+
+type PlainInputProps = Omit<ComponentPropsWithoutRef<"textarea">, "rows" | "wrap" | "children"> & {
+  /** Accepted for API compat with <input> but ignored */
+  type?: string;
+  /** Accepted for API compat with <input> but ignored */
+  inputMode?: string;
+};
+
 export const PlainInput = forwardRef<
-  HTMLInputElement,
-  ComponentPropsWithoutRef<"input">
->(function PlainInput(props, ref) {
+  HTMLTextAreaElement,
+  PlainInputProps
+>(function PlainInput({ type: _type, style, ...props }, ref) {
   return (
-    <input
-      type="search"
+    <textarea
+      rows={1}
+      wrap="off"
       {...props}
       ref={ref}
+      style={{
+        ...style,
+        resize: "none",
+        overflowX: "auto",
+        overflowY: "hidden",
+      }}
       autoComplete="off"
       autoCorrect="off"
       autoCapitalize="off"

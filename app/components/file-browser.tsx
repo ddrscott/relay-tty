@@ -138,7 +138,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
   const [viewingFile, setViewingFile] = useState<string | null>(null); // absolute path
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: DirEntry } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
@@ -500,6 +500,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
             placeholder="Filter files..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
           />
         )}
 

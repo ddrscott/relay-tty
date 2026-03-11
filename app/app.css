@@ -37,13 +37,6 @@ body {
   touch-action: manipulation;
 }
 
-/* Remove default search input clear button (added by type="search") */
-input[type="search"]::-webkit-search-cancel-button,
-input[type="search"]::-webkit-search-decoration {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

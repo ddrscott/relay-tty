@@ -209,6 +209,7 @@ export default function Settings() {
                   setUploadDir(e.target.value);
                   setUploadDirSaved(false);
                 }}
+                onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
               />
               {uploadDirError && (
                 <div className="mt-2 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#ef4444]/30 text-xs font-mono text-[#ef4444]">

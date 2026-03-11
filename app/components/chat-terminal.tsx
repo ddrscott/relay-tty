@@ -89,7 +89,7 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
     const [pinnedCommand, setPinnedCommand] = useState<string | null>(null);
     const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const decoder = useRef(new TextDecoder());
 

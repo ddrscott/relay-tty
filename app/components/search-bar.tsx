@@ -9,7 +9,7 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [resultIndex, setResultIndex] = useState(-1);
@@ -63,7 +63,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
     terminalRef.current?.findPrevious(query, { caseSensitive });
   }, [query, caseSensitive, terminalRef]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -89,7 +89,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
       className="absolute inset-0 z-20 flex items-center gap-1 px-2 bg-[#0f0f1a]"
       // Prevent clicks on the search bar from stealing focus from the input
       onMouseDown={(e) => {
-        if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+        if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
       }}
     >
       <PlainInput
