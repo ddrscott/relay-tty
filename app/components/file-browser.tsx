@@ -30,6 +30,7 @@ import {
   Eye,
   FileCode,
   Home,
+  WrapText,
 } from "lucide-react";
 import { PlainInput } from "./plain-input";
 
@@ -680,6 +681,7 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mdRendered, setMdRendered] = useState(true); // markdown: rendered by default
+  const [wordWrap, setWordWrap] = useState(false);
 
   const fileName = filePath.split("/").pop() || filePath;
   const ext = getExt(fileName);
@@ -769,6 +771,20 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
             title={mdRendered ? "Show source" : "Show rendered"}
           >
             {mdRendered ? <FileCode className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          </button>
+        )}
+
+        {/* Word wrap toggle — text files only, not in markdown rendered mode */}
+        {isTextFile && !isBinary && !(isMarkdown && mdRendered && !editing) && (
+          <button
+            className={`btn btn-ghost btn-xs ${wordWrap ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+            onClick={() => setWordWrap(!wordWrap)}
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); setWordWrap(!wordWrap); }}
+            title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+          >
+            <WrapText className="w-3.5 h-3.5" />
           </button>
         )}
 
@@ -874,9 +890,10 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
                   ext={ext}
                   onSave={saveFile}
                   saving={saving}
+                  wordWrap={wordWrap}
                 />
               ) : (
-                <CodeViewerEnhanced content={content} ext={ext} />
+                <CodeViewerEnhanced content={content} ext={ext} wordWrap={wordWrap} />
               )}
             </>
           )}
@@ -942,7 +959,7 @@ function MarkdownRenderer({ content }: { content: string }) {
 
 // ── Enhanced code viewer (read-only, line numbers) ──────────────────────
 
-function CodeViewerEnhanced({ content, ext }: { content: string; ext: string }) {
+function CodeViewerEnhanced({ content, ext, wordWrap }: { content: string; ext: string; wordWrap: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -957,7 +974,7 @@ function CodeViewerEnhanced({ content, ext }: { content: string; ext: string }) 
         EditorView.editable.of(false),
         EditorState.readOnly.of(true),
         oneDark,
-        EditorView.lineWrapping,
+        ...(wordWrap ? [EditorView.lineWrapping] : []),
         ...(await getLanguageExtension(ext)),
       ];
 
@@ -976,7 +993,7 @@ function CodeViewerEnhanced({ content, ext }: { content: string; ext: string }) 
 
     load();
     return () => { destroyed = true; };
-  }, [content, ext]);
+  }, [content, ext, wordWrap]);
 
   return (
     <div
@@ -993,11 +1010,13 @@ function CodeEditor({
   ext,
   onSave,
   saving,
+  wordWrap,
 }: {
   content: string;
   ext: string;
   onSave: (content: string) => void;
   saving: boolean;
+  wordWrap: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
@@ -1013,7 +1032,7 @@ function CodeEditor({
       const { defaultKeymap, history, historyKeymap } = await import("@codemirror/commands");
       const extensions = [
         oneDark,
-        EditorView.lineWrapping,
+        ...(wordWrap ? [EditorView.lineWrapping] : []),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         ...(await getLanguageExtension(ext)),
@@ -1034,7 +1053,7 @@ function CodeEditor({
 
     load();
     return () => { destroyed = true; };
-  }, [content, ext]);
+  }, [content, ext, wordWrap]);
 
   const handleSave = useCallback(() => {
     if (viewRef.current) {
