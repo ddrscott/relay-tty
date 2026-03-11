@@ -52,6 +52,9 @@ export function SessionMobileToolbar({
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
   const ctrlLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctrlDidLongPressRef = useRef(false);
+  const toolbarRootRef = useRef<HTMLDivElement>(null);
+  const ctrlWrapRef = useRef<HTMLDivElement>(null);
+  const [menuLeft, setMenuLeft] = useState(0);
 
   // Load shortcuts from localStorage on mount and when menu opens
   useEffect(() => {
@@ -59,9 +62,15 @@ export function SessionMobileToolbar({
   }, []);
 
   // Reload shortcuts when menu opens (in case user edited them in settings)
+  // Also measure Ctrl button position to place the floating menu
   useEffect(() => {
     if (ctrlMenuOpen) {
       setShortcuts(getCtrlShortcuts());
+      if (ctrlWrapRef.current && toolbarRootRef.current) {
+        const btnRect = ctrlWrapRef.current.getBoundingClientRect();
+        const rootRect = toolbarRootRef.current.getBoundingClientRect();
+        setMenuLeft(btnRect.left - rootRect.left + btnRect.width / 2);
+      }
     }
   }, [ctrlMenuOpen]);
 
@@ -139,14 +148,36 @@ export function SessionMobileToolbar({
 
   return (
     <div
-      className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
+      ref={toolbarRootRef}
+      className="relative bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
-      {/* Ctrl shortcut menu is rendered as floating popover above the Ctrl button */}
+      {/* Ctrl shortcut menu — rendered at toolbar root to avoid overflow clipping from scrollable key row */}
+      {ctrlMenuOpen && (
+        <div
+          className="absolute z-50 -translate-x-1/2 bg-[#0f0f1a] border border-[#2d2d44] border-b-0 rounded-t-lg shadow-xl py-1 flex flex-col min-w-[7rem]"
+          style={{ left: menuLeft, bottom: "calc(2.75rem + env(safe-area-inset-bottom))" }}
+        >
+          {shortcuts.map((s) => (
+            <button
+              key={s.key}
+              className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs hover:bg-[#1a1a2e] active:bg-[#1a1a2e] whitespace-nowrap"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
+              onClick={() => sendCtrlShortcut(s.key)}
+            >
+              <span className="text-[#7dd3fc]">^{s.key}</span>
+              <span className="text-[#64748b]">{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Input bar — always rendered so the textarea exists for iOS focus.
-           Hidden via CSS when closed to avoid the React-render vs iOS-gesture race. */}
-      <div className={`toolbar-row border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
+      {/* Input bar — floats above toolbar (absolute positioning) so opening/closing
+           does NOT change terminal dimensions or trigger SIGWINCH.
+           Always rendered so the textarea exists for iOS focus. Hidden via CSS when closed. */}
+      <div className={`absolute bottom-full left-0 right-0 toolbar-row bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
         <button
           className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
           tabIndex={-1}
@@ -207,24 +238,7 @@ export function SessionMobileToolbar({
           </button>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b"))} onClick={() => onSendKey("\x1b")}>Esc</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-          <div className="relative shrink-0">
-            {ctrlMenuOpen && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#0f0f1a] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1 flex flex-col min-w-[7rem]">
-                {shortcuts.map((s) => (
-                  <button
-                    key={s.key}
-                    className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs hover:bg-[#1a1a2e] active:bg-[#1a1a2e] whitespace-nowrap"
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
-                    onClick={() => sendCtrlShortcut(s.key)}
-                  >
-                    <span className="text-[#7dd3fc]">^{s.key}</span>
-                    <span className="text-[#64748b]">{s.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div ref={ctrlWrapRef} className="shrink-0">
             <button
               className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
