@@ -529,6 +529,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // ── File upload ──
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const handleUpload = useCallback(async (file: File) => {
     setUploading(true);
@@ -618,6 +620,51 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     document.addEventListener("paste", onPaste, { capture: true });
     return () => document.removeEventListener("paste", onPaste, { capture: true });
   }, []);
+
+  // ── Drag-and-drop file upload ──
+  // Show a visual drop zone when files are dragged over the terminal area.
+  // Uses a dragenter/dragleave counter to handle nested element events correctly.
+  const onDragEnter = useCallback((e: React.DragEvent) => {
+    // Only show drop zone for file drags, not text/link drags
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  }, []);
+
+  const onDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    // Upload all dropped files; paths will be inserted space-separated
+    // by uploading sequentially so sendText calls go in order
+    for (let i = 0; i < files.length; i++) {
+      if (i > 0) {
+        // Insert a space separator before subsequent paths
+        const handle = terminalRef.current ?? chatRef.current;
+        if (handle) handle.sendText(" ");
+      }
+      await handleUpload(files[i]);
+    }
+  }, [handleUpload]);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -895,7 +942,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       </div>
 
       {/* Terminal area — keep-alive: all visited terminals stay mounted */}
-      <div ref={terminalAreaRef} className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]">
+      <div
+        ref={terminalAreaRef}
+        className="flex-1 relative min-h-0 overflow-hidden bg-[#19191f]"
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         {/* Carousel track: translates horizontally during swipe */}
         <div ref={carouselTrackRef} className="absolute inset-0">
           {isClient && visitedSessions.map(sid => {
@@ -987,6 +1041,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
         {/* iOS Safari: guide user to add to Home Screen for notifications */}
         <IOSHomeScreenBanner />
+
+        {/* Drag-and-drop file upload overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0a0a0f]/80 backdrop-blur-sm pointer-events-none">
+            <div className="border-2 border-dashed border-[#22c55e]/60 rounded-2xl px-10 py-8 flex flex-col items-center gap-3">
+              <Upload className="w-10 h-10 text-[#22c55e]/80" />
+              <span className="text-lg font-mono text-[#94a3b8]">Drop to upload</span>
+            </div>
+          </div>
+        )}
 
         {/* Text viewer overlay — selectable DOM text for mobile copy */}
         {textViewerOpen && (
