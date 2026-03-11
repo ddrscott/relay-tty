@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, type TouchEvent } from "react";
 import {
   ChevronDown,
   ChevronUp,
+  ClipboardCopy,
   CornerDownLeft,
   Keyboard as KeyboardIcon,
   Search,
@@ -25,6 +26,8 @@ interface SessionMobileToolbarProps {
   uploading?: boolean;
   searchOpen?: boolean;
   onSearchToggle?: () => void;
+  hasSharedClipboard?: boolean;
+  onClipboardToggle?: () => void;
 }
 
 export function SessionMobileToolbar({
@@ -40,6 +43,8 @@ export function SessionMobileToolbar({
   uploading,
   searchOpen,
   onSearchToggle,
+  hasSharedClipboard,
+  onClipboardToggle,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -215,6 +220,18 @@ export function SessionMobileToolbar({
               aria-label="Search terminal"
             >
               <Search className="w-5 h-5" />
+            </button>
+          )}
+          {onClipboardToggle && (
+            <button
+              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${hasSharedClipboard ? "btn-info" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={tapGuard(onClipboardToggle)}
+              onClick={onClipboardToggle}
+              aria-label="Shared clipboard"
+            >
+              <ClipboardCopy className="w-5 h-5" />
             </button>
           )}
         </div>

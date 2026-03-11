@@ -41,11 +41,12 @@ interface TerminalProps {
   onActivityUpdate?: (update: { isActive: boolean; totalBytes: number }) => void;
   onFileLink?: (link: FileLink) => void;
   onTap?: () => void;
+  onClipboard?: (text: string) => void;
   /** Whether this terminal is the active/visible one. Controls resize and input. Default true. */
   active?: boolean;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, active = true }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, active = true }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -61,6 +62,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onNotification,
     onFontSizeChange,
     onCopy,
+    onClipboard,
     selectionModeRef,
     onActivityUpdate,
     onFileLink,

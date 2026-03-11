@@ -50,6 +50,8 @@ export const WS_MSG = {
   SESSION_METRICS: 0x14,
   /** Server→client: updated session metadata [UTF-8 JSON of Session]. */
   SESSION_UPDATE: 0x15,
+  /** Bidirectional: clipboard text sync between devices [UTF-8 text]. */
+  CLIPBOARD: 0x16,
   /** Client→server: 1-byte heartbeat probe. */
   PING: 0x20,
   /** Server→client: 1-byte heartbeat response. */

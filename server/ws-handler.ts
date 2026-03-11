@@ -14,6 +14,9 @@ const PING_INTERVAL_MS = 30_000;
 /** Backpressure: pause pty socket reads when WS send buffer exceeds this (1 MB) */
 const WS_HIGH_WATER_MARK = 1 * 1024 * 1024;
 
+/** Maximum clipboard message payload size (1 MB) */
+const MAX_CLIPBOARD_SIZE = 1 * 1024 * 1024;
+
 /**
  * Bridges WebSocket clients to pty-host Unix sockets.
  *
@@ -25,6 +28,8 @@ export class WsHandler {
   private wss: WebSocketServer;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private eventSubscribers = new Set<WebSocket>();
+  /** Track WS clients per session for clipboard broadcast */
+  private sessionClients = new Map<string, Set<WebSocket>>();
 
   constructor(
     private sessionStore: SessionStore,
@@ -68,6 +73,42 @@ export class WsHandler {
         ws.send(msg);
       }
     });
+  }
+
+  /** Track a WS client for a session */
+  private addSessionClient(sessionId: string, ws: WebSocket): void {
+    let clients = this.sessionClients.get(sessionId);
+    if (!clients) {
+      clients = new Set();
+      this.sessionClients.set(sessionId, clients);
+    }
+    clients.add(ws);
+  }
+
+  /** Remove a WS client from session tracking */
+  private removeSessionClient(sessionId: string, ws: WebSocket): void {
+    const clients = this.sessionClients.get(sessionId);
+    if (clients) {
+      clients.delete(ws);
+      if (clients.size === 0) this.sessionClients.delete(sessionId);
+    }
+  }
+
+  /**
+   * Broadcast a CLIPBOARD message to all other WS clients on the same session.
+   * Payload: [0x16][UTF-8 text]
+   */
+  private broadcastClipboard(sessionId: string, sender: WebSocket, text: Buffer): void {
+    const clients = this.sessionClients.get(sessionId);
+    if (!clients) return;
+    const msg = Buffer.alloc(1 + text.length);
+    msg[0] = WS_MSG.CLIPBOARD;
+    text.copy(msg, 1);
+    for (const ws of clients) {
+      if (ws !== sender && ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
+    }
   }
 
   /** Send "sessions-changed" to all event subscribers */
@@ -265,6 +306,7 @@ export class WsHandler {
 
   private handleConnection(ws: WebSocket, sessionId: string): void {
     this.initKeepAlive(ws);
+    this.addSessionClient(sessionId, ws);
     const socketPath = this.ptyManager.getSocketPath(sessionId);
 
     // Check socket exists before connecting
@@ -277,6 +319,7 @@ export class WsHandler {
         msg.writeInt32BE(session.exitCode, 1);
         ws.send(msg);
       }
+      this.removeSessionClient(sessionId, ws);
       ws.close();
       return;
     }
@@ -309,6 +352,19 @@ export class WsHandler {
 
         const payload = Buffer.from(pending.subarray(4, 4 + msgLen));
         pending = pending.subarray(4 + msgLen);
+
+        // CLIPBOARD messages from pty-host (OSC 52): broadcast to all clients
+        if (payload.length > 0 && payload[0] === WS_MSG.CLIPBOARD) {
+          const clients = this.sessionClients.get(sessionId);
+          if (clients) {
+            for (const client of clients) {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(payload);
+              }
+            }
+          }
+          continue;
+        }
 
         // Forward the payload directly as a WS binary message
         // The payload is already in WS_MSG format: [type][data]
@@ -348,6 +404,14 @@ export class WsHandler {
         if (ws.readyState === WebSocket.OPEN) ws.send(Buffer.from([WS_MSG.PONG]));
         return;
       }
+      // CLIPBOARD messages: broadcast to other clients, don't forward to pty-host
+      if (data[0] === WS_MSG.CLIPBOARD) {
+        const textPayload = data.subarray(1);
+        if (textPayload.length > 0 && textPayload.length <= MAX_CLIPBOARD_SIZE) {
+          this.broadcastClipboard(sessionId, ws, textPayload);
+        }
+        return;
+      }
       if (ptySocket.writable) {
         const header = Buffer.alloc(4);
         header.writeUInt32BE(data.length, 0);
@@ -357,10 +421,12 @@ export class WsHandler {
     });
 
     ws.on("close", () => {
+      this.removeSessionClient(sessionId, ws);
       ptySocket.destroy();
     });
 
     ws.on("error", () => {
+      this.removeSessionClient(sessionId, ws);
       ptySocket.destroy();
     });
   }

@@ -36,6 +36,7 @@ const WS_MSG_SYNC: u8 = 0x11;
 const WS_MSG_SESSION_STATE: u8 = 0x12;
 const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 const WS_MSG_SESSION_METRICS: u8 = 0x14;
+const WS_MSG_CLIPBOARD: u8 = 0x16;
 const WS_MSG_DETACH: u8 = 0x22;
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -658,6 +659,129 @@ fn percent_decode(input: &str) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
+/// Maximum clipboard payload size (1 MB)
+const CLIPBOARD_MAX_SIZE: usize = 1 * 1024 * 1024;
+
+/// Simple base64 decoder (standard alphabet + padding).
+fn base64_decode(input: &[u8]) -> Option<Vec<u8>> {
+    const DECODE_TABLE: [u8; 256] = {
+        let mut t = [255u8; 256];
+        let mut i = 0u8;
+        while i < 26 {
+            t[(b'A' + i) as usize] = i;
+            t[(b'a' + i) as usize] = i + 26;
+            i += 1;
+        }
+        let mut d = 0u8;
+        while d < 10 {
+            t[(b'0' + d) as usize] = d + 52;
+            d += 1;
+        }
+        t[b'+' as usize] = 62;
+        t[b'/' as usize] = 63;
+        t[b'=' as usize] = 0; // padding
+        t
+    };
+
+    let mut result = Vec::with_capacity(input.len() * 3 / 4);
+    let filtered: Vec<u8> = input.iter().copied().filter(|&b| b != b'\n' && b != b'\r' && b != b' ').collect();
+    if filtered.is_empty() {
+        return Some(result);
+    }
+
+    let mut i = 0;
+    while i + 3 < filtered.len() {
+        let a = DECODE_TABLE[filtered[i] as usize];
+        let b = DECODE_TABLE[filtered[i + 1] as usize];
+        let c = DECODE_TABLE[filtered[i + 2] as usize];
+        let d = DECODE_TABLE[filtered[i + 3] as usize];
+        if a == 255 || b == 255 || c == 255 || d == 255 {
+            return None;
+        }
+        result.push((a << 2) | (b >> 4));
+        if filtered[i + 2] != b'=' {
+            result.push((b << 4) | (c >> 2));
+        }
+        if filtered[i + 3] != b'=' {
+            result.push((c << 6) | d);
+        }
+        i += 4;
+    }
+    Some(result)
+}
+
+/// Extract OSC 52 clipboard sequences from data. Returns (cleaned_data, clipboard_texts).
+/// Format: ESC ] 52 ; <selection> ; <base64data> BEL|ESC\
+/// The base64 data is decoded and returned as UTF-8 text.
+fn extract_osc52_clipboard(data: &[u8]) -> (Vec<u8>, Vec<String>) {
+    let mut clips = Vec::new();
+    let mut cleaned = Vec::with_capacity(data.len());
+    let mut i = 0;
+
+    while i < data.len() {
+        if data[i] == 0x1b && i + 1 < data.len() && data[i + 1] == 0x5d {
+            // ESC ]
+            // Check for "52;"
+            if i + 4 < data.len() && data[i + 2] == b'5' && data[i + 3] == b'2' && data[i + 4] == b';' {
+                // Find the selection parameter (single char like 'c', 'p', 's', etc.) then ';'
+                let after_52 = i + 5;
+                // Find the second ';' that separates selection from base64 data
+                let mut semi_pos = after_52;
+                while semi_pos < data.len() && data[semi_pos] != b';' {
+                    // Selection parameter chars (short — usually 1-2 chars)
+                    if semi_pos - after_52 > 10 {
+                        break; // too long for selection param
+                    }
+                    semi_pos += 1;
+                }
+                if semi_pos < data.len() && data[semi_pos] == b';' {
+                    let b64_start = semi_pos + 1;
+                    // Find terminator: BEL (0x07) or ESC\ (0x1b 0x5c)
+                    let mut end = b64_start;
+                    let mut found = false;
+                    let mut term_len = 0usize;
+                    while end < data.len() {
+                        if data[end] == 0x07 {
+                            term_len = 1;
+                            found = true;
+                            break;
+                        }
+                        if data[end] == 0x1b && end + 1 < data.len() && data[end + 1] == 0x5c {
+                            term_len = 2;
+                            found = true;
+                            break;
+                        }
+                        end += 1;
+                    }
+                    if found {
+                        let b64_data = &data[b64_start..end];
+                        // Check if this is a query (just "?")
+                        if b64_data == b"?" {
+                            // OSC 52 query — strip it, don't respond
+                            i = end + term_len;
+                            continue;
+                        }
+                        if let Some(decoded) = base64_decode(b64_data) {
+                            if decoded.len() <= CLIPBOARD_MAX_SIZE {
+                                if let Ok(text) = String::from_utf8(decoded) {
+                                    clips.push(text);
+                                }
+                            }
+                        }
+                        // Strip the OSC 52 from output (don't pass to xterm)
+                        i = end + term_len;
+                        continue;
+                    }
+                }
+            }
+        }
+        cleaned.push(data[i]);
+        i += 1;
+    }
+
+    (cleaned, clips)
+}
+
 /// Extract OSC 9 notifications from data. Returns (cleaned_data, notifications).
 fn extract_osc9_notifications(data: &[u8]) -> (Vec<u8>, Vec<String>) {
     let mut notifications = Vec::new();
@@ -1240,11 +1364,19 @@ async fn main() {
                     }
 
                     // Extract OSC 9 notifications, strip from data
-                    let (cleaned, notifications) = extract_osc9_notifications(data);
+                    let (after_osc9, notifications) = extract_osc9_notifications(data);
                     for notif in &notifications {
                         let mut notif_msg = vec![WS_MSG_NOTIFICATION];
                         notif_msg.extend_from_slice(notif.as_bytes());
                         let _ = broadcast_tx_pty.send(encode_frame(&notif_msg));
+                    }
+
+                    // Extract OSC 52 clipboard sequences, strip from data
+                    let (cleaned, clipboard_texts) = extract_osc52_clipboard(&after_osc9);
+                    for clip_text in &clipboard_texts {
+                        let mut clip_msg = vec![WS_MSG_CLIPBOARD];
+                        clip_msg.extend_from_slice(clip_text.as_bytes());
+                        let _ = broadcast_tx_pty.send(encode_frame(&clip_msg));
                     }
 
                     if !cleaned.is_empty() {

@@ -119,6 +119,8 @@ export interface TerminalCoreOpts {
   onTap?: () => void;
   /** Called when a SESSION_UPDATE message arrives with updated session metadata */
   onSessionUpdate?: (session: Session) => void;
+  /** Called when a CLIPBOARD message arrives from another device (cross-device clipboard sync) */
+  onClipboard?: (text: string) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
   /** Throttle terminal writes to this many fps (0 = unlimited) */
@@ -336,8 +338,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
 
       // ── Auto-copy on selection (desktop + mobile) ─────────────────
-      // When the user selects text in xterm, auto-copy to clipboard.
-      // Debounce: only copy when there is actual selected text (ignore deselection).
+      // When the user selects text in xterm, auto-copy to clipboard and
+      // broadcast to other connected devices via CLIPBOARD message.
       term.onSelectionChange(() => {
         const sel = term.getSelection();
         if (!sel) return;
@@ -346,6 +348,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         }).catch(() => {
           // Clipboard API may fail (permissions, non-HTTPS) — silent fallback
         });
+        // Send to other devices via CLIPBOARD message (cap at 1MB)
+        if (sel.length <= 1024 * 1024) {
+          const encoded = new TextEncoder().encode(sel);
+          const msg = new Uint8Array(1 + encoded.length);
+          msg[0] = WS_MSG.CLIPBOARD;
+          msg.set(encoded, 1);
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+        }
       });
 
       // ── Load cached buffer from IndexedDB for instant display ─────
@@ -902,6 +913,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           } catch {
             // Malformed JSON — ignore
           }
+          break;
+        }
+        case WS_MSG.CLIPBOARD: {
+          // UTF-8 clipboard text from another device or OSC 52
+          const clipText = new TextDecoder().decode(payload);
+          if (clipText) opts.onClipboard?.(clipText);
           break;
         }
       }

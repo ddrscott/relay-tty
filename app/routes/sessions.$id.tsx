@@ -13,6 +13,7 @@ import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
 import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
 import { SessionTextViewer } from "../components/session-text-viewer";
+import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
 import { SearchBar } from "../components/search-bar";
 import {
@@ -212,6 +213,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [textViewerContent, setTextViewerContent] = useState("");
   const [copyToast, setCopyToast] = useState(false);
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sharedClipboard, setSharedClipboard] = useState<string | null>(null);
+  const [clipboardPanelOpen, setClipboardPanelOpen] = useState(false);
+  const clipboardToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notifToast, setNotifToast] = useState<string | null>(null);
   const notifToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
@@ -489,6 +493,20 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     copyToastTimer.current = setTimeout(() => setCopyToast(false), 1500);
   }, []);
 
+  // Handle cross-device clipboard sync
+  const handleClipboard = useCallback((text: string) => {
+    setSharedClipboard(text);
+    // Auto-open panel briefly, then leave indicator
+    setClipboardPanelOpen(true);
+    if (clipboardToastTimer.current) clearTimeout(clipboardToastTimer.current);
+    clipboardToastTimer.current = setTimeout(() => setClipboardPanelOpen(false), 5000);
+  }, []);
+
+  const handleClipboardToggle = useCallback(() => {
+    setClipboardPanelOpen(v => !v);
+    if (clipboardToastTimer.current) clearTimeout(clipboardToastTimer.current);
+  }, []);
+
   // ── Ref-gated callback factories for keep-alive ──
   // useTerminalCore captures callbacks in its effect closure (keyed on wsPath).
   // Hidden terminals still receive WS messages and fire the original callbacks.
@@ -504,6 +522,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   handleFontSizeChangeRef.current = handleFontSizeChange;
   const handleCopyRef = useRef(handleCopy);
   handleCopyRef.current = handleCopy;
+  const handleClipboardRef = useRef(handleClipboard);
+  handleClipboardRef.current = handleClipboard;
   const handleActivityUpdateRef = useRef(handleActivityUpdate);
   handleActivityUpdateRef.current = handleActivityUpdate;
   const handleFileLinkRef = useRef(handleFileLink);
@@ -519,6 +539,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       onNotification: (msg: string) => { if (activeIdRef.current === sid) handleNotificationRef.current(msg); },
       onFontSizeChange: (delta: number) => { if (activeIdRef.current === sid) handleFontSizeChangeRef.current(delta); },
       onCopy: () => { if (activeIdRef.current === sid) handleCopyRef.current(); },
+      onClipboard: (text: string) => { if (activeIdRef.current === sid) handleClipboardRef.current(text); },
       onActivityUpdate: (update: { isActive: boolean; totalBytes: number }) => { if (activeIdRef.current === sid) handleActivityUpdateRef.current(update); },
       onFileLink: (link: FileLink) => { if (activeIdRef.current === sid) handleFileLinkRef.current(link); },
       onFullscreenDetected: () => {
@@ -995,6 +1016,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                       onNotification={cbs.onNotification}
                       onFontSizeChange={cbs.onFontSizeChange}
                       onCopy={cbs.onCopy}
+                      onClipboard={cbs.onClipboard}
                       onActivityUpdate={cbs.onActivityUpdate}
                       onFileLink={cbs.onFileLink}
                     />
@@ -1150,6 +1172,20 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           uploading={uploading}
           searchOpen={searchOpen}
           onSearchToggle={() => setSearchOpen(v => !v)}
+          hasSharedClipboard={!!sharedClipboard}
+          onClipboardToggle={handleClipboardToggle}
+        />
+      )}
+
+      {/* ── Shared clipboard panel ── */}
+      {clipboardPanelOpen && sharedClipboard && (
+        <ClipboardPanel
+          text={sharedClipboard}
+          onPasteToTerminal={(text) => {
+            const handle = terminalRef.current ?? chatRef.current;
+            if (handle) handle.sendText(text);
+          }}
+          onClose={() => setClipboardPanelOpen(false)}
         />
       )}
     </main>
