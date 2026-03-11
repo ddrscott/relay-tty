@@ -109,31 +109,31 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
         </span>
       )}
 
-      {/* Previous match */}
-      <button
-        className="btn btn-ghost toolbar-btn text-[#94a3b8] hover:text-[#e2e8f0] rounded"
-        tabIndex={-1}
-        onMouseDown={(e) => e.preventDefault()}
-        onTouchEnd={(e) => { e.preventDefault(); findPrevious(); }}
-        onClick={findPrevious}
-        aria-label="Previous match"
-        disabled={!query || resultCount === 0}
-      >
-        <ChevronUp className="w-5 h-5" />
-      </button>
-
-      {/* Next match */}
-      <button
-        className="btn btn-ghost toolbar-btn text-[#94a3b8] hover:text-[#e2e8f0] rounded"
-        tabIndex={-1}
-        onMouseDown={(e) => e.preventDefault()}
-        onTouchEnd={(e) => { e.preventDefault(); findNext(); }}
-        onClick={findNext}
-        aria-label="Next match"
-        disabled={!query || resultCount === 0}
-      >
-        <ChevronDown className="w-5 h-5" />
-      </button>
+      {/* Prev / Next — grouped tight */}
+      <div className="flex">
+        <button
+          className="btn btn-ghost toolbar-btn !px-1 text-[#94a3b8] hover:text-[#e2e8f0] rounded-r-none"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); findPrevious(); }}
+          onClick={findPrevious}
+          aria-label="Previous match"
+          disabled={!query || resultCount === 0}
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
+        <button
+          className="btn btn-ghost toolbar-btn !px-1 text-[#94a3b8] hover:text-[#e2e8f0] rounded-l-none"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); findNext(); }}
+          onClick={findNext}
+          aria-label="Next match"
+          disabled={!query || resultCount === 0}
+        >
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      </div>
 
       {/* Case sensitivity toggle */}
       <button
