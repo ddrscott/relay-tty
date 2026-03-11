@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { useTerminalInput } from "../hooks/use-terminal-input";
-import { encodeDataMessage } from "../lib/ws-messages";
+import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
 import type { FileLink } from "../lib/file-link-provider";
+import type { Session } from "../../shared/types";
+import { Maximize2 } from "lucide-react";
 
 export interface TerminalHandle {
   sendText: (text: string) => void;
@@ -46,12 +48,29 @@ interface TerminalProps {
   onImage?: (image: { id: string; blobUrl: string }) => void;
   /** Whether this terminal is the active/visible one. Controls resize and input. Default true. */
   active?: boolean;
+  /** Initial PTY dimensions from session metadata (cols x rows) */
+  initialPtyCols?: number;
+  initialPtyRows?: number;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true, initialPtyCols, initialPtyRows }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
+
+  // ── PTY dimension mismatch tracking ──
+  // Track the PTY's current dimensions (from session metadata) and compare
+  // with the local xterm dimensions to show a floating resize button.
+  const [ptyDims, setPtyDims] = useState<{ cols: number; rows: number } | null>(
+    initialPtyCols && initialPtyRows ? { cols: initialPtyCols, rows: initialPtyRows } : null
+  );
+  const [localDims, setLocalDims] = useState<{ cols: number; rows: number } | null>(null);
+
+  const handleSessionUpdate = useCallback((session: Session) => {
+    if (session.id === sessionId && session.cols && session.rows) {
+      setPtyDims({ cols: session.cols, rows: session.rows });
+    }
+  }, [sessionId]);
 
   const { termRef, searchAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
@@ -70,6 +89,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onActivityUpdate,
     onFileLink,
     onTap,
+    onSessionUpdate: handleSessionUpdate,
   });
 
   const sendText = useCallback((text: string) => {
@@ -169,6 +189,33 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
   useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef });
 
+  // Track local xterm dimensions after fit/resize
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    // Read initial dims
+    setLocalDims({ cols: term.cols, rows: term.rows });
+    // Update on resize
+    const disposable = term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
+      setLocalDims({ cols, rows });
+    });
+    return () => disposable.dispose();
+  }, [termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the user sends a RESIZE that matches local dims, update ptyDims
+  // so the mismatch button disappears immediately (don't wait for SESSION_UPDATE).
+  const handleResizeToLocal = useCallback(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const { cols, rows } = term;
+    sendBinary(encodeResizeMessage(cols, rows));
+    setPtyDims({ cols, rows });
+  }, [termRef, sendBinary]);
+
+  // Dimension mismatch: show button when PTY dims differ from local xterm dims
+  const dimsMismatch = active && ptyDims && localDims &&
+    (ptyDims.cols !== localDims.cols || ptyDims.rows !== localDims.rows);
+
   // Update font size on existing terminal
   useEffect(() => {
     if (termRef.current) {
@@ -202,6 +249,24 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
   return (
     <div className="relative w-full h-full">
+      {/* Floating resize button — shows when local dims don't match PTY */}
+      {dimsMismatch && (
+        <button
+          className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10 cursor-pointer hover:bg-base-300 transition-colors"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); handleResizeToLocal(); }}
+          onClick={handleResizeToLocal}
+          aria-label="Resize terminal to fit"
+          title={`PTY ${ptyDims!.cols}×${ptyDims!.rows} → ${localDims!.cols}×${localDims!.rows}`}
+        >
+          <Maximize2 className="w-4 h-4 text-info" />
+          <span className="text-info text-xs font-medium font-mono">
+            {ptyDims!.cols}×{ptyDims!.rows} → {localDims!.cols}×{localDims!.rows}
+          </span>
+        </button>
+      )}
+      {/* Reconnecting pill — lower-right corner */}
       {pillLabel && (
         <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10">
           <span className="loading loading-spinner loading-xs text-warning" />

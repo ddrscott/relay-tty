@@ -1136,6 +1136,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                       sessionId={sid}
                       fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
                       active={sid === activeId && effectiveViewMode === "terminal"}
+                      initialPtyCols={allSessions.find(s => s.id === sid)?.cols}
+                      initialPtyRows={allSessions.find(s => s.id === sid)?.rows}
                       onExit={cbs.onExit}
                       onTitleChange={cbs.onTitleChange}
                       onScrollChange={cbs.onScrollChange}

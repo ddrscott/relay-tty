@@ -51,6 +51,7 @@
 - [x] Add word wrap toggle to file viewer
 - [x] Add line number toggle to file viewer
 - [x] Ctrl shortcut slide-up menu — quick access to common Ctrl combos (^R, ^W, ^A, ^E, etc.) with editable list in settings ([detail](work-queue/ctrl-shortcut-menu.md))
+- [x] Floating SIGWINCH resize button — shows when local dimensions don't match PTY, tap to relayout ([detail](work-queue/sigwinch-resize-button.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
