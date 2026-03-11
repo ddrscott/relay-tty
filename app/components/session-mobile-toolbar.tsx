@@ -115,13 +115,14 @@ export function SessionMobileToolbar({
             onChange={(e) => setPadText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
             placeholder="Type a command..."
-            autoComplete="off"
+            autoComplete="one-time-code"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
             data-form-type="other"
             data-lpignore="true"
             data-1p-ignore="true"
+            data-gramm="false"
             enterKeyHint="send"
             autoFocus
           />
