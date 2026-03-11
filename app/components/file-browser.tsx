@@ -504,7 +504,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
           />
         )}
 
-        <div className="flex-1" />
+        {!searchOpen && <div className="flex-1" />}
 
         {/* Upload button */}
         {onUploadFile && (

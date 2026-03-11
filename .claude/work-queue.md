@@ -47,6 +47,9 @@
 - [x] Move activity dot inline with session name — dot before name text inside the name container
 - [x] Notification history panel — bell icon opens list of received notifications, tap to jump to session ([detail](work-queue/notification-history.md))
 - [x] Make markdown-style `[text](path)` links in terminal output clickable — open target file on tap ([detail](work-queue/terminal-url-links.md))
+- [x] File browser filter input should fill remaining toolbar width
+- [ ] Add word wrap toggle to file viewer
+- [ ] Add line number toggle to file viewer
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
