@@ -872,7 +872,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   return (
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
       {/* Header bar */}
-      <div className="flex items-center gap-1 px-2 py-2.5 bg-[#0f0f1a] border-b border-[#1e1e2e]">
+      <div className="relative border-b border-[#1e1e2e]">
+      <div className="flex items-center gap-1 px-2 py-2.5 bg-[#0f0f1a]">
         <label
           htmlFor="sidebar-drawer"
           className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
@@ -1023,6 +1024,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
+      {/* Search bar — overlays the header so it doesn't resize xterm */}
+      {searchOpen && (
+        <SearchBar
+          terminalRef={terminalRef}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
+      </div>
+
       {/* Terminal area — keep-alive: all visited terminals stay mounted */}
       <div
         ref={terminalAreaRef}
@@ -1088,14 +1098,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         </div>
 
         {/* Overlays — outside the track so they don't translate during swipe */}
-
-        {/* Search bar */}
-        {searchOpen && (
-          <SearchBar
-            terminalRef={terminalRef}
-            onClose={() => setSearchOpen(false)}
-          />
-        )}
 
         {/* Jump to bottom */}
         {!atBottom && (

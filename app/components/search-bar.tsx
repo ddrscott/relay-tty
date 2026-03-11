@@ -86,7 +86,7 @@ export function SearchBar({ terminalRef, onClose }: SearchBarProps) {
 
   return (
     <div
-      className="absolute top-0 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1.5 bg-[#0f0f1a]/95 backdrop-blur-sm border-b border-[#2d2d44]"
+      className="absolute inset-0 z-20 flex items-center gap-1 px-2 bg-[#0f0f1a]"
       // Prevent clicks on the search bar from stealing focus from the input
       onMouseDown={(e) => {
         if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
