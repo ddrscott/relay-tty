@@ -934,9 +934,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
         {notifPermission === "granted" && (
-          <span className="shrink-0 text-[#64748b] flex items-center" title="Notifications enabled">
+          <button
+            className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
+            onClick={() => setInfoOpen(true)}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label="Notification settings"
+            title="Notification settings"
+          >
             <Bell className="w-3.5 h-3.5" />
-          </span>
+          </button>
         )}
 
         {/* Search */}
