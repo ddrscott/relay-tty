@@ -22,10 +22,8 @@ import {
   BellOff,
   BellRing,
   ChevronsDown,
-  Info,
+  Settings,
   ClipboardCheck,
-  TerminalSquare,
-  MessageSquare,
   Upload,
   FolderOpen,
   ImageIcon,
@@ -972,30 +970,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <FolderOpen className="w-4 h-4" />
         </button>
 
-        {/* View mode toggle: terminal ↔ chat */}
-        <button
-          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
-          onClick={toggleViewMode}
-          onMouseDown={(e) => e.preventDefault()}
-          tabIndex={-1}
-          aria-label={viewMode === "terminal" ? "Switch to chat view" : "Switch to terminal view"}
-          title={viewMode === "terminal" ? "Chat view" : "Terminal view"}
-        >
-          {viewMode === "terminal" ? (
-            <MessageSquare className="w-4 h-4" />
-          ) : (
-            <TerminalSquare className="w-4 h-4" />
-          )}
-        </button>
-
-        {/* Info button */}
+        {/* Settings button */}
         <div className="relative shrink-0" ref={infoRef}>
           <button
             className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
             onClick={() => setInfoOpen(!infoOpen)}
-            aria-label="Session info"
+            aria-label="Session settings"
           >
-            <Info className="w-4 h-4" />
+            <Settings className="w-4 h-4" />
           </button>
           {infoOpen && (
             <SessionInfoPanel
@@ -1006,6 +988,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               totalSessions={allSessions.length}
               activeFontSize={activeFontSize}
               onSetFontSize={handleSetFontSize}
+              viewMode={viewMode}
+              onToggleViewMode={toggleViewMode}
               totalBytes={totalBytes}
               sessionActive={sessionActive}
               idleDisplay={idleDisplay}

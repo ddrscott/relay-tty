@@ -4,8 +4,10 @@ import type { NotifSettings } from "../lib/notif-settings";
 import {
   Activity,
   Bell,
+  MessageSquare,
   Power,
   Settings,
+  TerminalSquare,
   Zap,
 } from "lucide-react";
 
@@ -24,6 +26,8 @@ interface SessionInfoPanelProps {
   totalSessions: number;
   activeFontSize: number;
   onSetFontSize: (size: number) => void;
+  viewMode: "terminal" | "chat";
+  onToggleViewMode: () => void;
   totalBytes: number;
   sessionActive: boolean;
   idleDisplay: string;
@@ -43,6 +47,8 @@ export function SessionInfoPanel({
   totalSessions,
   activeFontSize,
   onSetFontSize,
+  viewMode,
+  onToggleViewMode,
   totalBytes,
   sessionActive,
   idleDisplay,
@@ -78,6 +84,29 @@ export function SessionInfoPanel({
               A+
             </button>
           </div>
+        </div>
+
+        {/* View mode toggle: terminal ↔ chat */}
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-[#64748b]">View</span>
+          <button
+            className="btn btn-ghost btn-xs font-mono text-[#94a3b8] flex items-center gap-1.5"
+            onClick={onToggleViewMode}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+          >
+            {viewMode === "terminal" ? (
+              <>
+                <MessageSquare className="w-3 h-3" />
+                <span>Chat</span>
+              </>
+            ) : (
+              <>
+                <TerminalSquare className="w-3 h-3" />
+                <span>Terminal</span>
+              </>
+            )}
+          </button>
         </div>
 
         <div className="border-t border-[#2d2d44] my-1.5" />

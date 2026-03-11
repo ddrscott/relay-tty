@@ -38,6 +38,9 @@
 - [x] File system browser & media viewer — replace upload button with full file manager panel ([detail](work-queue/file-browser.md))
 - [x] Move search button from mobile input toolbar to session top toolbar, disable autofill on search input ([detail](work-queue/search-button-move.md))
 - [x] Extract shared `PlainInput` component — uniform autocomplete/autofill suppression for all text inputs ([detail](work-queue/plain-input-component.md))
+- [x] Add X close button to file browser sidebar toolbar upper-right corner
+- [x] Move chat/terminal view toggler into info menu, change info menu icon from Info (circle-i) to Settings (gear)
+- [ ] Vertically center the session caption in the session toolbar
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
