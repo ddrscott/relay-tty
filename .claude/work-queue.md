@@ -23,7 +23,8 @@
 - [x] Type xterm.js interfaces instead of `any` in terminal pool ([detail](work-queue/type-xterm-interfaces.md))
 - [x] Improve spawn failure detection — check child PID liveness during socket polling ([detail](work-queue/spawn-failure-detection.md))
 - [x] Handle nested relay sessions — detach current session before entering new one ([detail](work-queue/nested-relay-detach.md))
-- [ ] Fix mobile toolbar scroll triggering button clicks on touchend ([detail](work-queue/mobile-toolbar-scroll-click.md))
+- [x] Fix mobile toolbar scroll triggering button clicks on touchend ([detail](work-queue/mobile-toolbar-scroll-click.md))
+- [ ] Suppress RESIZE on WS reconnect — server restart should not SIGWINCH sessions ([detail](work-queue/reconnect-no-resize.md))
 - [x] Fix detach from TUI (Claude Code) leaving relay session stuck — requires Ctrl+C to recover ([detail](work-queue/detach-alt-screen-stuck.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->

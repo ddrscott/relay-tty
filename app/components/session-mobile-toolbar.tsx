@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, type TouchEvent } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -6,7 +6,10 @@ import {
   Keyboard as KeyboardIcon,
   SendHorizontal,
   TextSelect,
+  Upload,
 } from "lucide-react";
+
+const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
 
 interface SessionMobileToolbarProps {
   ctrlOn: boolean;
@@ -17,6 +20,8 @@ interface SessionMobileToolbarProps {
   textViewerOpen: boolean;
   onTextViewerToggle: () => void;
   onSendText: (text: string) => void;
+  onUploadFile?: (file: File) => void;
+  uploading?: boolean;
 }
 
 export function SessionMobileToolbar({
@@ -28,11 +33,36 @@ export function SessionMobileToolbar({
   textViewerOpen,
   onTextViewerToggle,
   onSendText,
+  onUploadFile,
+  uploading,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [inputBarOpen, setInputBarOpen] = useState(false);
   const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
+
+  // Track touch start position so we can distinguish taps from scroll gestures
+  const onScrollAreaTouchStart = useCallback((e: TouchEvent) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }, []);
+
+  // Wrap onTouchEnd handlers in the scrollable area — suppress if finger moved
+  const tapGuard = useCallback((action: () => void) => {
+    return (e: TouchEvent) => {
+      e.preventDefault();
+      const start = touchStartRef.current;
+      if (start && e.changedTouches.length > 0) {
+        const t = e.changedTouches[0];
+        const dx = Math.abs(t.clientX - start.x);
+        const dy = Math.abs(t.clientY - start.y);
+        if (dx > SCROLL_TAP_THRESHOLD || dy > SCROLL_TAP_THRESHOLD) return;
+      }
+      action();
+    };
+  }, []);
 
   const sendPad = useCallback(() => {
     if (!padText.trim()) return;
@@ -52,7 +82,7 @@ export function SessionMobileToolbar({
 
   return (
     <div
-      className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e]"
+      className="bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
       {/* Input bar -- opens when user taps keyboard button */}
@@ -105,48 +135,77 @@ export function SessionMobileToolbar({
       )}
 
       {/* Key row: scrollable keys | pinned keyboard */}
-      <div className="flex items-center h-10">
+      <div className="flex items-center h-11">
         {/* Scrollable keys */}
-        <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none">
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\x1b[D"); }} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\x1b[B"); }} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\x1b[A"); }} onClick={() => onSendKey("\x1b[A")}>&uarr;</button>
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\x1b[C"); }} onClick={() => onSendKey("\x1b[C")}>&rarr;</button>
+        <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none" onTouchStart={onScrollAreaTouchStart}>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[D"))} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[B"))} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[A"))} onClick={() => onSendKey("\x1b[A")}>&uarr;</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[C"))} onClick={() => onSendKey("\x1b[C")}>&rarr;</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\t"); }} onClick={() => onSendKey("\t")}>Tab</button>
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\r"); }} onClick={() => onSendKey("\r")}>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\t"))} onClick={() => onSendKey("\t")}>Tab</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\r"))} onClick={() => onSendKey("\r")}>
             <CornerDownLeft className="w-5 h-5" />
           </button>
-          <button className="btn btn-ghost h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={(e) => { e.preventDefault(); onSendKey("\x1b"); }} onClick={() => onSendKey("\x1b")}>Esc</button>
+          <button className="btn btn-ghost h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-sm rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b"))} onClick={() => onSendKey("\x1b")}>Esc</button>
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
           <button
-            className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
-            onTouchEnd={(e) => { e.preventDefault(); onCtrlToggle(); }}
+            onTouchEnd={tapGuard(onCtrlToggle)}
             onClick={onCtrlToggle}
           >Ctrl</button>
           <button
-            className={`btn h-10 min-h-0 font-mono px-3 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 font-mono px-3.5 min-w-0 shrink-0 text-sm rounded-none ${altOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
-            onTouchEnd={(e) => { e.preventDefault(); onAltToggle(); }}
+            onTouchEnd={tapGuard(onAltToggle)}
             onClick={onAltToggle}
           >Alt</button>
           <button
-            className={`btn h-10 min-h-0 min-w-0 shrink-0 px-3 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+            className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${textViewerOpen ? "btn-warning" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); onTextViewerToggle(); }}
+            onTouchEnd={tapGuard(onTextViewerToggle)}
             onClick={onTextViewerToggle}
             aria-label="Select text for copying"
           >
             <TextSelect className="w-5 h-5" />
           </button>
+          {onUploadFile && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUploadFile(file);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              />
+              <button
+                className="btn btn-ghost h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none text-[#64748b] hover:text-[#e2e8f0]"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={tapGuard(() => fileInputRef.current?.click())}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Upload file"
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <span className="loading loading-spinner loading-xs" />
+                ) : (
+                  <Upload className="w-5 h-5" />
+                )}
+              </button>
+            </>
+          )}
         </div>
 
         <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
         {/* Pinned right: keyboard */}
         <button
-          className={`btn h-10 min-h-0 shrink-0 px-3 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+          className={`btn h-11 min-h-0 shrink-0 px-3.5 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
           tabIndex={-1}
           onMouseDown={(e) => e.preventDefault()}
           onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
