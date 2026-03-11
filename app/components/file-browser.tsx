@@ -31,6 +31,7 @@ import {
   FileCode,
   Home,
   WrapText,
+  ListOrdered,
 } from "lucide-react";
 import { PlainInput } from "./plain-input";
 
@@ -682,6 +683,7 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
   const [saving, setSaving] = useState(false);
   const [mdRendered, setMdRendered] = useState(true); // markdown: rendered by default
   const [wordWrap, setWordWrap] = useState(false);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
 
   const fileName = filePath.split("/").pop() || filePath;
   const ext = getExt(fileName);
@@ -788,6 +790,20 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
           </button>
         )}
 
+        {/* Line number toggle — text files only, not in markdown rendered mode */}
+        {isTextFile && !isBinary && !(isMarkdown && mdRendered && !editing) && (
+          <button
+            className={`btn btn-ghost btn-xs ${showLineNumbers ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+            onClick={() => setShowLineNumbers(!showLineNumbers)}
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); setShowLineNumbers(!showLineNumbers); }}
+            title={showLineNumbers ? "Hide line numbers" : "Show line numbers"}
+          >
+            <ListOrdered className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* Edit toggle — text files only */}
         {isTextFile && !isBinary && (
           <button
@@ -891,9 +907,10 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
                   onSave={saveFile}
                   saving={saving}
                   wordWrap={wordWrap}
+                  showLineNumbers={showLineNumbers}
                 />
               ) : (
-                <CodeViewerEnhanced content={content} ext={ext} wordWrap={wordWrap} />
+                <CodeViewerEnhanced content={content} ext={ext} wordWrap={wordWrap} showLineNumbers={showLineNumbers} />
               )}
             </>
           )}
@@ -959,7 +976,7 @@ function MarkdownRenderer({ content }: { content: string }) {
 
 // ── Enhanced code viewer (read-only, line numbers) ──────────────────────
 
-function CodeViewerEnhanced({ content, ext, wordWrap }: { content: string; ext: string; wordWrap: boolean }) {
+function CodeViewerEnhanced({ content, ext, wordWrap, showLineNumbers }: { content: string; ext: string; wordWrap: boolean; showLineNumbers: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -967,13 +984,14 @@ function CodeViewerEnhanced({ content, ext, wordWrap }: { content: string; ext: 
     let destroyed = false;
 
     async function load() {
-      const { EditorView } = await import("@codemirror/view");
+      const { EditorView, lineNumbers: lineNumbersExt } = await import("@codemirror/view");
       const { EditorState } = await import("@codemirror/state");
       const { oneDark } = await import("@codemirror/theme-one-dark");
       const extensions = [
         EditorView.editable.of(false),
         EditorState.readOnly.of(true),
         oneDark,
+        ...(showLineNumbers ? [lineNumbersExt()] : []),
         ...(wordWrap ? [EditorView.lineWrapping] : []),
         ...(await getLanguageExtension(ext)),
       ];
@@ -993,7 +1011,7 @@ function CodeViewerEnhanced({ content, ext, wordWrap }: { content: string; ext: 
 
     load();
     return () => { destroyed = true; };
-  }, [content, ext, wordWrap]);
+  }, [content, ext, wordWrap, showLineNumbers]);
 
   return (
     <div
@@ -1011,12 +1029,14 @@ function CodeEditor({
   onSave,
   saving,
   wordWrap,
+  showLineNumbers,
 }: {
   content: string;
   ext: string;
   onSave: (content: string) => void;
   saving: boolean;
   wordWrap: boolean;
+  showLineNumbers: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
@@ -1026,12 +1046,13 @@ function CodeEditor({
     let destroyed = false;
 
     async function load() {
-      const { EditorView, keymap } = await import("@codemirror/view");
+      const { EditorView, keymap, lineNumbers: lineNumbersExt } = await import("@codemirror/view");
       const { EditorState } = await import("@codemirror/state");
       const { oneDark } = await import("@codemirror/theme-one-dark");
       const { defaultKeymap, history, historyKeymap } = await import("@codemirror/commands");
       const extensions = [
         oneDark,
+        ...(showLineNumbers ? [lineNumbersExt()] : []),
         ...(wordWrap ? [EditorView.lineWrapping] : []),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -1053,7 +1074,7 @@ function CodeEditor({
 
     load();
     return () => { destroyed = true; };
-  }, [content, ext, wordWrap]);
+  }, [content, ext, wordWrap, showLineNumbers]);
 
   const handleSave = useCallback(() => {
     if (viewRef.current) {

@@ -49,7 +49,7 @@
 - [x] Make markdown-style `[text](path)` links in terminal output clickable — open target file on tap ([detail](work-queue/terminal-url-links.md))
 - [x] File browser filter input should fill remaining toolbar width
 - [x] Add word wrap toggle to file viewer
-- [ ] Add line number toggle to file viewer
+- [x] Add line number toggle to file viewer
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
