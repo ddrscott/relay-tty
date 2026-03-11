@@ -893,9 +893,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             className="text-left w-full truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
             onClick={() => setPickerOpen(!pickerOpen)}
           >
-            <code className="text-sm font-mono truncate block text-[#e2e8f0] leading-snug">
-              {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
-            </code>
+            <span className="flex items-center gap-1.5">
+              {/* Activity dot — inline before session name */}
+              {session.status === "running" && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    sessionActive
+                      ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)] animate-pulse"
+                      : "bg-[#64748b]/40"
+                  }`}
+                  title={sessionActive ? "Active" : idleDisplay ? `Idle ${idleDisplay}` : "Idle"}
+                />
+              )}
+              <code className="text-sm font-mono truncate text-[#e2e8f0] leading-snug">
+                {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
+              </code>
+            </span>
           </button>
 
           {/* Session picker dropdown — grouped by cwd */}
@@ -907,18 +920,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             />
           )}
         </div>
-
-        {/* Activity dot */}
-        {session.status === "running" && (
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              sessionActive
-                ? "bg-[#22c55e] shadow-[0_0_4px_rgba(34,197,94,0.6)] animate-pulse"
-                : "bg-[#64748b]/40"
-            }`}
-            title={sessionActive ? "Active" : idleDisplay ? `Idle ${idleDisplay}` : "Idle"}
-          />
-        )}
 
         {/* Notification bell — request permission on tap (user gesture for iOS) */}
         {notifPermission !== "granted" && notifPermission !== "unsupported" && (
