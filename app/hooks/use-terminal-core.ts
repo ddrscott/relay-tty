@@ -121,6 +121,8 @@ export interface TerminalCoreOpts {
   onSessionUpdate?: (session: Session) => void;
   /** Called when a CLIPBOARD message arrives from another device (cross-device clipboard sync) */
   onClipboard?: (text: string) => void;
+  /** Called when an IMAGE message arrives (iTerm2 OSC 1337 inline image) */
+  onImage?: (image: { id: string; blobUrl: string }) => void;
   /** Ref to a boolean that, when true, disables touch scroll interception for text selection */
   selectionModeRef?: React.RefObject<boolean>;
   /** Throttle terminal writes to this many fps (0 = unlimited) */
@@ -919,6 +921,24 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           // UTF-8 clipboard text from another device or OSC 52
           const clipText = new TextDecoder().decode(payload);
           if (clipText) opts.onClipboard?.(clipText);
+          break;
+        }
+        case WS_MSG.IMAGE: {
+          // IMAGE format: [4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
+          if (payload.length < 5) break;
+          const idLen = new DataView(payload.buffer, payload.byteOffset).getUint32(0, false);
+          if (payload.length < 4 + idLen + 2) break; // need at least id + 1 byte mime + NUL
+          const imageId = new TextDecoder().decode(payload.slice(4, 4 + idLen));
+          // Find NUL terminator for MIME type
+          let mimeEnd = 4 + idLen;
+          while (mimeEnd < payload.length && payload[mimeEnd] !== 0) mimeEnd++;
+          const mime = new TextDecoder().decode(payload.slice(4 + idLen, mimeEnd));
+          const imageData = payload.slice(mimeEnd + 1);
+          if (imageData.length > 0) {
+            const blob = new Blob([imageData], { type: mime || "image/png" });
+            const blobUrl = URL.createObjectURL(blob);
+            opts.onImage?.({ id: imageId, blobUrl });
+          }
           break;
         }
       }

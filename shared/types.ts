@@ -52,6 +52,8 @@ export const WS_MSG = {
   SESSION_UPDATE: 0x15,
   /** Bidirectional: clipboard text sync between devices [UTF-8 text]. */
   CLIPBOARD: 0x16,
+  /** Server→client: inline image from iTerm2 OSC 1337 [4B id_len][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]. */
+  IMAGE: 0x17,
   /** Client→server: 1-byte heartbeat probe. */
   PING: 0x20,
   /** Server→client: 1-byte heartbeat response. */

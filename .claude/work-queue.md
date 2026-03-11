@@ -34,7 +34,7 @@
 - [x] Drag-and-drop file upload onto terminal with visual drop zone ([detail](work-queue/drag-drop-upload.md))
 - [x] Mobile scrollback search — find text in terminal history ([detail](work-queue/mobile-scrollback-search.md))
 - [x] Cross-device clipboard sync — copy on phone, paste on desktop and vice versa ([detail](work-queue/clipboard-sync.md))
-- [ ] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
+- [x] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

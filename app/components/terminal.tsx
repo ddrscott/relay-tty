@@ -42,11 +42,13 @@ interface TerminalProps {
   onFileLink?: (link: FileLink) => void;
   onTap?: () => void;
   onClipboard?: (text: string) => void;
+  /** Called when an inline image arrives (iTerm2 OSC 1337) */
+  onImage?: (image: { id: string; blobUrl: string }) => void;
   /** Whether this terminal is the active/visible one. Controls resize and input. Default true. */
   active?: boolean;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, active = true }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -63,6 +65,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onFontSizeChange,
     onCopy,
     onClipboard,
+    onImage,
     selectionModeRef,
     onActivityUpdate,
     onFileLink,

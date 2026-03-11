@@ -353,6 +353,19 @@ export class WsHandler {
         const payload = Buffer.from(pending.subarray(4, 4 + msgLen));
         pending = pending.subarray(4 + msgLen);
 
+        // IMAGE messages from pty-host (OSC 1337): broadcast to all clients
+        if (payload.length > 0 && payload[0] === WS_MSG.IMAGE) {
+          const clients = this.sessionClients.get(sessionId);
+          if (clients) {
+            for (const client of clients) {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(payload);
+              }
+            }
+          }
+          continue;
+        }
+
         // CLIPBOARD messages from pty-host (OSC 52): broadcast to all clients
         if (payload.length > 0 && payload[0] === WS_MSG.CLIPBOARD) {
           const clients = this.sessionClients.get(sessionId);

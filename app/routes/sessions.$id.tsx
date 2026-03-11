@@ -27,6 +27,8 @@ import {
   TerminalSquare,
   MessageSquare,
   Upload,
+  ImageIcon,
+  X,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import {
@@ -216,6 +218,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [sharedClipboard, setSharedClipboard] = useState<string | null>(null);
   const [clipboardPanelOpen, setClipboardPanelOpen] = useState(false);
   const clipboardToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [inlineImages, setInlineImages] = useState<Array<{ id: string; blobUrl: string }>>([]);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [notifToast, setNotifToast] = useState<string | null>(null);
   const notifToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
@@ -250,6 +254,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setInfoOpen(false);
     setCtrlOn(false);
     setAltOn(false);
+    setExpandedImage(null);
+    // Don't clear inlineImages on session switch — images persist per-session
+    // and are cleared manually by the user. They accumulate across reconnects.
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mobile detection + input bar state ──
@@ -507,6 +514,19 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     if (clipboardToastTimer.current) clearTimeout(clipboardToastTimer.current);
   }, []);
 
+  // Handle inline images from iTerm2 OSC 1337
+  const handleImage = useCallback((image: { id: string; blobUrl: string }) => {
+    setInlineImages(prev => {
+      // Cap at 50 images — evict oldest and revoke their blob URLs
+      const next = [...prev, image];
+      if (next.length > 50) {
+        const evicted = next.splice(0, next.length - 50);
+        for (const img of evicted) URL.revokeObjectURL(img.blobUrl);
+      }
+      return next;
+    });
+  }, []);
+
   // ── Ref-gated callback factories for keep-alive ──
   // useTerminalCore captures callbacks in its effect closure (keyed on wsPath).
   // Hidden terminals still receive WS messages and fire the original callbacks.
@@ -528,6 +548,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   handleActivityUpdateRef.current = handleActivityUpdate;
   const handleFileLinkRef = useRef(handleFileLink);
   handleFileLinkRef.current = handleFileLink;
+  const handleImageRef = useRef(handleImage);
+  handleImageRef.current = handleImage;
 
   const gatedCallbacksCache = useRef(new Map<string, ReturnType<typeof makeGatedCbs>>());
   function makeGatedCbs(sid: string) {
@@ -542,6 +564,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       onClipboard: (text: string) => { if (activeIdRef.current === sid) handleClipboardRef.current(text); },
       onActivityUpdate: (update: { isActive: boolean; totalBytes: number }) => { if (activeIdRef.current === sid) handleActivityUpdateRef.current(update); },
       onFileLink: (link: FileLink) => { if (activeIdRef.current === sid) handleFileLinkRef.current(link); },
+      onImage: (image: { id: string; blobUrl: string }) => { if (activeIdRef.current === sid) handleImageRef.current(image); },
       onFullscreenDetected: () => {
         setTuiSessions(prev => { const next = new Set(prev); next.add(sid); return next; });
       },
@@ -1017,6 +1040,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                       onFontSizeChange={cbs.onFontSizeChange}
                       onCopy={cbs.onCopy}
                       onClipboard={cbs.onClipboard}
+                      onImage={cbs.onImage}
                       onActivityUpdate={cbs.onActivityUpdate}
                       onFileLink={cbs.onFileLink}
                     />
@@ -1095,6 +1119,65 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               <Upload className="w-10 h-10 text-[#22c55e]/80" />
               <span className="text-lg font-mono text-[#94a3b8]">Drop to upload</span>
             </div>
+          </div>
+        )}
+
+        {/* Inline images panel — shows images from iTerm2 OSC 1337 */}
+        {inlineImages.length > 0 && (
+          <div className="absolute bottom-14 right-3 z-20 max-h-[50%] w-48 overflow-y-auto rounded-xl bg-[#0f0f1a]/95 border border-[#2d2d44] shadow-xl backdrop-blur-sm p-2 flex flex-col gap-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-mono text-[#94a3b8] flex items-center gap-1">
+                <ImageIcon className="w-3 h-3" />
+                Images ({inlineImages.length})
+              </span>
+              <button
+                className="text-[#64748b] hover:text-[#e2e8f0] transition-colors"
+                onClick={() => {
+                  for (const img of inlineImages) URL.revokeObjectURL(img.blobUrl);
+                  setInlineImages([]);
+                }}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                aria-label="Clear images"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            {inlineImages.map((img) => (
+              <button
+                key={img.id}
+                className="w-full rounded-lg overflow-hidden border border-[#2d2d44] hover:border-[#22c55e]/40 transition-colors cursor-pointer bg-black/30"
+                onClick={() => setExpandedImage(img.blobUrl)}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <img src={img.blobUrl} alt={img.id} className="w-full h-auto object-contain max-h-32" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Expanded inline image viewer */}
+        {expandedImage && (
+          <div
+            className="absolute inset-0 z-40 flex items-center justify-center bg-[#0a0a0f]/90 backdrop-blur-sm cursor-pointer"
+            onClick={() => setExpandedImage(null)}
+          >
+            <button
+              className="absolute top-4 right-4 text-[#94a3b8] hover:text-[#e2e8f0] transition-colors z-50"
+              onClick={(e) => { e.stopPropagation(); setExpandedImage(null); }}
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="Close image"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={expandedImage}
+              alt="Inline terminal image"
+              className="max-w-[95%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         )}
 

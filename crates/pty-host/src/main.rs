@@ -37,6 +37,7 @@ const WS_MSG_SESSION_STATE: u8 = 0x12;
 const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 const WS_MSG_SESSION_METRICS: u8 = 0x14;
 const WS_MSG_CLIPBOARD: u8 = 0x16;
+const WS_MSG_IMAGE: u8 = 0x17;
 const WS_MSG_DETACH: u8 = 0x22;
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -662,6 +663,9 @@ fn percent_decode(input: &str) -> String {
 /// Maximum clipboard payload size (1 MB)
 const CLIPBOARD_MAX_SIZE: usize = 1 * 1024 * 1024;
 
+/// Maximum decoded image size (10 MB)
+const IMAGE_MAX_SIZE: usize = 10 * 1024 * 1024;
+
 /// Simple base64 decoder (standard alphabet + padding).
 fn base64_decode(input: &[u8]) -> Option<Vec<u8>> {
     const DECODE_TABLE: [u8; 256] = {
@@ -830,6 +834,143 @@ fn extract_osc9_notifications(data: &[u8]) -> (Vec<u8>, Vec<String>) {
     }
 
     (cleaned, notifications)
+}
+
+/// An extracted inline image from an iTerm2 OSC 1337 sequence.
+struct InlineImage {
+    /// Unique image ID (monotonic counter, formatted as string)
+    id: String,
+    /// MIME type inferred from magic bytes (defaults to "image/png")
+    mime: String,
+    /// Raw decoded image bytes
+    data: Vec<u8>,
+}
+
+/// Global image counter for unique IDs within this pty-host process.
+static IMAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Infer MIME type from the first few bytes (magic number).
+fn infer_mime(data: &[u8]) -> &'static str {
+    if data.len() >= 8 && data[..8] == [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a] {
+        "image/png"
+    } else if data.len() >= 3 && data[..3] == [0xFF, 0xD8, 0xFF] {
+        "image/jpeg"
+    } else if data.len() >= 4 && &data[..4] == b"GIF8" {
+        "image/gif"
+    } else if data.len() >= 4 && &data[..4] == b"RIFF" && data.len() >= 12 && &data[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/png" // fallback
+    }
+}
+
+/// Extract iTerm2 OSC 1337 inline image sequences from data.
+/// Format: ESC ] 1337 ; File=[args] : base64data BEL|ESC\
+/// Returns (cleaned_data, images).
+/// The OSC 1337 sequences are stripped from the output (they are huge base64
+/// blobs that must not go into the ring buffer). A small placeholder is
+/// inserted so the cursor advances one line.
+fn extract_osc1337_images(data: &[u8]) -> (Vec<u8>, Vec<InlineImage>) {
+    let mut images = Vec::new();
+    let mut cleaned = Vec::with_capacity(data.len());
+    let mut i = 0;
+
+    // Prefix: ESC ] 1337 ; File=
+    // In bytes: 0x1b 0x5d '1' '3' '3' '7' ';' 'F' 'i' 'l' 'e' '='
+    const PREFIX: &[u8] = b"\x1b]1337;File=";
+
+    while i < data.len() {
+        // Quick check: ESC at this position?
+        if data[i] == 0x1b && i + PREFIX.len() <= data.len() && &data[i..i + PREFIX.len()] == PREFIX {
+            let args_start = i + PREFIX.len();
+            // Find the ':' that separates args from base64 data.
+            // Args are key=value pairs separated by ';' (e.g., name=..;size=..;inline=1)
+            let mut colon_pos = None;
+            let mut j = args_start;
+            while j < data.len() {
+                if data[j] == b':' {
+                    colon_pos = Some(j);
+                    break;
+                }
+                // If we hit a terminator before ':', it's malformed
+                if data[j] == 0x07 || (data[j] == 0x1b && j + 1 < data.len() && data[j + 1] == 0x5c) {
+                    break;
+                }
+                j += 1;
+            }
+
+            if let Some(colon) = colon_pos {
+                let b64_start = colon + 1;
+                // Find terminator: BEL (0x07) or ESC\ (0x1b 0x5c)
+                let mut end = b64_start;
+                let mut found = false;
+                let mut term_len = 0usize;
+                while end < data.len() {
+                    if data[end] == 0x07 {
+                        term_len = 1;
+                        found = true;
+                        break;
+                    }
+                    if data[end] == 0x1b && end + 1 < data.len() && data[end + 1] == 0x5c {
+                        term_len = 2;
+                        found = true;
+                        break;
+                    }
+                    end += 1;
+                }
+
+                if found {
+                    let b64_data = &data[b64_start..end];
+
+                    // Parse args to check inline=1
+                    let args_str = std::str::from_utf8(&data[args_start..colon]).unwrap_or("");
+                    let mut is_inline = false;
+                    for arg in args_str.split(';') {
+                        if let Some((key, val)) = arg.split_once('=') {
+                            if key == "inline" && val == "1" {
+                                is_inline = true;
+                            }
+                        }
+                    }
+
+                    // Only process inline images — preserve non-inline sequences
+                    if !is_inline {
+                        // Not inline: preserve the entire sequence in output
+                        cleaned.extend_from_slice(&data[i..end + term_len]);
+                        i = end + term_len;
+                        continue;
+                    }
+
+                    if let Some(decoded) = base64_decode(b64_data) {
+                        if !decoded.is_empty() && decoded.len() <= IMAGE_MAX_SIZE {
+                            let img_id = IMAGE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let mime = infer_mime(&decoded).to_string();
+                            images.push(InlineImage {
+                                id: format!("img-{}", img_id),
+                                mime,
+                                data: decoded,
+                            });
+
+                            // Insert a placeholder line so the terminal advances the cursor.
+                            // Styled with dim+italic CSI so it's unobtrusive.
+                            let placeholder = format!(
+                                "\x1b[2;3m[image: img-{}]\x1b[0m\r\n",
+                                img_id
+                            );
+                            cleaned.extend_from_slice(placeholder.as_bytes());
+                        }
+                    }
+                    // Skip past the entire OSC 1337 sequence
+                    i = end + term_len;
+                    continue;
+                }
+            }
+        }
+        cleaned.push(data[i]);
+        i += 1;
+    }
+
+    (cleaned, images)
 }
 
 // ── Foreground process name resolution ──────────────────────────────
@@ -1372,11 +1513,29 @@ async fn main() {
                     }
 
                     // Extract OSC 52 clipboard sequences, strip from data
-                    let (cleaned, clipboard_texts) = extract_osc52_clipboard(&after_osc9);
+                    let (after_osc52, clipboard_texts) = extract_osc52_clipboard(&after_osc9);
                     for clip_text in &clipboard_texts {
                         let mut clip_msg = vec![WS_MSG_CLIPBOARD];
                         clip_msg.extend_from_slice(clip_text.as_bytes());
                         let _ = broadcast_tx_pty.send(encode_frame(&clip_msg));
+                    }
+
+                    // Extract iTerm2 OSC 1337 inline images, strip from data
+                    let (cleaned, inline_images) = extract_osc1337_images(&after_osc52);
+                    for img in &inline_images {
+                        // IMAGE message format:
+                        // [0x17][4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
+                        let id_bytes = img.id.as_bytes();
+                        let mime_bytes = img.mime.as_bytes();
+                        let msg_len = 1 + 4 + id_bytes.len() + mime_bytes.len() + 1 + img.data.len();
+                        let mut img_msg = Vec::with_capacity(msg_len);
+                        img_msg.push(WS_MSG_IMAGE);
+                        img_msg.extend_from_slice(&(id_bytes.len() as u32).to_be_bytes());
+                        img_msg.extend_from_slice(id_bytes);
+                        img_msg.extend_from_slice(mime_bytes);
+                        img_msg.push(0); // NUL terminator for MIME
+                        img_msg.extend_from_slice(&img.data);
+                        let _ = broadcast_tx_pty.send(encode_frame(&img_msg));
                     }
 
                     if !cleaned.is_empty() {
@@ -2370,6 +2529,90 @@ mod tests {
         assert_eq!(percent_decode("short%2"), "short%2");
     }
 
+    // ── OSC 1337 inline image tests ─────────────────────────────────
+
+    #[test]
+    fn osc1337_basic_inline_image_bel() {
+        // Minimal inline image: ESC ] 1337 ; File=inline=1 : <base64> BEL
+        // base64 of "PNG" = "UE5H"
+        let input = b"before\x1b]1337;File=inline=1:UE5H\x07after";
+        let (cleaned, images) = extract_osc1337_images(input);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].data, b"PNG");
+        // Cleaned should have before, placeholder, and after
+        let cleaned_str = String::from_utf8_lossy(&cleaned);
+        assert!(cleaned_str.starts_with("before"));
+        assert!(cleaned_str.contains("[image:"));
+        assert!(cleaned_str.ends_with("after"));
+    }
+
+    #[test]
+    fn osc1337_inline_image_st() {
+        // Using ESC\ terminator
+        let input = b"\x1b]1337;File=inline=1:UE5H\x1b\\";
+        let (_, images) = extract_osc1337_images(input);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].data, b"PNG");
+    }
+
+    #[test]
+    fn osc1337_not_inline_stripped() {
+        // Non-inline image (inline=0 or absent) — should NOT be extracted
+        let input = b"\x1b]1337;File=name=test.png:UE5H\x07";
+        let (cleaned, images) = extract_osc1337_images(input);
+        assert!(images.is_empty());
+        // Non-inline sequence is preserved in output (passed through)
+        assert_eq!(cleaned, input.to_vec());
+    }
+
+    #[test]
+    fn osc1337_with_name_and_size() {
+        let input = b"\x1b]1337;File=name=chart.png;size=100;inline=1:UE5H\x07";
+        let (_, images) = extract_osc1337_images(input);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].data, b"PNG");
+    }
+
+    #[test]
+    fn osc1337_no_match() {
+        let input = b"just plain text";
+        let (cleaned, images) = extract_osc1337_images(input);
+        assert!(images.is_empty());
+        assert_eq!(cleaned, input.to_vec());
+    }
+
+    #[test]
+    fn osc1337_incomplete_preserved() {
+        // Incomplete OSC 1337 (no terminator) — should be preserved
+        let input = b"\x1b]1337;File=inline=1:UE5H";
+        let (cleaned, images) = extract_osc1337_images(input);
+        assert!(images.is_empty());
+        assert_eq!(cleaned, input.to_vec());
+    }
+
+    #[test]
+    fn osc1337_unique_ids() {
+        let input1 = b"\x1b]1337;File=inline=1:UE5H\x07";
+        let input2 = b"\x1b]1337;File=inline=1:UE5H\x07";
+        let (_, imgs1) = extract_osc1337_images(input1);
+        let (_, imgs2) = extract_osc1337_images(input2);
+        assert_ne!(imgs1[0].id, imgs2[0].id);
+    }
+
+    #[test]
+    fn osc1337_mime_detection() {
+        // PNG magic bytes (first 8 bytes of a real PNG)
+        let png_header: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        assert_eq!(infer_mime(&png_header), "image/png");
+
+        // JPEG magic bytes
+        let jpg_header: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        assert_eq!(infer_mime(&jpg_header), "image/jpeg");
+
+        // GIF magic bytes
+        assert_eq!(infer_mime(b"GIF89a"), "image/gif");
+    }
+
     // ── Frame encoding/decoding tests ───────────────────────────────
 
     #[test]
@@ -2569,6 +2812,7 @@ mod tests {
         assert_eq!(WS_MSG_SESSION_STATE, 0x12);
         assert_eq!(WS_MSG_BUFFER_REPLAY_GZ, 0x13);
         assert_eq!(WS_MSG_SESSION_METRICS, 0x14);
+        assert_eq!(WS_MSG_IMAGE, 0x17);
     }
 
     // ── SessionMeta serialization tests ─────────────────────────────
