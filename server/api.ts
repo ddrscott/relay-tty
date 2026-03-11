@@ -167,8 +167,88 @@ export function createApiRouter(
     res.json({ ok: true });
   });
 
-  // GET /api/sessions/:id/files/* — serve files relative to session CWD
-  // Security: resolves symlinks and verifies the real path is under session CWD.
+  // GET /api/sessions/:id/ls — list directory contents for the file browser.
+  // Query param `path` is resolved relative to the session CWD.
+  // Returns entries with name, type, size, and mtime.
+  router.get("/sessions/:id/ls", async (req, res) => {
+    const session = sessionStore.get(req.params.id)
+      || await ptyManager.discoverOne(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    const requestedPath = (req.query.path as string) || ".";
+    const sessionCwd = session.cwd;
+    const resolved = path.resolve(sessionCwd, requestedPath);
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(resolved);
+    } catch {
+      res.status(404).json({ error: "Directory not found" });
+      return;
+    }
+
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: "Not a directory" });
+      return;
+    }
+
+    try {
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      const items = entries.map(entry => {
+        let size = 0;
+        let mtime = "";
+        try {
+          const s = fs.statSync(path.join(resolved, entry.name));
+          size = s.size;
+          mtime = s.mtime.toISOString();
+        } catch {}
+        return {
+          name: entry.name,
+          type: entry.isDirectory() ? "directory" as const
+            : entry.isSymbolicLink() ? "symlink" as const
+            : "file" as const,
+          size,
+          mtime,
+        };
+      });
+      res.json({ path: resolved, entries: items });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to read directory: ${err.message}` });
+    }
+  });
+
+  // PUT /api/sessions/:id/write-file — write file content (for inline editing)
+  // Body: { path: string, content: string }
+  router.put("/sessions/:id/write-file", async (req, res) => {
+    const session = sessionStore.get(req.params.id)
+      || await ptyManager.discoverOne(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    const { path: filePath, content } = req.body as { path: string; content: string };
+    if (!filePath || typeof content !== "string") {
+      res.status(400).json({ error: "path and content are required" });
+      return;
+    }
+
+    const resolved = path.resolve(session.cwd, filePath);
+
+    try {
+      fs.writeFileSync(resolved, content, "utf-8");
+      res.json({ ok: true, path: resolved });
+    } catch (err: any) {
+      res.status(500).json({ error: `Write failed: ${err.message}` });
+    }
+  });
+
+  // GET /api/sessions/:id/files/* — serve files relative to session CWD or absolute path.
+  // When ?abs=1 query param is set, treats the wildcard path as an absolute filesystem path.
+  // Without ?abs, restricts to session CWD (legacy behavior for terminal link clicks).
   router.get("/sessions/:id/files/*filepath", async (req, res) => {
     const session = sessionStore.get(req.params.id)
       || await ptyManager.discoverOne(req.params.id);
@@ -185,32 +265,42 @@ export function createApiRouter(
       return;
     }
 
-    // Resolve the requested path relative to session CWD
+    const absMode = req.query.abs === "1";
     const sessionCwd = session.cwd;
-    const resolved = path.resolve(sessionCwd, filePath);
 
-    // Security: verify the resolved path is under the session CWD.
-    // Use realpath to resolve symlinks and prevent symlink-based traversal.
     let realFilePath: string;
-    try {
-      realFilePath = fs.realpathSync(resolved);
-    } catch {
-      res.status(404).json({ error: "File not found" });
-      return;
-    }
+    if (absMode) {
+      // Absolute path mode — for file browser (full filesystem access)
+      const resolved = path.resolve("/", filePath);
+      try {
+        realFilePath = fs.realpathSync(resolved);
+      } catch {
+        res.status(404).json({ error: "File not found" });
+        return;
+      }
+    } else {
+      // Relative mode — resolve relative to session CWD with traversal check
+      const resolved = path.resolve(sessionCwd, filePath);
+      try {
+        realFilePath = fs.realpathSync(resolved);
+      } catch {
+        res.status(404).json({ error: "File not found" });
+        return;
+      }
 
-    let realCwd: string;
-    try {
-      realCwd = fs.realpathSync(sessionCwd);
-    } catch {
-      res.status(500).json({ error: "Session CWD not accessible" });
-      return;
-    }
+      let realCwd: string;
+      try {
+        realCwd = fs.realpathSync(sessionCwd);
+      } catch {
+        res.status(500).json({ error: "Session CWD not accessible" });
+        return;
+      }
 
-    // Path traversal check: real file path must start with real CWD
-    if (!realFilePath.startsWith(realCwd + path.sep) && realFilePath !== realCwd) {
-      res.status(403).json({ error: "Access denied: path outside session directory" });
-      return;
+      // Path traversal check: real file path must start with real CWD
+      if (!realFilePath.startsWith(realCwd + path.sep) && realFilePath !== realCwd) {
+        res.status(403).json({ error: "Access denied: path outside session directory" });
+        return;
+      }
     }
 
     // Check file exists and is a regular file

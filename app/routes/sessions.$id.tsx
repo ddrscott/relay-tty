@@ -27,6 +27,7 @@ import {
   TerminalSquare,
   MessageSquare,
   Upload,
+  FolderOpen,
   ImageIcon,
   X,
 } from "lucide-react";
@@ -232,6 +233,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   );
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
   const carouselTrackRef = useRef<HTMLDivElement>(null);
 
@@ -248,6 +250,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setLastActiveTime(session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now());
     setIdleDisplay("");
     setFileViewerLink(null);
+    setFileBrowserOpen(false);
     setTextViewerOpen(false);
     setSearchOpen(false);
     setPickerOpen(false);
@@ -764,6 +767,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   const [FileViewerComponent, setFileViewerComponent] =
     useState<React.ComponentType<any> | null>(null);
+  const [FileBrowserComponent, setFileBrowserComponent] =
+    useState<React.ComponentType<any> | null>(null);
 
   // Lazy-load file viewer only when first needed
   useEffect(() => {
@@ -773,6 +778,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       });
     }
   }, [fileViewerLink, FileViewerComponent]);
+
+  // Lazy-load file browser only when first needed
+  useEffect(() => {
+    if (fileBrowserOpen && !FileBrowserComponent && typeof window !== "undefined") {
+      import("../components/file-browser").then((mod) => {
+        setFileBrowserComponent(() => mod.FileBrowser);
+      });
+    }
+  }, [fileBrowserOpen, FileBrowserComponent]);
 
   function goTo(id: string) {
     setPickerOpen(false);
@@ -926,7 +940,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </span>
         )}
 
-        {/* Upload file */}
+        {/* File manager */}
         <input
           ref={fileInputRef}
           type="file"
@@ -934,19 +948,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           onChange={onFileInputChange}
         />
         <button
-          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
-          onClick={() => fileInputRef.current?.click()}
+          className={`btn btn-ghost btn-xs shrink-0 ${fileBrowserOpen ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+          onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
           onMouseDown={(e) => e.preventDefault()}
           tabIndex={-1}
-          aria-label="Upload file"
-          title="Upload file — inserts path into terminal"
-          disabled={uploading}
+          aria-label="File manager"
+          title="Browse files"
         >
-          {uploading ? (
-            <span className="loading loading-spinner loading-xs" />
-          ) : (
-            <Upload className="w-4 h-4" />
-          )}
+          <FolderOpen className="w-4 h-4" />
         </button>
 
         {/* View mode toggle: terminal ↔ chat */}
@@ -1232,6 +1241,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             onClose={closeFileViewer}
           />
         )}
+
+        {/* File browser panel */}
+        {fileBrowserOpen && FileBrowserComponent && (
+          <FileBrowserComponent
+            sessionId={session.id}
+            initialPath={session.cwd}
+            onClose={() => {
+              if (isMobile && document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+              }
+              setFileBrowserOpen(false);
+            }}
+            onUploadFile={handleUpload}
+            uploading={uploading}
+          />
+        )}
       </div>
 
       {/* ── Mobile: always-visible toolbar ── */}
@@ -1253,6 +1278,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           }}
           onUploadFile={handleUpload}
           uploading={uploading}
+          fileBrowserOpen={fileBrowserOpen}
+          onFileBrowserToggle={() => setFileBrowserOpen(v => !v)}
           searchOpen={searchOpen}
           onSearchToggle={() => setSearchOpen(v => !v)}
           hasSharedClipboard={!!sharedClipboard}

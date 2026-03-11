@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @plugin "daisyui";
 @plugin "daisyui/theme" {
   name: "relay";
@@ -62,6 +63,15 @@ body {
 }
 .animate-slide-in-right {
   animation: slide-in-right 0.2s ease-out;
+}
+
+/* File browser slide-up animation */
+@keyframes slide-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-slide-in-bottom {
+  animation: slide-in-bottom 0.2s ease-out;
 }
 
 /* Modal open animation */

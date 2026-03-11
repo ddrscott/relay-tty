@@ -35,6 +35,7 @@
 - [x] Mobile scrollback search — find text in terminal history ([detail](work-queue/mobile-scrollback-search.md))
 - [x] Cross-device clipboard sync — copy on phone, paste on desktop and vice versa ([detail](work-queue/clipboard-sync.md))
 - [x] Inline image rendering — iTerm2/Kitty image protocol support ([detail](work-queue/inline-images.md))
+- [x] File system browser & media viewer — replace upload button with full file manager panel ([detail](work-queue/file-browser.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

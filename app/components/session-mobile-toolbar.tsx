@@ -4,11 +4,11 @@ import {
   ChevronUp,
   ClipboardCopy,
   CornerDownLeft,
+  FolderOpen,
   Keyboard as KeyboardIcon,
   Search,
   SendHorizontal,
   TextSelect,
-  Upload,
 } from "lucide-react";
 
 const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
@@ -24,6 +24,8 @@ interface SessionMobileToolbarProps {
   onSendText: (text: string) => void;
   onUploadFile?: (file: File) => void;
   uploading?: boolean;
+  fileBrowserOpen?: boolean;
+  onFileBrowserToggle?: () => void;
   searchOpen?: boolean;
   onSearchToggle?: () => void;
   hasSharedClipboard?: boolean;
@@ -41,13 +43,14 @@ export function SessionMobileToolbar({
   onSendText,
   onUploadFile,
   uploading,
+  fileBrowserOpen,
+  onFileBrowserToggle,
   searchOpen,
   onSearchToggle,
   hasSharedClipboard,
   onClipboardToggle,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [inputBarOpen, setInputBarOpen] = useState(false);
   const [padExpanded, setPadExpanded] = useState(false);
@@ -181,34 +184,17 @@ export function SessionMobileToolbar({
           >
             <TextSelect className="w-5 h-5" />
           </button>
-          {onUploadFile && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onUploadFile(file);
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-              />
-              <button
-                className="btn btn-ghost h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none text-[#64748b] hover:text-[#e2e8f0]"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onTouchEnd={tapGuard(() => fileInputRef.current?.click())}
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Upload file"
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <span className="loading loading-spinner loading-xs" />
-                ) : (
-                  <Upload className="w-5 h-5" />
-                )}
-              </button>
-            </>
+          {onFileBrowserToggle && (
+            <button
+              className={`btn h-11 min-h-0 min-w-0 shrink-0 px-3.5 rounded-none ${fileBrowserOpen ? "btn-success" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={tapGuard(onFileBrowserToggle)}
+              onClick={onFileBrowserToggle}
+              aria-label="File manager"
+            >
+              <FolderOpen className="w-5 h-5" />
+            </button>
           )}
           {onSearchToggle && (
             <button
