@@ -26,6 +26,8 @@ export interface Session {
   bps5?: number;
   /** 15-minute bytes/sec rolling average */
   bps15?: number;
+  /** Name of the foreground process (absent when shell itself is in foreground) */
+  foregroundProcess?: string;
 }
 
 export const WS_MSG = {

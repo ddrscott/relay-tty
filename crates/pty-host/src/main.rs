@@ -708,6 +708,43 @@ fn extract_osc9_notifications(data: &[u8]) -> (Vec<u8>, Vec<String>) {
     (cleaned, notifications)
 }
 
+// ── Foreground process name resolution ──────────────────────────────
+
+/// Resolve a PID to its process name.
+/// On macOS, uses `proc_name()` from libproc.
+/// On Linux, reads `/proc/<pid>/comm`.
+/// Returns None if the process cannot be found (race: it may have exited).
+fn get_process_name(pid: libc::pid_t) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        // libproc's proc_name: fills a buffer with the process name
+        let mut buf = [0u8; 256];
+        let len = unsafe {
+            libc::proc_name(
+                pid,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                buf.len() as u32,
+            )
+        };
+        if len > 0 {
+            return Some(
+                String::from_utf8_lossy(&buf[..len as usize])
+                    .trim_end_matches('\0')
+                    .to_string(),
+            );
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Linux: read /proc/<pid>/comm
+        std::fs::read_to_string(format!("/proc/{}/comm", pid))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+}
+
 // ── Session metadata ────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -741,6 +778,9 @@ struct SessionMeta {
     bps5: f64,
     /// 15-minute bytes/sec rolling average
     bps15: f64,
+    /// Name of the foreground process (None when shell itself is in foreground)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    foreground_process: Option<String>,
 }
 
 // ── Throughput metrics (1/5/15m) ────────────────────────────────────
@@ -1022,6 +1062,7 @@ async fn main() {
                 bps1: 0.0,
                 bps5: 0.0,
                 bps15: 0.0,
+                foreground_process: None,
             };
             let _ = fs::write(&session_path, serde_json::to_string(&error_meta).unwrap());
             process::exit(127);
@@ -1059,6 +1100,7 @@ async fn main() {
         bps1: 0.0,
         bps5: 0.0,
         bps15: 0.0,
+        foreground_process: None,
     };
     let _ = fs::write(&session_path, serde_json::to_string(&meta).unwrap());
 
@@ -1331,7 +1373,23 @@ async fn main() {
         let mut interval = time::interval(Duration::from_millis(JSON_WRITE_INTERVAL_MS));
         loop {
             interval.tick().await;
+
+            // Check foreground process (outside state lock — just a syscall)
+            let fg_pgrp = unsafe { libc::tcgetpgrp(master_raw_fd) };
+            let fg_process = if fg_pgrp > 0 && fg_pgrp != child_pid {
+                get_process_name(fg_pgrp)
+            } else {
+                None
+            };
+
             let mut s = state_json.write().await;
+
+            // Update foreground process if changed
+            if s.meta.foreground_process != fg_process {
+                s.meta.foreground_process = fg_process;
+                s.meta_dirty = true;
+            }
+
             if s.meta_dirty {
                 // Update bps values before flush
                 s.meta.bps1 = s.throughput.bps1();
@@ -2407,6 +2465,7 @@ mod tests {
             bps1: 0.0,
             bps5: 0.0,
             bps15: 0.0,
+            foreground_process: None,
         };
         let json = serde_json::to_string(&meta).unwrap();
         // camelCase fields
@@ -2419,6 +2478,7 @@ mod tests {
         assert!(!json.contains("\"exitedAt\""));
         assert!(!json.contains("\"title\""));
         assert!(!json.contains("\"error\""));
+        assert!(!json.contains("\"foregroundProcess\""));
     }
 
     #[test]
@@ -2445,12 +2505,59 @@ mod tests {
             bps1: 100.0,
             bps5: 50.0,
             bps15: 25.0,
+            foreground_process: None,
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"exitCode\":0"));
         assert!(json.contains("\"exitedAt\":3000"));
         assert!(json.contains("\"title\":\"vim\""));
         assert!(json.contains("\"error\":\"test error\""));
+    }
+
+    #[test]
+    fn session_meta_foreground_process_serializes_when_present() {
+        let meta = SessionMeta {
+            id: "fg01".into(),
+            command: "zsh".into(),
+            args: vec![],
+            cwd: "/tmp".into(),
+            created_at: 1000,
+            last_activity: 2000,
+            status: "running".into(),
+            exit_code: None,
+            exited_at: None,
+            cols: 80,
+            rows: 24,
+            pid: 1234,
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            total_bytes_written: 0.0,
+            last_active_at: "2026-01-01T00:00:00.000Z".into(),
+            bytes_per_second: 0.0,
+            title: None,
+            error: None,
+            bps1: 0.0,
+            bps5: 0.0,
+            bps15: 0.0,
+            foreground_process: Some("vim".into()),
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"foregroundProcess\":\"vim\""));
+    }
+
+    #[test]
+    fn get_process_name_returns_some_for_current_process() {
+        // Our own PID should always be resolvable
+        let pid = std::process::id() as libc::pid_t;
+        let name = get_process_name(pid);
+        assert!(name.is_some(), "should resolve own process name");
+        assert!(!name.unwrap().is_empty(), "process name should not be empty");
+    }
+
+    #[test]
+    fn get_process_name_returns_none_for_invalid_pid() {
+        // PID -1 or a very large PID should not resolve
+        let name = get_process_name(-1);
+        assert!(name.is_none(), "should return None for invalid PID");
     }
 
     // ── days_to_date tests ──────────────────────────────────────────
