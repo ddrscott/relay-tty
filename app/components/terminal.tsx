@@ -260,10 +260,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           aria-label="Resize terminal to fit"
           title={`PTY ${ptyDims!.cols}×${ptyDims!.rows} → ${localDims!.cols}×${localDims!.rows}`}
         >
-          <Maximize2 className="w-4 h-4 text-info" />
-          <span className="text-info text-xs font-medium font-mono">
-            {ptyDims!.cols}×{ptyDims!.rows} → {localDims!.cols}×{localDims!.rows}
-          </span>
+          <Maximize2 className="w-4 h-4 text-warning" />
         </button>
       )}
       {/* Reconnecting pill — lower-right corner */}

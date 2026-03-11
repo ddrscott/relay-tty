@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
+import { usePushSubscription } from "../hooks/use-push-subscription";
 import {
   getEffectiveNotifSettings,
   getSessionNotifOverride,
@@ -300,6 +301,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     document.title = parts.join(" \u2014 ");
   }, [termTitle, session.title, session.command, session.args, hostname]);
 
+  // Web Push subscription — auto-subscribes after permission grant
+  const { subscribeToPush } = usePushSubscription();
+
   // Request notification permission via user gesture (button click).
   // iOS Safari only supports Notification API in PWA mode AND requires a user
   // gesture. Auto-requesting on mount is silently ignored on iOS.
@@ -311,10 +315,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     try {
       const result = await Notification.requestPermission();
       setNotifPermission(result);
+      // Auto-subscribe to push notifications when permission is granted
+      if (result === "granted") {
+        subscribeToPush();
+      }
     } catch {
       setNotifPermission("unsupported");
     }
-  }, []);
+  }, [subscribeToPush]);
 
   // ── iOS keyboard viewport fix ──────────────────────────────────────
   // iOS Safari ignores `interactive-widget=resizes-content`, so `h-dvh`

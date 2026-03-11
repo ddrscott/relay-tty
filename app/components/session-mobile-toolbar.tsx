@@ -174,10 +174,9 @@ export function SessionMobileToolbar({
         </div>
       )}
 
-      {/* Input bar — floats above toolbar (absolute positioning) so opening/closing
-           does NOT change terminal dimensions or trigger SIGWINCH.
-           Always rendered so the textarea exists for iOS focus. Hidden via CSS when closed. */}
-      <div className={`absolute bottom-full left-0 right-0 toolbar-row bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
+      {/* Input bar — in normal flex flow. Height changes don't trigger
+           SIGWINCH because the ResizeObserver only fires on width changes. */}
+      <div className={`toolbar-row border-b border-[#1e1e2e]${inputBarOpen ? "" : " hidden"}`}>
         <button
           className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
           tabIndex={-1}

@@ -650,6 +650,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           const dist = Math.sqrt(dx * dx + dy * dy);
           const duration = performance.now() - touchStartTime;
           if (dist < TAP_MAX_DISTANCE && duration < TAP_MAX_DURATION) {
+            // Focus xterm's hidden textarea so iOS shows the virtual keyboard.
+            // Our capture-phase stopPropagation prevents xterm's own touchstart
+            // handler from running, so the textarea never gets focused natively.
+            const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+            if (textarea) textarea.focus();
             opts.onTap?.();
           }
         }
@@ -1133,7 +1138,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     const hasFixedSize = opts.fixedCols != null && opts.fixedRows != null;
     let observer: ResizeObserver | null = null;
     if (!hasFixedSize) {
-      observer = new ResizeObserver(() => { if (!scrollState.momentumActive && activeRef.current) fit(); });
+      let lastWidth = containerRef.current?.clientWidth ?? 0;
+      observer = new ResizeObserver(() => {
+        if (!scrollState.momentumActive && activeRef.current) {
+          const w = containerRef.current?.clientWidth ?? 0;
+          // Only fit when width changes — height-only changes (e.g. keyboard
+          // open/close) don't affect terminal cols and would steal focus via
+          // unnecessary SIGWINCH.
+          if (w !== lastWidth) {
+            lastWidth = w;
+            fit();
+          }
+        }
+      });
       if (containerRef.current) observer.observe(containerRef.current);
     }
 

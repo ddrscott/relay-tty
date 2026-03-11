@@ -6,6 +6,7 @@ import * as crypto from "node:crypto";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import type { NotificationStore } from "./notification-store.js";
+import type { PushStore } from "./push-store.js";
 import { generateShareToken } from "./auth.js";
 import type {
   CreateSessionRequest,
@@ -79,6 +80,7 @@ const MAX_BINARY_SIZE = 100 * 1024 * 1024;
 interface ApiOptions {
   appUrl?: string;
   notificationStore?: NotificationStore;
+  pushStore?: PushStore;
 }
 
 export function createApiRouter(
@@ -525,6 +527,98 @@ export function createApiRouter(
     }
     store.clear();
     res.json({ ok: true });
+  });
+
+  // ── Web Push API ──
+
+  // GET /api/push/vapid-public-key — return the VAPID public key for client subscription
+  router.get("/push/vapid-public-key", (_req, res) => {
+    const push = options.pushStore;
+    if (!push) {
+      res.status(500).json({ error: "Push not configured" });
+      return;
+    }
+    res.json({ publicKey: push.publicKey });
+  });
+
+  // POST /api/push/subscribe — register a push subscription
+  router.post("/push/subscribe", (req, res) => {
+    const push = options.pushStore;
+    if (!push) {
+      res.status(500).json({ error: "Push not configured" });
+      return;
+    }
+    const { subscription, sessionIds = [], triggers } = req.body as {
+      subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
+      sessionIds?: string[];
+      triggers?: { activityStopped?: boolean; activitySpiked?: boolean; sessionExited?: boolean };
+    };
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      res.status(400).json({ error: "Invalid push subscription" });
+      return;
+    }
+    push.subscribe(subscription, sessionIds, {
+      activityStopped: triggers?.activityStopped ?? true,
+      activitySpiked: triggers?.activitySpiked ?? true,
+      sessionExited: triggers?.sessionExited ?? true,
+    });
+    res.json({ ok: true });
+  });
+
+  // POST /api/push/unsubscribe — remove a push subscription
+  router.post("/push/unsubscribe", (req, res) => {
+    const push = options.pushStore;
+    if (!push) {
+      res.status(500).json({ error: "Push not configured" });
+      return;
+    }
+    const { endpoint } = req.body as { endpoint: string };
+    if (!endpoint) {
+      res.status(400).json({ error: "endpoint is required" });
+      return;
+    }
+    const removed = push.unsubscribe(endpoint);
+    res.json({ ok: true, removed });
+  });
+
+  // POST /api/push/test — send a test push notification
+  router.post("/push/test", async (req, res) => {
+    const push = options.pushStore;
+    if (!push) {
+      res.status(500).json({ error: "Push not configured" });
+      return;
+    }
+    const { endpoint } = req.body as { endpoint: string };
+    // Send to a specific subscription or all
+    const subs = push.list().filter(s => !endpoint || s.endpoint === endpoint);
+    if (subs.length === 0) {
+      res.status(404).json({ error: "No subscriptions found" });
+      return;
+    }
+
+    const webpush = await import("web-push");
+    const payload = JSON.stringify({
+      title: "relay-tty",
+      body: "Push notifications are working!",
+      url: "/",
+      trigger: "test",
+      timestamp: Date.now(),
+    });
+
+    let sent = 0;
+    for (const sub of subs) {
+      try {
+        await webpush.default.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          payload,
+          { TTL: 60 }
+        );
+        sent++;
+      } catch (err: any) {
+        console.error(`Test push failed: status=${err.statusCode}`, err.body || err.message || err);
+      }
+    }
+    res.json({ ok: true, sent, total: subs.length });
   });
 
   return router;

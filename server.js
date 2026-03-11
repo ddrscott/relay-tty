@@ -48,14 +48,21 @@ async function loadModules(load) {
   const ptyManager = new ptyModule.PtyManager(sessionStore);
   await ptyManager.discover();
 
+  // Prevent React Router 404 noise for /favicon.ico — the app uses a data URI
+  // favicon in <head>, but browsers still request this path directly.
+  app.get("/favicon.ico", (_req, res) => res.status(204).end());
+
   const authModule = await load("auth");
   app.use(authModule.authMiddleware);
 
   const notifStoreModule = await load("notification-store");
   const notificationStore = new notifStoreModule.NotificationStore();
 
+  const pushStoreModule = await load("push-store");
+  const pushStore = new pushStoreModule.PushStore();
+
   const apiModule = await load("api");
-  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore }));
+  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore, pushStore }));
 
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
@@ -64,6 +71,8 @@ async function loadModules(load) {
   notifyModule.setupNotifications(ptyManager, sessionStore, {
     discordWebhook: DISCORD_WEBHOOK,
     appUrl: APP_URL,
+    pushStore,
+    notificationStore,
   });
 
   // Auth routes — plain Express redirects, no SSR needed.
