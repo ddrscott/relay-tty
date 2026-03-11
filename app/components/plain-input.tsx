@@ -7,10 +7,10 @@ import { forwardRef, type ComponentPropsWithoutRef } from "react";
  * Use this instead of raw <input> for all text fields in the app.
  * Passes through all standard input props; suppression attrs cannot be overridden.
  *
- * Android Chrome ignores autocomplete="off" and still shows the autofill bar
- * (passwords, credit cards, addresses). Using "one-time-code" tells Chrome
- * this field is for a verification code, which suppresses all autofill
- * suggestions including the suggestion strip above the keyboard.
+ * Android's autofill service (Gboard suggestion strip with password/credit card/
+ * address icons) ignores autocomplete="off" and "one-time-code" for type="text".
+ * Using type="search" is the most reliable suppression — Gboard and Chrome skip
+ * autofill entirely for search inputs. The default search clear-X is removed via CSS.
  */
 export const PlainInput = forwardRef<
   HTMLInputElement,
@@ -18,9 +18,10 @@ export const PlainInput = forwardRef<
 >(function PlainInput(props, ref) {
   return (
     <input
+      type="search"
       {...props}
       ref={ref}
-      autoComplete="one-time-code"
+      autoComplete="off"
       autoCorrect="off"
       autoCapitalize="off"
       spellCheck={false}
