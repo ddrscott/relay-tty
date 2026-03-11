@@ -28,7 +28,7 @@
 - ~[ ] Clickable file paths in terminal — "open on device" via server file serving~ *(rejected — already fully implemented: `file-link-provider.ts` detects paths, `use-terminal-core.ts` registers the xterm link provider, `sessions.$id.tsx` wires `onFileLink` to open the `FileViewer` panel, and `server/api.ts` serves files via `GET /api/sessions/:id/files/*` with auth + path traversal protection)*
 - [x] Track shell CWD via OSC 7 in pty-host + fix file API array param crash ([detail](work-queue/osc7-cwd-tracking.md))
 - [x] Track foreground process name via tcgetpgrp in pty-host ([detail](work-queue/foreground-process-tracking.md))
-- [ ] File viewer steals focus on close, triggering virtual keyboard and losing terminal scroll position on mobile ([detail](work-queue/file-viewer-keyboard-steal.md))
+- [x] File viewer steals focus on close, triggering virtual keyboard and losing terminal scroll position on mobile ([detail](work-queue/file-viewer-keyboard-steal.md))
 - [x] Fix detach from TUI (Claude Code) leaving relay session stuck — requires Ctrl+C to recover ([detail](work-queue/detach-alt-screen-stuck.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->

@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   TerminalSquare,
   MessageSquare,
+  Upload,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import {
@@ -417,8 +418,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, []);
 
   const closeFileViewer = useCallback(() => {
+    // On mobile, blur the active element before unmounting the panel.
+    // Without this, the browser may auto-focus xterm's hidden textarea
+    // when the panel is removed from the DOM, which triggers the virtual
+    // keyboard and disrupts the terminal scroll position.
+    if (isMobile && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setFileViewerLink(null);
-  }, []);
+  }, [isMobile]);
 
   // Activity update from terminal WS — also feeds smart notification triggers
   const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number; bps1?: number; bps5?: number; bps15?: number }) => {
@@ -517,6 +525,42 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setTextViewerContent(text);
     setTextViewerOpen(true);
   }, []);
+
+  // ── File upload ──
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = useCallback(async (file: File) => {
+    setUploading(true);
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "X-Filename": file.name },
+        body: file,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Upload failed" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const { path: filePath } = await res.json();
+      // Insert file path into terminal
+      const handle = terminalRef.current ?? chatRef.current;
+      if (handle && filePath) {
+        handle.sendText(filePath);
+      }
+    } catch (err: any) {
+      console.error("Upload failed:", err.message);
+    } finally {
+      setUploading(false);
+      // Reset input so the same file can be re-uploaded
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, []);
+
+  const onFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleUpload(file);
+  }, [handleUpload]);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -649,7 +693,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   return (
     <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
       {/* Header bar */}
-      <div className="flex items-center gap-1 px-2 py-2 bg-[#0f0f1a] border-b border-[#1e1e2e]">
+      <div className="flex items-center gap-1 px-2 py-2.5 bg-[#0f0f1a] border-b border-[#1e1e2e]">
         <label
           htmlFor="sidebar-drawer"
           className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
@@ -717,6 +761,29 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             <Bell className="w-3.5 h-3.5" />
           </span>
         )}
+
+        {/* Upload file */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={onFileInputChange}
+        />
+        <button
+          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
+          onClick={() => fileInputRef.current?.click()}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          aria-label="Upload file"
+          title="Upload file — inserts path into terminal"
+          disabled={uploading}
+        >
+          {uploading ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <Upload className="w-4 h-4" />
+          )}
+        </button>
 
         {/* View mode toggle: terminal ↔ chat */}
         <button
@@ -934,6 +1001,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             handle.sendText(text);
             setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
           }}
+          onUploadFile={handleUpload}
+          uploading={uploading}
         />
       )}
     </main>
