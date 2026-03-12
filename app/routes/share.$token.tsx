@@ -29,7 +29,7 @@ export default function ShareView({ loaderData }: Route.ComponentProps) {
   }
 
   return (
-    <main className="h-dvh flex flex-col bg-[#0a0a0f]">
+    <main className="h-app flex flex-col bg-[#0a0a0f]">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 bg-[#0f0f1a] border-b border-[#1e1e2e]">
         <div className="flex items-center gap-2 flex-1 min-w-0">

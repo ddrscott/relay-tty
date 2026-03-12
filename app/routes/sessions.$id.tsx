@@ -324,73 +324,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, [subscribeToPush]);
 
-  // ── iOS keyboard viewport fix ──────────────────────────────────────
-  // iOS Safari ignores `interactive-widget=resizes-content`, so `h-dvh`
-  // stays at full screen height when the keyboard opens. We shrink <main>
-  // to match the visual viewport height while an input is focused.
-  //
-  // Focus/blur tracking eliminates the guesswork of threshold-based
-  // detection — we know the keyboard is open because we know an input is
-  // focused, and we just use vv.height directly.
-  //
-  // On Android/Chrome (which supports interactive-widget), the layout
-  // viewport already shrinks with the keyboard, so vv.height ≈
-  // window.innerHeight and the pixel height we set matches h-dvh — no
-  // visible effect.
-  const mainRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const maybeVv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!maybeVv) return;
-    if (window.innerWidth > 1024) return;
-    const vv = maybeVv;
-
-    let inputFocused = false;
-
-    function applyViewport() {
-      const el = mainRef.current;
-      if (!el || !vv) return;
-      if (vv.scale > 1.05) return; // page is zoomed, not keyboard
-
-      if (inputFocused) {
-        el.style.height = `${vv.height}px`;
-        window.scrollTo(0, 0);
-      } else {
-        el.style.height = "";
-      }
-    }
-
-    function onFocusIn(e: FocusEvent) {
-      const t = e.target;
-      if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) {
-        inputFocused = true;
-        // Wait for keyboard to finish animating, then apply
-        vv.addEventListener("resize", applyViewport);
-        vv.addEventListener("scroll", applyViewport);
-        // Apply immediately too in case viewport already settled
-        requestAnimationFrame(applyViewport);
-      }
-    }
-
-    function onFocusOut() {
-      inputFocused = false;
-      const el = mainRef.current;
-      if (el) el.style.height = "";
-      vv.removeEventListener("resize", applyViewport);
-      vv.removeEventListener("scroll", applyViewport);
-    }
-
-    document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
-    return () => {
-      document.removeEventListener("focusin", onFocusIn);
-      document.removeEventListener("focusout", onFocusOut);
-      vv.removeEventListener("resize", applyViewport);
-      vv.removeEventListener("scroll", applyViewport);
-      const el = mainRef.current;
-      if (el) el.style.height = "";
-    };
-  }, []);
-
   const handleNotification = useCallback((message: string) => {
     const title = termTitle || session.command;
 
@@ -923,7 +856,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
 
   return (
-    <main ref={mainRef} className="h-dvh flex flex-col relative bg-[#0a0a0f]">
+    <main className="h-app flex flex-col relative bg-[#0a0a0f]">
       {/* Header bar */}
       <div className="relative border-b border-[#1e1e2e]">
       <div className="flex items-center gap-1 px-2 py-2.5 bg-[#0f0f1a]">

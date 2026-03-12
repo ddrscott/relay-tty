@@ -8,6 +8,7 @@ import {
   isRouteErrorResponse,
   useRevalidator,
 } from "react-router";
+import { useKeyboardViewport } from "./hooks/use-keyboard-viewport";
 import type { Route } from "./+types/root";
 import { SidebarDrawer } from "./components/sidebar-drawer";
 import { useSessionEvents } from "./hooks/use-session-events";
@@ -53,6 +54,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
+  useKeyboardViewport();
   const { sessions, version, hostname, customCommands } = loaderData as {
     sessions: any[];
     version: string;

@@ -1137,17 +1137,27 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     // they use CSS transform: scale() instead of FitAddon auto-fit.
     const hasFixedSize = opts.fixedCols != null && opts.fixedRows != null;
     let observer: ResizeObserver | null = null;
+    let heightDebounce: ReturnType<typeof setTimeout> | null = null;
     if (!hasFixedSize) {
       let lastWidth = containerRef.current?.clientWidth ?? 0;
+      let lastHeight = containerRef.current?.clientHeight ?? 0;
       observer = new ResizeObserver(() => {
         if (!scrollState.momentumActive && activeRef.current) {
           const w = containerRef.current?.clientWidth ?? 0;
-          // Only fit when width changes — height-only changes (e.g. keyboard
-          // open/close) don't affect terminal cols and would steal focus via
-          // unnecessary SIGWINCH.
+          const h = containerRef.current?.clientHeight ?? 0;
           if (w !== lastWidth) {
+            // Width change — fit immediately (cols changed)
             lastWidth = w;
+            lastHeight = h;
+            if (heightDebounce) { clearTimeout(heightDebounce); heightDebounce = null; }
             fit();
+          } else if (h !== lastHeight) {
+            // Height-only change (keyboard open/close) — debounce to avoid
+            // rapid SIGWINCH during keyboard animation, then fit so xterm
+            // fills the available space.
+            lastHeight = h;
+            if (heightDebounce) clearTimeout(heightDebounce);
+            heightDebounce = setTimeout(fit, 150);
           }
         }
       });
@@ -1159,6 +1169,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (retryTimer) clearTimeout(retryTimer);
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
       if (throttleTimer) clearTimeout(throttleTimer);
+      if (heightDebounce) clearTimeout(heightDebounce);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("online", onOnline);
       observer?.disconnect();

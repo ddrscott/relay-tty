@@ -30,6 +30,10 @@
   --rounded-box: 0.5rem;
 }
 
+:root {
+  --app-h: 100dvh;
+}
+
 body {
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
@@ -138,4 +142,10 @@ body {
 }
 .animate-banner-in {
   animation: banner-in 0.25s ease-out;
+}
+
+/* Keyboard-aware viewport height: uses --app-h which the keyboard viewport
+   hook overrides to visualViewport.height on iOS when keyboard is open. */
+.h-app {
+  height: var(--app-h);
 }

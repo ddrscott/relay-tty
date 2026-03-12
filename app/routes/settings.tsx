@@ -151,7 +151,7 @@ export default function Settings() {
     typeof Notification !== "undefined" ? Notification.permission : "unsupported";
 
   return (
-    <main className="h-dvh bg-[#0a0a0f] overflow-auto">
+    <main className="h-app bg-[#0a0a0f] overflow-auto">
       <div className="container mx-auto p-4 max-w-lg">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
