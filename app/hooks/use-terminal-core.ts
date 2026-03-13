@@ -1015,10 +1015,18 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       };
 
       if (isReconnect) {
-        // Delta from cache — content was already shown from cache,
-        // just append the small delta and mark ready
+        // Delta since last RESUME offset — content is already displayed
+        // from cache or previous connection. Just append the delta like
+        // normal DATA and let xterm's natural scroll behavior handle it:
+        // at-bottom → auto-follow, scrolled-up → stay put.
+        // Do NOT call syncAndScroll() here — syncScrollArea + scrollToBottom
+        // would yank users who scrolled up and can cause position jumps.
+        const buf = term.buffer.active;
+        const wasAtBottom = buf.viewportY >= buf.baseY;
         term.write(payload, () => {
-          syncAndScroll();
+          // Only scroll to bottom if the user was already there — preserve
+          // mid-scroll reading position across reconnections.
+          if (wasAtBottom) term.scrollToBottom();
           finishReplay();
         });
         return;
