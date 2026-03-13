@@ -8,6 +8,7 @@
 export interface NotifSettings {
   activityStopped: boolean;
   activitySpiked: boolean;
+  sessionExited: boolean;
 }
 
 const GLOBAL_KEY = "relay-tty-notif-settings";
@@ -16,6 +17,7 @@ const SESSION_KEY = (id: string) => `relay-tty-notif-${id}`;
 const DEFAULTS: NotifSettings = {
   activityStopped: false,
   activitySpiked: false,
+  sessionExited: true,
 };
 
 function parse(raw: string | null): NotifSettings | null {
@@ -26,6 +28,7 @@ function parse(raw: string | null): NotifSettings | null {
     return {
       activityStopped: typeof obj.activityStopped === "boolean" ? obj.activityStopped : DEFAULTS.activityStopped,
       activitySpiked: typeof obj.activitySpiked === "boolean" ? obj.activitySpiked : DEFAULTS.activitySpiked,
+      sessionExited: typeof obj.sessionExited === "boolean" ? obj.sessionExited : DEFAULTS.sessionExited,
     };
   } catch {
     return null;

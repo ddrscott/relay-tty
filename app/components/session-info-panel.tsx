@@ -4,6 +4,7 @@ import type { NotifSettings } from "../lib/notif-settings";
 import {
   Activity,
   Bell,
+  LogOut,
   MessageSquare,
   Power,
   Settings,
@@ -225,6 +226,18 @@ export function SessionInfoPanel({
             className="toggle toggle-xs toggle-primary"
             checked={effectiveNotif.activitySpiked}
             onChange={() => onToggleNotif("activitySpiked")}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3 py-1">
+          <span className="flex items-center gap-1.5 text-[#94a3b8]">
+            <LogOut className="w-3 h-3 text-[#64748b]" />
+            Session exited
+          </span>
+          <input
+            type="checkbox"
+            className="toggle toggle-xs toggle-primary"
+            checked={effectiveNotif.sessionExited}
+            onChange={() => onToggleNotif("sessionExited")}
           />
         </div>
 

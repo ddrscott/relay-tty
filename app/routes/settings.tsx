@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRevalidator } from "react-router";
-import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command } from "lucide-react";
+import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power } from "lucide-react";
 import { PlainInput } from "../components/plain-input";
 import {
   getGlobalNotifSettings,
@@ -28,6 +28,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<NotifSettings>({
     activityStopped: false,
     activitySpiked: false,
+    sessionExited: true,
   });
 
   // Custom commands state
@@ -359,7 +360,7 @@ export default function Settings() {
           </div>
 
           {/* Activity spiked toggle */}
-          <div className="flex items-center justify-between gap-3 py-3">
+          <div className="flex items-center justify-between gap-3 py-3 border-b border-[#1e1e2e]">
             <div className="flex items-start gap-3">
               <Zap className="w-4 h-4 text-[#64748b] mt-0.5 shrink-0" />
               <div>
@@ -376,10 +377,29 @@ export default function Settings() {
               onChange={() => toggle("activitySpiked")}
             />
           </div>
+
+          {/* Session exited toggle */}
+          <div className="flex items-center justify-between gap-3 py-3">
+            <div className="flex items-start gap-3">
+              <Power className="w-4 h-4 text-[#64748b] mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-mono text-[#e2e8f0]">Session exited</div>
+                <div className="text-xs font-mono text-[#64748b] mt-0.5">
+                  Notify when a session's process exits
+                </div>
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              className="toggle toggle-sm toggle-primary"
+              checked={settings.sessionExited}
+              onChange={() => toggle("sessionExited")}
+            />
+          </div>
         </section>
 
         <p className="text-xs font-mono text-[#64748b] mt-4 px-1">
-          Both triggers are off by default and use your existing notification permissions. Per-session overrides can be set from the info panel in each session view.
+          Activity triggers are off by default. Session exited is on by default. All use your existing notification permissions. Per-session overrides can be set from the info panel in each session view.
         </p>
       </div>
     </main>

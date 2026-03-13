@@ -62,7 +62,7 @@
 - [x] Notification bell: full-width half-height dropdown panel instead of mini sub-menu ([detail](work-queue/notif-bell-panel.md))
 - [x] Remove slide-up animation from file browser — display instantly instead of animating in
 - [x] Fix terminal scroll jumping to top during active output — maintain bottom-follow or mid-scroll position ([detail](work-queue/scroll-position-during-output.md))
-- [ ] Add sessionExited toggle to notification settings — currently hardcoded to always-on, no way to disable ([detail](work-queue/session-exit-notif-toggle.md))
+- [x] Add sessionExited toggle to notification settings — currently hardcoded to always-on, no way to disable ([detail](work-queue/session-exit-notif-toggle.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

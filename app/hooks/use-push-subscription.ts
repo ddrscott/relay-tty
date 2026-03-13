@@ -20,13 +20,13 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
-/** Build trigger flags from current localStorage settings. sessionExited is always on. */
+/** Build trigger flags from current localStorage settings. */
 function buildTriggers(): { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean } {
   const settings = getGlobalNotifSettings();
   return {
     activityStopped: settings.activityStopped,
     activitySpiked: settings.activitySpiked,
-    sessionExited: true, // always enabled, no UI toggle
+    sessionExited: settings.sessionExited,
   };
 }
 
@@ -40,7 +40,7 @@ function buildPerSessionTriggers(): Record<string, { activityStopped: boolean; a
     result[sessionId] = {
       activityStopped: overrides[sessionId].activityStopped,
       activitySpiked: overrides[sessionId].activitySpiked,
-      sessionExited: true,
+      sessionExited: overrides[sessionId].sessionExited,
     };
   }
   return result;
