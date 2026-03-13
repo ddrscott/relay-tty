@@ -52,6 +52,7 @@ interface FileBrowserProps {
   sessionId: string;
   initialPath: string;
   onClose: () => void;
+  onNavigate?: (path: string) => void;
   onUploadFile?: (file: File) => void;
   uploading?: boolean;
 }
@@ -125,7 +126,7 @@ function pathSegments(p: string): string[] {
 
 // ── Main component ──────────────────────────────────────────────────────
 
-export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, uploading }: FileBrowserProps) {
+export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUploadFile, uploading }: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,12 +160,13 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
       const data = await res.json();
       setCurrentPath(data.path);
       setEntries(data.entries);
+      onNavigate?.(data.path);
     } catch (err: any) {
       setError(err.message || "Failed to load directory");
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, [sessionId, onNavigate]);
 
   useEffect(() => {
     fetchDir(initialPath);

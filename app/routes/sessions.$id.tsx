@@ -239,6 +239,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+  const fileBrowserPathRef = useRef<string | null>(null);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
   const carouselTrackRef = useRef<HTMLDivElement>(null);
 
@@ -256,6 +257,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setIdleDisplay("");
     setFileViewerLink(null);
     setFileBrowserOpen(false);
+    fileBrowserPathRef.current = null;
     setTextViewerOpen(false);
     setSearchOpen(false);
     setPickerOpen(false);
@@ -1274,8 +1276,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
       </div>
 
-      {/* ── Mobile: always-visible toolbar ── */}
-      {isMobile && (
+      {/* ── Mobile: always-visible toolbar (hidden when file browser is open) ── */}
+      {isMobile && !fileBrowserOpen && (
         <SessionMobileToolbar
           key={activeId}
           ctrlOn={ctrlOn}
@@ -1314,13 +1316,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       {fileBrowserOpen && FileBrowserComponent && (
         <FileBrowserComponent
           sessionId={session.id}
-          initialPath={session.cwd}
+          initialPath={fileBrowserPathRef.current ?? session.cwd}
           onClose={() => {
             if (isMobile && document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
             }
             setFileBrowserOpen(false);
           }}
+          onNavigate={(path: string) => { fileBrowserPathRef.current = path; }}
           onUploadFile={handleUpload}
           uploading={uploading}
         />
