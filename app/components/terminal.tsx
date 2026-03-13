@@ -4,7 +4,7 @@ import { useTerminalInput } from "../hooks/use-terminal-input";
 import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
 import type { FileLink } from "../lib/file-link-provider";
 import type { Session } from "../../shared/types";
-import { Maximize2 } from "lucide-react";
+import { WandSparkles } from "lucide-react";
 
 export interface TerminalHandle {
   sendText: (text: string) => void;
@@ -58,13 +58,10 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
 
-  // ── PTY dimension mismatch tracking ──
-  // Track the PTY's current dimensions (from session metadata) and compare
-  // with the local xterm dimensions to show a floating resize button.
-  const [ptyDims, setPtyDims] = useState<{ cols: number; rows: number } | null>(
+  // Track PTY dimensions from session metadata (used to update after RESIZE).
+  const [, setPtyDims] = useState<{ cols: number; rows: number } | null>(
     initialPtyCols && initialPtyRows ? { cols: initialPtyCols, rows: initialPtyRows } : null
   );
-  const [localDims, setLocalDims] = useState<{ cols: number; rows: number } | null>(null);
 
   const handleSessionUpdate = useCallback((session: Session) => {
     if (session.id === sessionId && session.cols && session.rows) {
@@ -192,32 +189,20 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   // only path that sends RESIZE — gives the user explicit control.
   useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef, sendResize: false });
 
-  // Track local xterm dimensions after fit/resize
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-    // Read initial dims
-    setLocalDims({ cols: term.cols, rows: term.rows });
-    // Update on resize
-    const disposable = term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-      setLocalDims({ cols, rows });
-    });
-    return () => disposable.dispose();
-  }, [termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // When the user sends a RESIZE that matches local dims, update ptyDims
-  // so the mismatch button disappears immediately (don't wait for SESSION_UPDATE).
+  // Send RESIZE/SIGWINCH to PTY with current local xterm dimensions.
+  const [resizeToast, setResizeToast] = useState(false);
+  const resizeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleResizeToLocal = useCallback(() => {
     const term = termRef.current;
     if (!term) return;
     const { cols, rows } = term;
     sendBinary(encodeResizeMessage(cols, rows));
     setPtyDims({ cols, rows });
+    // Show brief toast
+    setResizeToast(true);
+    if (resizeToastTimer.current) clearTimeout(resizeToastTimer.current);
+    resizeToastTimer.current = setTimeout(() => setResizeToast(false), 1500);
   }, [termRef, sendBinary]);
-
-  // Dimension mismatch: show button when PTY dims differ from local xterm dims
-  const dimsMismatch = active && ptyDims && localDims &&
-    (ptyDims.cols !== localDims.cols || ptyDims.rows !== localDims.rows);
 
   // Update font size on existing terminal
   useEffect(() => {
@@ -252,19 +237,25 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
 
   return (
     <div className="relative w-full h-full">
-      {/* Floating resize button — shows when local dims don't match PTY */}
-      {dimsMismatch && (
-        <button
-          className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10 cursor-pointer hover:bg-base-300 transition-colors"
-          tabIndex={-1}
-          onMouseDown={(e) => e.preventDefault()}
-          onTouchEnd={(e) => { e.preventDefault(); handleResizeToLocal(); }}
-          onClick={handleResizeToLocal}
-          aria-label="Resize terminal to fit"
-          title={`PTY ${ptyDims!.cols}×${ptyDims!.rows} → ${localDims!.cols}×${localDims!.rows}`}
-        >
-          <Maximize2 className="w-4 h-4 text-warning" />
-        </button>
+      {/* Floating resize button — always visible, sends SIGWINCH to refit PTY */}
+      {active && (
+        <>
+          <button
+            className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10 cursor-pointer hover:bg-base-300 transition-colors"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); handleResizeToLocal(); }}
+            onClick={handleResizeToLocal}
+            aria-label="Fix text sizing"
+          >
+            <WandSparkles className="w-4 h-4 text-base-content/60" />
+          </button>
+          {resizeToast && (
+            <div className="absolute top-14 right-3 z-10 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10 text-xs text-base-content/70 font-medium animate-banner-in">
+              Text sizing fixed
+            </div>
+          )}
+        </>
       )}
       {/* Reconnecting pill — lower-right corner */}
       {pillLabel && (
