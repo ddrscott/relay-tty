@@ -10,6 +10,24 @@ export function isShellCommand(cmd: string): boolean {
   return KNOWN_SHELLS.has(path.basename(cmd));
 }
 
+/**
+ * Resolve a valid shell path. $SHELL can point to a stale path
+ * (e.g. /usr/local/bin/zsh after migrating from x86 Homebrew to ARM).
+ * Falls back to /bin/sh if $SHELL doesn't exist on disk.
+ */
+export function resolveShell(): string {
+  const shell = process.env.SHELL;
+  if (shell) {
+    try {
+      fs.accessSync(shell, fs.constants.X_OK);
+      return shell;
+    } catch {
+      // $SHELL path doesn't exist or isn't executable
+    }
+  }
+  return "/bin/sh";
+}
+
 /** Escape a string for safe inclusion in a shell command. */
 export function shellEscape(s: string): string {
   // If the string is safe (alphanumeric + common safe chars), return as-is
@@ -44,7 +62,7 @@ export function buildSpawnArgs(
   // Non-shell commands: wrap in an interactive login shell (-li) so the
   // user's aliases/functions from ~/.zshrc are available, not just
   // login profile env vars. The `exec` replaces the wrapper shell.
-  const userShell = process.env.SHELL || "/bin/sh";
+  const userShell = resolveShell();
   const fullCmd = args.length > 0
     ? `exec ${shellEscape(command)} ${args.map(shellEscape).join(" ")}`
     : `exec ${shellEscape(command)}`;
