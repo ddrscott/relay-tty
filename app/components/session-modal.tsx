@@ -79,8 +79,8 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
   // Lazy-load file viewer only when first needed
   useEffect(() => {
     if (fileViewerLink && !FileViewerComponent && typeof window !== "undefined") {
-      import("./file-viewer").then((mod) => {
-        setFileViewerComponent(() => mod.FileViewer);
+      import("./file-viewer-panel").then((mod) => {
+        setFileViewerComponent(() => mod.StandaloneFileViewer);
       });
     }
   }, [fileViewerLink, FileViewerComponent]);

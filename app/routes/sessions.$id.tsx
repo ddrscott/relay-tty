@@ -8,6 +8,7 @@ import type { ChatTerminalHandle } from "../components/chat-terminal";
 import { ChatTerminal } from "../components/chat-terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
+import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
@@ -793,8 +794,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // Lazy-load file viewer only when first needed
   useEffect(() => {
     if (fileViewerLink && !FileViewerComponent && typeof window !== "undefined") {
-      import("../components/file-viewer").then((mod) => {
-        setFileViewerComponent(() => mod.FileViewer);
+      import("../components/file-viewer-panel").then((mod) => {
+        setFileViewerComponent(() => mod.StandaloneFileViewer);
       });
     }
   }, [fileViewerLink, FileViewerComponent]);
@@ -893,18 +894,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       {/* Header bar */}
       <div className="relative border-b border-[#1e1e2e]">
       <div className="flex items-center gap-1 px-2 py-2.5 bg-[#0f0f1a]">
-        <label
-          htmlFor="sidebar-drawer"
+        <button
           className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
+          onClick={() => toggleSidebarDrawer()}
           onMouseDown={(e) => e.preventDefault()}
           tabIndex={-1}
         >
           <Menu className="w-4 h-4" />
-        </label>
+        </button>
 
         {/* Hostname badge */}
         {hostname && (
-          <span className="hidden sm:inline text-xs font-mono text-[#64748b] bg-[#1a1a2e] border border-[#2d2d44] rounded px-1.5 py-0.5 shrink-0 truncate max-w-32" title={hostname}>
+          <span className="sidebar-redundant hidden sm:inline text-xs font-mono text-[#64748b] bg-[#1a1a2e] border border-[#2d2d44] rounded px-1.5 py-0.5 shrink-0 truncate max-w-32" title={hostname}>
             {hostname}
           </span>
         )}

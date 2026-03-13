@@ -69,6 +69,8 @@
 - [x] Show session toolbar in grid/lanes expanded view — search, file manager, settings ([detail](work-queue/expanded-session-toolbar.md))
 - [x] Fix CWD not propagating to child sessions spawned via `relay <cmd>` ([detail](work-queue/cwd-propagation-fix.md))
 - [x] Handle Android IME correction/word-replace via beforeinput event listeners on xterm textarea ([detail](work-queue/android-ime-corrections.md))
+- [x] Unify file viewers — use file browser's FileViewerPanel for file-link clicks, remove old file-viewer.tsx ([detail](work-queue/unify-file-viewers.md))
+- [ ] Make session IDs copyable via tap/click — copy to clipboard with brief toast confirmation ([detail](work-queue/copyable-session-ids.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
