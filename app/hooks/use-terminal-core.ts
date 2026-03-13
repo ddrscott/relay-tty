@@ -455,6 +455,64 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         if (e.inputType === "insertLineBreak") {
           e.preventDefault();
           term.input("\r");
+          return;
+        }
+
+        // ── Android IME correction/word-replace handling ──────────────
+        // When Android's keyboard shows a correction suggestion (e.g.
+        // "teh" → "the"), tapping it fires beforeinput events that we
+        // translate to PTY escape sequences. The setAttribute calls above
+        // suppress full composition but Android still shows suggestions.
+
+        if (e.inputType === "deleteContentBackward") {
+          // Single backspace (e.g. tapping backspace key)
+          if (e.cancelable) e.preventDefault();
+          term.input("\x7f");
+          return;
+        }
+
+        if (e.inputType === "deleteContentForward") {
+          // Forward delete
+          if (e.cancelable) e.preventDefault();
+          term.input("\x1b[3~");
+          return;
+        }
+
+        if (e.inputType === "deleteWordBackward") {
+          // Hold-delete or correction removing old word — send Ctrl-W
+          if (e.cancelable) e.preventDefault();
+          term.input("\x17");
+          return;
+        }
+
+        if (e.inputType === "deleteWordForward") {
+          // Forward word delete — send ESC d (Meta-d)
+          if (e.cancelable) e.preventDefault();
+          term.input("\x1bd");
+          return;
+        }
+
+        if (e.inputType === "insertReplacementText") {
+          // Autocorrect replacement — delete old word then type new one.
+          // The replacement text is in dataTransfer (plaintext) or data.
+          if (e.cancelable) e.preventDefault();
+          const text = e.dataTransfer?.getData("text/plain") ?? e.data ?? "";
+          if (text) {
+            // Delete the word being replaced, then type the replacement
+            term.input("\x17" + text);
+          }
+          return;
+        }
+
+        if (e.inputType === "insertText") {
+          // Committed text — send directly to terminal.
+          // This fires for normal typing and after correction commits.
+          if (e.cancelable) e.preventDefault();
+          const text = e.data ?? "";
+          if (text) {
+            term.input(text);
+          }
+          return;
         }
       });
     }

@@ -68,6 +68,7 @@
 - [x] Replace sidebar collapse button with hamburger menu — match mobile drawer toggle pattern ([detail](work-queue/sidebar-hamburger-menu.md))
 - [x] Show session toolbar in grid/lanes expanded view — search, file manager, settings ([detail](work-queue/expanded-session-toolbar.md))
 - [x] Fix CWD not propagating to child sessions spawned via `relay <cmd>` ([detail](work-queue/cwd-propagation-fix.md))
+- [x] Handle Android IME correction/word-replace via beforeinput event listeners on xterm textarea ([detail](work-queue/android-ime-corrections.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
