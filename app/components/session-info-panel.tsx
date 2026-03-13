@@ -58,7 +58,13 @@ export function SessionInfoPanel({
   onKillSession,
 }: SessionInfoPanelProps) {
   return (
-    <div className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56">
+    <div
+      className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
         {/* Font size controls */}
         <div className="flex items-center justify-between gap-4">
