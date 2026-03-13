@@ -143,6 +143,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
   const searchRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
 
   // Fetch directory listing
@@ -201,17 +202,8 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose, viewingFile, contextMenu]);
 
-  // Close context menu on click outside
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    document.addEventListener("click", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("click", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [contextMenu]);
+  // Context menu is closed by a backdrop overlay (see render below)
+  // — no document-level listeners needed.
 
   // Close dropdown menus on click outside
   useEffect(() => {
@@ -278,7 +270,9 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
   const startLongPress = useCallback((e: React.TouchEvent, entry: DirEntry) => {
     const touch = e.touches[0];
     touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+    longPressFired.current = false;
     longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
       setContextMenu({
         x: touch.clientX,
         y: touch.clientY,
@@ -302,10 +296,16 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
     }
   }, []);
 
-  const endLongPress = useCallback(() => {
+  const endLongPress = useCallback((e: React.TouchEvent) => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
+    }
+    // If long press opened the context menu, prevent the browser from
+    // synthesizing a click event that would immediately dismiss it.
+    if (longPressFired.current) {
+      e.preventDefault();
+      longPressFired.current = false;
     }
   }, []);
 
@@ -616,18 +616,30 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
         <span className="font-mono truncate max-w-[60%] text-right">{currentPath}</span>
       </div>
 
-      {/* Context menu */}
-      {contextMenu && (
+      {/* Context menu: full-screen backdrop + menu */}
+      {contextMenu && (<>
+        {/* Invisible backdrop — absorbs taps outside the menu */}
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setContextMenu(null)}
+          onTouchEnd={(e) => { e.preventDefault(); setContextMenu(null); }}
+        />
         <div
           className="fixed bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1 min-w-40"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 170),
             top: Math.min(contextMenu.y, window.innerHeight - 100),
           }}
-          onClick={(e) => e.stopPropagation()}
         >
           <button
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44]"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44] active:bg-[#2d2d44]"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              const fullPath = currentPath === "/"
+                ? `/${contextMenu.entry.name}`
+                : `${currentPath}/${contextMenu.entry.name}`;
+              copyPath(fullPath);
+            }}
             onClick={() => {
               const fullPath = currentPath === "/"
                 ? `/${contextMenu.entry.name}`
@@ -640,7 +652,8 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
             Copy absolute path
           </button>
           <button
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44]"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44] active:bg-[#2d2d44]"
+            onTouchEnd={(e) => { e.preventDefault(); copyPath(contextMenu.entry.name); }}
             onClick={() => copyPath(contextMenu.entry.name)}
             onMouseDown={(e) => e.preventDefault()}
           >
@@ -651,7 +664,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
             <a
               href={`/api/sessions/${sessionId}/files/${(currentPath === "/" ? contextMenu.entry.name : `${currentPath}/${contextMenu.entry.name}`).replace(/^\//, "")}?abs=1`}
               download={contextMenu.entry.name}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44]"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d2d44] active:bg-[#2d2d44]"
               onClick={() => setContextMenu(null)}
               onMouseDown={(e) => e.preventDefault()}
             >
@@ -660,7 +673,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onUploadFile, upl
             </a>
           )}
         </div>
-      )}
+      </>)}
     </div>
   );
 }
