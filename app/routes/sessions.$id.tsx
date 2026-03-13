@@ -230,7 +230,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
-  const notifPanelRef = useRef<HTMLDivElement>(null);
+
   const [notifHistory, setNotifHistory] = useState<NotificationEntry[]>([]);
   const [notifLastSeenCount, setNotifLastSeenCount] = useState(0);
   // ── Activity state: refs for high-frequency updates, state only for rendering ──
@@ -497,13 +497,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     if (!notifPanelOpen) return;
     // Mark all as seen when opening
     setNotifLastSeenCount(notifHistory.length);
-    function onClickOutside(e: MouseEvent) {
-      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node)) {
-        setNotifPanelOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
   }, [notifPanelOpen, notifHistory.length]);
 
   // Pinch-to-zoom: adjust font size by delta, persisted per-session
@@ -964,9 +957,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </button>
         )}
         {notifPermission === "granted" && (
-          <div className="relative shrink-0" ref={notifPanelRef}>
-            <button
-              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] relative"
+          <button
+              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] relative shrink-0"
               onClick={() => setNotifPanelOpen(!notifPanelOpen)}
               onMouseDown={(e) => e.preventDefault()}
               tabIndex={-1}
@@ -980,34 +972,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 </span>
               )}
             </button>
-            {notifPanelOpen && (
-              <NotificationPanel
-                notifications={notifHistory}
-                activeSessionIds={new Set(allSessions.map(s => s.id))}
-                onClose={() => setNotifPanelOpen(false)}
-                onClear={() => {
-                  fetch("/api/notifications", { method: "DELETE" }).catch(() => {});
-                  setNotifHistory([]);
-                  setNotifLastSeenCount(0);
-                }}
-                onDelete={(id) => {
-                  fetch(`/api/notifications/${id}`, { method: "DELETE" }).catch(() => {});
-                  setNotifHistory(prev => prev.filter(n => n.id !== id));
-                }}
-                onNavigate={(sessionId) => {
-                  setNotifPanelOpen(false);
-                  if (sessionId === activeId) return;
-                  // Use state-based switching if session is in the list
-                  if (allSessions.some(s => s.id === sessionId)) {
-                    setActiveId(sessionId);
-                    window.history.replaceState(null, "", `/sessions/${sessionId}`);
-                  } else {
-                    navigate(`/sessions/${sessionId}`);
-                  }
-                }}
-              />
-            )}
-          </div>
         )}
 
         {/* Search */}
@@ -1082,6 +1046,34 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         <SearchBar
           terminalRef={terminalRef}
           onClose={() => setSearchOpen(false)}
+        />
+      )}
+
+      {/* Notification panel — full-width dropdown below header */}
+      {notifPanelOpen && (
+        <NotificationPanel
+          notifications={notifHistory}
+          activeSessionIds={new Set(allSessions.map(s => s.id))}
+          onClose={() => setNotifPanelOpen(false)}
+          onClear={() => {
+            fetch("/api/notifications", { method: "DELETE" }).catch(() => {});
+            setNotifHistory([]);
+            setNotifLastSeenCount(0);
+          }}
+          onDelete={(id) => {
+            fetch(`/api/notifications/${id}`, { method: "DELETE" }).catch(() => {});
+            setNotifHistory(prev => prev.filter(n => n.id !== id));
+          }}
+          onNavigate={(sessionId) => {
+            setNotifPanelOpen(false);
+            if (sessionId === activeId) return;
+            if (allSessions.some(s => s.id === sessionId)) {
+              setActiveId(sessionId);
+              window.history.replaceState(null, "", `/sessions/${sessionId}`);
+            } else {
+              navigate(`/sessions/${sessionId}`);
+            }
+          }}
         />
       )}
       </div>
