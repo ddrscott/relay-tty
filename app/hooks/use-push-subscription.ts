@@ -6,6 +6,7 @@
  * Works on iOS PWA, Android, and desktop browsers.
  */
 import { useEffect, useRef, useCallback, useState } from "react";
+import { getGlobalNotifSettings } from "../lib/notif-settings";
 
 /** Convert a base64 URL-safe string to Uint8Array (for applicationServerKey) */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -17,6 +18,16 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+/** Build trigger flags from current localStorage settings. sessionExited is always on. */
+function buildTriggers(): { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean } {
+  const settings = getGlobalNotifSettings();
+  return {
+    activityStopped: settings.activityStopped,
+    activitySpiked: settings.activitySpiked,
+    sessionExited: true, // always enabled, no UI toggle
+  };
 }
 
 async function doSubscribe(): Promise<boolean> {
@@ -38,7 +49,7 @@ async function doSubscribe(): Promise<boolean> {
     const subJson = subscription.toJSON();
     if (!subJson.endpoint || !subJson.keys) return false;
 
-    // Register with server (subscribe to all sessions, all triggers)
+    // Register with server — read trigger settings from localStorage
     const res = await fetch("/api/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,11 +62,7 @@ async function doSubscribe(): Promise<boolean> {
           },
         },
         sessionIds: [], // empty = all sessions
-        triggers: {
-          activityStopped: true,
-          activitySpiked: true,
-          sessionExited: true,
-        },
+        triggers: buildTriggers(),
       }),
     });
 
@@ -63,6 +70,42 @@ async function doSubscribe(): Promise<boolean> {
   } catch (err) {
     console.error("Push subscription failed:", err);
     return false;
+  }
+}
+
+/**
+ * Sync current localStorage notification settings to the server-side push subscription.
+ * Call this whenever notification toggles change to keep push triggers in sync.
+ */
+export async function syncPushTriggers(): Promise<void> {
+  try {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    const reg = await navigator.serviceWorker.ready;
+    const subscription = await reg.pushManager.getSubscription();
+    if (!subscription) return; // not subscribed to push, nothing to sync
+
+    const subJson = subscription.toJSON();
+    if (!subJson.endpoint || !subJson.keys) return;
+
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: subJson.endpoint,
+          keys: {
+            p256dh: subJson.keys.p256dh,
+            auth: subJson.keys.auth,
+          },
+        },
+        sessionIds: [],
+        triggers: buildTriggers(),
+      }),
+    });
+  } catch (err) {
+    console.error("Failed to sync push triggers:", err);
   }
 }
 

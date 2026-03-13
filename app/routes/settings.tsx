@@ -7,6 +7,7 @@ import {
   setGlobalNotifSettings,
   type NotifSettings,
 } from "../lib/notif-settings";
+import { syncPushTriggers } from "../hooks/use-push-subscription";
 import {
   getCtrlShortcuts,
   setCtrlShortcuts,
@@ -84,6 +85,8 @@ export default function Settings() {
     setSettings((prev) => {
       const next = { ...prev, [key]: !prev[key] };
       setGlobalNotifSettings(next);
+      // Sync updated triggers to the server-side push subscription
+      syncPushTriggers();
       return next;
     });
   }

@@ -54,6 +54,7 @@
 - [x] Floating SIGWINCH resize button — shows when local dimensions don't match PTY, tap to relayout ([detail](work-queue/sigwinch-resize-button.md))
 - [x] iOS Web Push Notifications — full push stack with VAPID keys, server-side triggers, SW push handler ([detail](work-queue/ios-web-push.md))
 - [x] Floating scratchpad — keyboard icon toggles scratchpad, float above xterm to avoid SIGWINCH ([detail](work-queue/floating-scratchpad.md))
+- [x] Fix push notifications ignoring activity toggle settings — sync localStorage notif settings to server-side push subscription triggers ([detail](work-queue/push-triggers-sync.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
