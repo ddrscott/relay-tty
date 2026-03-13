@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { useTerminalInput } from "../hooks/use-terminal-input";
 import { encodeResizeMessage } from "../lib/ws-messages";
 import type { Session } from "../../shared/types";
-import { Maximize2 } from "lucide-react";
+import type { TerminalHandle } from "./terminal";
+import { Maximize2, Search, FolderOpen, Info, Power } from "lucide-react";
 
 interface GridTerminalProps {
   session: Session;
@@ -75,7 +76,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
   // Thumbnails shrink via CSS transform: scale().
-  const { termRef, status, contentReady, termReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
+  const { termRef, searchAddonRef, status, contentReady, termReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
     fontSize: 14,
     readOnly: true,
@@ -246,6 +247,87 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     return () => clearTimeout(timer);
   }, [fitToCellTrigger, zoomed, handleFitToCell]);
 
+  // ── Zoomed toolbar state ──
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+  const fileBrowserPathRef = useRef<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
+
+  // Lazy-load toolbar sub-components only when needed
+  const [SearchBarComponent, setSearchBarComponent] = useState<React.ComponentType<any> | null>(null);
+  const [FileBrowserComponent, setFileBrowserComponent] = useState<React.ComponentType<any> | null>(null);
+
+  useEffect(() => {
+    if (searchOpen && !SearchBarComponent && typeof window !== "undefined") {
+      import("./search-bar").then((mod) => setSearchBarComponent(() => mod.SearchBar));
+    }
+  }, [searchOpen, SearchBarComponent]);
+
+  useEffect(() => {
+    if (fileBrowserOpen && !FileBrowserComponent && typeof window !== "undefined") {
+      import("./file-browser").then((mod) => setFileBrowserComponent(() => mod.FileBrowser));
+    }
+  }, [fileBrowserOpen, FileBrowserComponent]);
+
+  // Reset toolbar state when unzooming
+  useEffect(() => {
+    if (!zoomed) {
+      setSearchOpen(false);
+      setFileBrowserOpen(false);
+      setInfoOpen(false);
+    }
+  }, [zoomed]);
+
+  // Close info popover on outside click
+  useEffect(() => {
+    if (!infoOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
+        setInfoOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [infoOpen]);
+
+  // Build a TerminalHandle-compatible shim ref for SearchBar
+  const SEARCH_DECORATIONS = useMemo(() => ({
+    matchBackground: "#eab30844",
+    matchBorder: "#eab30866",
+    matchOverviewRuler: "#eab308",
+    activeMatchBackground: "#3b82f6aa",
+    activeMatchBorder: "#3b82f6",
+  }), []);
+
+  const terminalHandleRef = useRef<TerminalHandle | null>(null);
+  terminalHandleRef.current = useMemo((): TerminalHandle | null => {
+    if (!searchAddonRef.current) return null;
+    const addon = searchAddonRef.current;
+    return {
+      sendText: () => {},
+      scrollToBottom: () => { termRef.current?.scrollToBottom(); },
+      setInputTransform: () => {},
+      setSelectionMode: () => {},
+      copySelection: async () => false,
+      getSelection: () => "",
+      getVisibleText: () => "",
+      findNext: (term: string, opts?: any) => {
+        if (!term) return false;
+        return addon.findNext(term, { ...opts, decorations: SEARCH_DECORATIONS, incremental: true });
+      },
+      findPrevious: (term: string, opts?: any) => {
+        if (!term) return false;
+        return addon.findPrevious(term, { ...opts, decorations: SEARCH_DECORATIONS });
+      },
+      clearSearch: () => { addon.clearDecorations(); },
+      onSearchResults: (cb: (info: { resultIndex: number; resultCount: number }) => void) => {
+        const disposable = addon.onDidChangeResults(cb);
+        return () => disposable.dispose();
+      },
+    };
+  }, [searchAddonRef.current, SEARCH_DECORATIONS]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div
       className={`relative h-full rounded-lg border-2 bg-[#19191f] overflow-hidden cursor-pointer transition-all group flex flex-col ${
@@ -276,6 +358,117 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
           <span className="text-[10px] font-mono text-[#64748b] shrink-0 ml-auto">
             {liveCols}×{liveRows}
           </span>
+
+          {/* Toolbar buttons — only shown when zoomed */}
+          {zoomed && (
+            <>
+              {/* Search */}
+              <button
+                data-zoom-btn
+                className={`shrink-0 p-0.5 rounded transition-colors ${searchOpen ? "text-[#3b82f6]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+                onClick={(e) => { e.stopPropagation(); setSearchOpen(v => !v); setFileBrowserOpen(false); }}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                aria-label="Search terminal"
+                title="Search terminal"
+              >
+                <Search className="w-3 h-3" />
+              </button>
+
+              {/* File manager */}
+              <button
+                data-zoom-btn
+                className={`shrink-0 p-0.5 rounded transition-colors ${fileBrowserOpen ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+                onClick={(e) => { e.stopPropagation(); setFileBrowserOpen(v => !v); setSearchOpen(false); }}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                aria-label="File manager"
+                title="Browse files"
+              >
+                <FolderOpen className="w-3 h-3" />
+              </button>
+
+              {/* Settings / info */}
+              <div className="relative shrink-0" ref={infoRef}>
+                <button
+                  data-zoom-btn
+                  className={`p-0.5 rounded transition-colors ${infoOpen ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+                  onClick={(e) => { e.stopPropagation(); setInfoOpen(v => !v); }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                  aria-label="Session info"
+                  title="Session info"
+                >
+                  <Info className="w-3 h-3" />
+                </button>
+                {infoOpen && (
+                  <div
+                    className="absolute top-full right-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-3 min-w-56"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[#64748b]">Session</span>
+                        <span className="text-[#e2e8f0]">{session.id}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[#64748b]">Status</span>
+                        <span className={session.status === "running" ? "text-[#94a3b8]" : "text-[#64748b]"}>
+                          {session.status}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[#64748b]">Command</span>
+                        <span className="text-[#e2e8f0] truncate max-w-40">{session.command}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[#64748b]">Size</span>
+                        <span className="text-[#e2e8f0]">{liveCols}×{liveRows}</span>
+                      </div>
+                      {session.cwd && (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-[#64748b]">CWD</span>
+                          <span className="text-[#e2e8f0] truncate max-w-40" title={session.cwd}>{session.cwd}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[#64748b]">Created</span>
+                        <span className="text-[#e2e8f0]">{new Date(session.createdAt).toLocaleString()}</span>
+                      </div>
+                      {session.exitCode !== undefined && session.status === "exited" && (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-[#64748b]">Exit code</span>
+                          <span className={session.exitCode === 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>
+                            {session.exitCode}
+                          </span>
+                        </div>
+                      )}
+                      {session.status === "running" && (
+                        <>
+                          <div className="border-t border-[#2d2d44] my-1.5" />
+                          <button
+                            className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
+                            onMouseDown={(e) => e.preventDefault()}
+                            tabIndex={-1}
+                            onClick={async () => {
+                              if (!confirm("Kill this session?")) return;
+                              await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
+                              setInfoOpen(false);
+                            }}
+                          >
+                            <Power className="w-3 h-3" />
+                            <span>Close session</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <button
             data-zoom-btn
             className={`shrink-0 p-0.5 rounded transition-colors ${
@@ -291,6 +484,18 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
         </div>
       </div>
 
+      {/* Search bar — only when zoomed and search open.
+          SearchBar uses `absolute inset-0` to overlay its container,
+          so we give it a fixed-height relative wrapper. */}
+      {zoomed && searchOpen && SearchBarComponent && (
+        <div className="relative shrink-0 z-20 h-10">
+          <SearchBarComponent
+            terminalRef={terminalHandleRef}
+            onClose={() => setSearchOpen(false)}
+          />
+        </div>
+      )}
+
       {/* Terminal content — CSS-scaled to fit */}
       <div ref={wrapperRef} className="flex-1 min-h-0 overflow-hidden">
         <div
@@ -304,6 +509,16 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
           }}
         />
       </div>
+
+      {/* File browser panel — only when zoomed and file browser open */}
+      {zoomed && fileBrowserOpen && FileBrowserComponent && (
+        <FileBrowserComponent
+          sessionId={session.id}
+          initialPath={fileBrowserPathRef.current ?? session.cwd}
+          onClose={() => setFileBrowserOpen(false)}
+          onNavigate={(path: string) => { fileBrowserPathRef.current = path; }}
+        />
+      )}
 
       {/* Status overlays */}
       {(!contentReady || status === "connecting") && (
