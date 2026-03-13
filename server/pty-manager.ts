@@ -321,7 +321,18 @@ export class PtyManager extends EventEmitter {
       const diskMeta = JSON.parse(raw) as Session;
 
       const memSession = this.sessionStore.get(id);
-      if (!memSession) return; // Not tracked — ignore
+      if (!memSession) {
+        // New session (e.g. CLI-spawned) — auto-discover it
+        if (!diskMeta.cwd) diskMeta.cwd = process.env.HOME || "/";
+        if (diskMeta.status === "running") {
+          const socketPath = path.join(SOCKETS_DIR, `${diskMeta.id}.sock`);
+          if (fs.existsSync(socketPath)) {
+            this.sessionStore.create(diskMeta);
+            this.startMonitor(diskMeta.id, socketPath);
+          }
+        }
+        return;
+      }
 
       // Diff: check if any fields changed
       let changed = false;

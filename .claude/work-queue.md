@@ -67,6 +67,7 @@
 - [x] Collapsible session list sidebar on desktop — toggle button to hide/show, persist preference
 - [x] Replace sidebar collapse button with hamburger menu — match mobile drawer toggle pattern ([detail](work-queue/sidebar-hamburger-menu.md))
 - [x] Show session toolbar in grid/lanes expanded view — search, file manager, settings ([detail](work-queue/expanded-session-toolbar.md))
+- [x] Fix CWD not propagating to child sessions spawned via `relay <cmd>` ([detail](work-queue/cwd-propagation-fix.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

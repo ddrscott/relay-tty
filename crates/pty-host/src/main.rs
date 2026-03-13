@@ -1010,6 +1010,55 @@ fn get_process_name(pid: libc::pid_t) -> Option<String> {
     }
 }
 
+// ── Process CWD resolution ──────────────────────────────────────────
+
+/// Resolve a PID to its current working directory.
+/// On macOS, uses `proc_pidinfo(PROC_PIDVNODEPATHINFO)` from libproc.
+/// On Linux, reads `/proc/<pid>/cwd` symlink.
+/// Returns None if the process cannot be found or CWD cannot be resolved.
+fn get_process_cwd(pid: libc::pid_t) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        // PROC_PIDVNODEPATHINFO returns vnode path info including CWD
+        const PROC_PIDVNODEPATHINFO: i32 = 9;
+        // struct proc_vnodepathinfo layout (from libproc.h):
+        //   pvi_cdir: struct vnode_info_path (offset 0, CWD path at +152)
+        //   pvi_rdir: struct vnode_info_path (root dir)
+        // Total struct size: 2352 bytes, CWD path at offset 152.
+        const STRUCT_SIZE: usize = 2352;
+        const CWD_PATH_OFFSET: usize = 152;
+        const MAXPATHLEN: usize = 1024;
+
+        let mut buf = vec![0u8; STRUCT_SIZE];
+        let ret = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                PROC_PIDVNODEPATHINFO,
+                0,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                STRUCT_SIZE as i32,
+            )
+        };
+        if ret == STRUCT_SIZE as i32 {
+            let path_bytes = &buf[CWD_PATH_OFFSET..CWD_PATH_OFFSET + MAXPATHLEN];
+            let end = path_bytes.iter().position(|&b| b == 0).unwrap_or(MAXPATHLEN);
+            if end > 0 {
+                return String::from_utf8_lossy(&path_bytes[..end])
+                    .to_string()
+                    .into();
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Linux: read /proc/<pid>/cwd symlink
+        std::fs::read_link(format!("/proc/{}/cwd", pid))
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+    }
+}
+
 // ── Session metadata ────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1673,7 +1722,21 @@ async fn main() {
                 None
             };
 
+            // Poll shell process CWD — works even without OSC 7 support.
+            // Query the shell (child_pid) since it tracks `cd` changes.
+            let polled_cwd = get_process_cwd(child_pid);
+
             let mut s = state_json.write().await;
+
+            // Update CWD if the polled value differs from metadata
+            // (OSC 7 updates take priority since they fire immediately,
+            // but this catches shells that don't emit OSC 7)
+            if let Some(ref new_cwd) = polled_cwd {
+                if s.meta.cwd != *new_cwd {
+                    s.meta.cwd = new_cwd.clone();
+                    s.meta_dirty = true;
+                }
+            }
 
             // Update foreground process if changed
             if s.meta.foreground_process != fg_process {
@@ -2934,6 +2997,22 @@ mod tests {
         // PID -1 or a very large PID should not resolve
         let name = get_process_name(-1);
         assert!(name.is_none(), "should return None for invalid PID");
+    }
+
+    #[test]
+    fn get_process_cwd_returns_some_for_current_process() {
+        let pid = std::process::id() as libc::pid_t;
+        let cwd = get_process_cwd(pid);
+        assert!(cwd.is_some(), "should resolve own process CWD");
+        let cwd_str = cwd.unwrap();
+        assert!(!cwd_str.is_empty(), "CWD should not be empty");
+        assert!(cwd_str.starts_with('/'), "CWD should be an absolute path");
+    }
+
+    #[test]
+    fn get_process_cwd_returns_none_for_invalid_pid() {
+        let cwd = get_process_cwd(-1);
+        assert!(cwd.is_none(), "should return None for invalid PID");
     }
 
     // ── days_to_date tests ──────────────────────────────────────────
