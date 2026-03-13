@@ -1,0 +1,44 @@
+# Windows Support
+
+relay-tty does not natively support Windows. Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux) and install relay-tty inside your WSL distribution.
+
+## Why Not Native Windows?
+
+The core architecture is deeply Unix. The Rust pty-host uses `forkpty(3)`, Unix domain sockets, and POSIX signals — none of which exist on Windows. A native port would require replacing these with Windows equivalents across both the Rust binary and the Node.js server.
+
+## What a Native Port Would Require
+
+### Rust pty-host (hard)
+
+| Unix API | Windows Equivalent | Notes |
+|---|---|---|
+| `libc::forkpty` | ConPTY (`CreatePseudoConsole`) | Available since Windows 10 1809. Different API — no fork, uses `CreateProcess` with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`. The `conpty` crate exists but is less mature. |
+| `libc::tcgetpgrp` | No direct equivalent | Foreground process tracking would need `NtQueryInformationProcess` or console API calls. |
+| `proc_pidinfo` / `/proc/pid/cwd` | `NtQueryInformationProcess` | CWD polling for the shell process. |
+| `proc_name` / `/proc/pid/comm` | `QueryFullProcessImageNameW` | Process name resolution. |
+| `SIGWINCH`, `SIGHUP`, `SIGTERM` | Console events, `TerminateProcess` | Windows uses `GenerateConsoleCtrlEvent` and `SetConsoleCtrlHandler` instead of Unix signals. ConPTY resize uses `ResizePseudoConsole`. |
+| `UnixListener` (Unix domain sockets) | Named pipes or `AF_UNIX` | Windows has `AF_UNIX` since Win10 1803, but Rust's `std::os::unix` module isn't available on Windows. Named pipes (`\\.\pipe\`) are the native alternative. |
+
+### Node.js server (medium)
+
+- **Unix socket IPC** in `pty-manager.ts` and `ws-handler.ts` — switch to named pipes or TCP localhost.
+- **Process management** — `process.kill(pid, 0)` for liveness checks needs a different approach (e.g., `tasklist` or Windows APIs via native addon).
+- **File paths** — `.sock` file conventions, hardcoded `/` separators in some places.
+
+### Build & distribution
+
+- Cross-compile the Rust binary for `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`.
+- Update the postinstall binary download script to handle `.exe` binaries.
+- CI matrix for Windows testing.
+
+## Effort Estimate
+
+A working Windows port would be a 2-3 week focused effort, primarily on the Rust ConPTY backend. The Node.js changes are straightforward by comparison. Testing across Windows versions adds additional time.
+
+## Recommended Approach (if pursuing)
+
+1. Abstract `spawn_pty()` behind a trait with Unix and Windows implementations.
+2. Use the `conpty` crate or raw `windows-rs` bindings for `CreatePseudoConsole`.
+3. Replace Unix sockets with named pipes (or TCP localhost for simplicity).
+4. Gate platform-specific code with `#[cfg(target_os)]` — the existing `get_process_name` and `get_process_cwd` functions already use this pattern.
+5. Start with a minimal "it runs" port before adding feature parity (foreground process tracking, CWD polling, etc.).
