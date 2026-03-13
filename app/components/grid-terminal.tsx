@@ -6,6 +6,7 @@ import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "./terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { Maximize2, Search, FolderOpen, Info, Power } from "lucide-react";
+import { CopyableId } from "./copyable-id";
 
 interface GridTerminalProps {
   session: Session;
@@ -435,7 +436,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
                     <div className="text-xs font-mono space-y-1.5 text-[#94a3b8]">
                       <div className="flex justify-between gap-4">
                         <span className="text-[#64748b]">Session</span>
-                        <span className="text-[#e2e8f0]">{session.id}</span>
+                        <CopyableId value={session.id} className="text-[#e2e8f0]" />
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-[#64748b]">Status</span>

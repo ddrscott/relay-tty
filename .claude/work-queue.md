@@ -70,7 +70,7 @@
 - [x] Fix CWD not propagating to child sessions spawned via `relay <cmd>` ([detail](work-queue/cwd-propagation-fix.md))
 - [x] Handle Android IME correction/word-replace via beforeinput event listeners on xterm textarea ([detail](work-queue/android-ime-corrections.md))
 - [x] Unify file viewers — use file browser's FileViewerPanel for file-link clicks, remove old file-viewer.tsx ([detail](work-queue/unify-file-viewers.md))
-- ~[ ] Make session IDs copyable via tap/click — copy to clipboard with brief toast confirmation~ *(rejected — auto-generated task not requested by user)*
+- [x] Make session IDs copyable via tap/click — copy to clipboard with brief toast confirmation ([detail](work-queue/copyable-session-ids.md))
 - [x] File viewer panel should cover session toolbar — act as modal overlay to prevent background interactions
 - [x] Wire up file path link clicks in grid/lanes expanded view — open file viewer like mobile session view
 

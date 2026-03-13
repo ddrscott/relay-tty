@@ -1,4 +1,5 @@
 import type { SessionGroup } from "../lib/session-groups";
+import { CopyableId } from "./copyable-id";
 
 interface SessionPickerProps {
   groups: SessionGroup[];
@@ -35,9 +36,7 @@ export function SessionPicker({ groups, activeSessionId, onSelect }: SessionPick
               <code className="text-sm font-mono truncate flex-1 text-[#e2e8f0]">
                 {s.title || `${s.command} ${s.args.join(" ")}`}
               </code>
-              <span className="text-xs text-[#64748b] font-mono shrink-0">
-                {s.id}
-              </span>
+              <CopyableId value={s.id} className="text-xs text-[#64748b] font-mono shrink-0" />
               {s.status === "exited" && (
                 <span
                   className={`text-xs shrink-0 ${

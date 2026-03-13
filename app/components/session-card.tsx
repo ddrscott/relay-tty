@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Loader } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { useTimeAgo } from "../hooks/use-time-ago";
+import { CopyableId } from "./copyable-id";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -91,7 +92,7 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
                   <span className="shrink-0">·</span>
                 </>
               )}
-              <span className="shrink-0">{session.id}</span>
+              <CopyableId value={session.id} className="shrink-0" />
             </div>
             <span className="shrink-0">
               {activityAgo}

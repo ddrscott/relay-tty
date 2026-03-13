@@ -11,6 +11,7 @@ import {
   TerminalSquare,
   Zap,
 } from "lucide-react";
+import { CopyableId } from "./copyable-id";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -132,7 +133,7 @@ export function SessionInfoPanel({
         )}
         <div className="flex justify-between gap-4">
           <span className="text-[#64748b]">Session</span>
-          <span className="text-[#e2e8f0]">{session.id} ({currentIndex + 1}/{totalSessions})</span>
+          <span className="text-[#e2e8f0]"><CopyableId value={session.id} /> ({currentIndex + 1}/{totalSessions})</span>
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-[#64748b]">Status</span>

@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, Menu, X, Settings } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { LayoutSwitcher } from "./layout-switcher";
+import { CopyableId } from "./copyable-id";
 
 const SHELL_OPTIONS = [
   { label: "$SHELL", command: "$SHELL" },
@@ -90,7 +91,7 @@ function SidebarSessionItem({
         <span className="truncate flex-1 min-w-0">
           {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
         </span>
-        <span className="shrink-0">{session.id}</span>
+        <CopyableId value={session.id} className="shrink-0" />
         <span className="shrink-0 ml-1">
           {activityAgo}
         </span>
@@ -131,6 +132,17 @@ export function SidebarDrawer({
       localStorage.setItem("relay-tty-sidebar-collapsed", String(next));
       return next;
     });
+  }, []);
+
+  // Sync sidebar state when toggled from session toolbar (via storage event)
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === "relay-tty-sidebar-collapsed") {
+        setSidebarCollapsed(localStorage.getItem("relay-tty-sidebar-collapsed") === "true");
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
   }, []);
 
   // Determine which session is currently active from the URL
@@ -208,24 +220,11 @@ export function SidebarDrawer({
   }, [location.pathname]);
 
   return (
-    <div className={`drawer ${sidebarCollapsed ? "" : "lg:drawer-open"} h-screen`}>
+    <div className={`drawer ${sidebarCollapsed ? "" : "lg:drawer-open"} h-screen`} data-sidebar={sidebarCollapsed ? "collapsed" : "open"}>
       <input id="sidebar-drawer" type="checkbox" className="drawer-toggle" />
 
       {/* Main content */}
       <div className="drawer-content flex flex-col h-full">
-        {/* Hamburger menu button — only visible on desktop when sidebar is collapsed */}
-        {sidebarCollapsed && (
-          <button
-            className="hidden lg:flex fixed left-2 top-2 z-40 items-center justify-center w-9 h-9 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-            onClick={toggleSidebar}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-            title="Show sidebar"
-            aria-label="Show sidebar"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-        )}
         {children}
       </div>
 
