@@ -147,6 +147,12 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const longPressFired = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
 
+  // Ref for onNavigate to avoid re-creating fetchDir when parent re-renders
+  // (parent passes inline arrow → new identity every render → fetchDir
+  //  recreated → useEffect refires → infinite fetch loop)
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
+
   // Fetch directory listing
   const fetchDir = useCallback(async (dirPath: string) => {
     setLoading(true);
@@ -160,13 +166,13 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
       const data = await res.json();
       setCurrentPath(data.path);
       setEntries(data.entries);
-      onNavigate?.(data.path);
+      onNavigateRef.current?.(data.path);
     } catch (err: any) {
       setError(err.message || "Failed to load directory");
     } finally {
       setLoading(false);
     }
-  }, [sessionId, onNavigate]);
+  }, [sessionId]);
 
   useEffect(() => {
     fetchDir(initialPath);

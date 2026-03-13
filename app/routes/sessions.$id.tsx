@@ -211,6 +211,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [altOn, setAltOn] = useState(false);
   const [replayProgress, setReplayProgress] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  const infoOpenRef = useRef(false);
+  infoOpenRef.current = infoOpen;
   const infoRef = useRef<HTMLDivElement>(null);
   const [textViewerOpen, setTextViewerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -231,11 +233,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const notifPanelRef = useRef<HTMLDivElement>(null);
   const [notifHistory, setNotifHistory] = useState<NotificationEntry[]>([]);
   const [notifLastSeenCount, setNotifLastSeenCount] = useState(0);
+  // ── Activity state: refs for high-frequency updates, state only for rendering ──
+  // handleActivityUpdate fires every 500ms during output. Using refs avoids
+  // re-rendering the entire component tree on every WS data message.
   const [sessionActive, setSessionActive] = useState(true);
-  const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
-  const [lastActiveTime, setLastActiveTime] = useState<number>(
+  const sessionActiveRef = useRef(true);
+  const totalBytesRef = useRef(session.totalBytesWritten ?? 0);
+  const lastActiveTimeRef = useRef<number>(
     session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now()
   );
+  const [totalBytes, setTotalBytes] = useState(session.totalBytesWritten ?? 0);
   const [idleDisplay, setIdleDisplay] = useState("");
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
@@ -252,8 +259,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setAtBottom(true);
     setReplayProgress(null);
     setSessionActive(true);
+    sessionActiveRef.current = true;
+    totalBytesRef.current = session.totalBytesWritten ?? 0;
     setTotalBytes(session.totalBytesWritten ?? 0);
-    setLastActiveTime(session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now());
+    lastActiveTimeRef.current = session.lastActiveAt ? new Date(session.lastActiveAt).getTime() : Date.now();
     setIdleDisplay("");
     setFileViewerLink(null);
     setFileBrowserOpen(false);
@@ -423,38 +432,53 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setFileViewerLink(null);
   }, [isMobile]);
 
-  // Activity update from terminal WS — also feeds smart notification triggers
+  // Activity update from terminal WS — also feeds smart notification triggers.
+  // Uses refs for high-frequency values to avoid re-rendering the full tree
+  // every 500ms. Only triggers setState when a value changes rendering.
   const handleActivityUpdate = useCallback((update: { isActive: boolean; totalBytes: number; bps1?: number; bps5?: number; bps15?: number }) => {
-    setSessionActive(update.isActive);
-    setTotalBytes(update.totalBytes);
+    const wasActive = sessionActiveRef.current;
+    sessionActiveRef.current = update.isActive;
+    totalBytesRef.current = update.totalBytes;
     if (update.isActive) {
-      setLastActiveTime(Date.now());
+      lastActiveTimeRef.current = Date.now();
+    }
+    // Only re-render for active↔idle transitions (activity dot in header)
+    if (update.isActive !== wasActive) {
+      setSessionActive(update.isActive);
+    }
+    // Only update totalBytes state when info panel is visible
+    if (infoOpenRef.current) {
+      setTotalBytes(update.totalBytes);
     }
     smartNotifUpdate(update);
   }, [smartNotifUpdate]);
 
-  // Idle time ticker: update display every second when idle
+  // Idle time ticker: reads from refs, only calls setState when display changes.
+  // Single stable interval — no teardown/recreation on activity transitions.
   useEffect(() => {
-    function updateIdleDisplay() {
-      if (sessionActive) {
-        setIdleDisplay("");
-        return;
+    let prevDisplay = "";
+    function tick() {
+      let display = "";
+      if (!sessionActiveRef.current) {
+        const elapsed = Date.now() - lastActiveTimeRef.current;
+        if (elapsed >= 3600_000) display = `${Math.floor(elapsed / 3600_000)}h`;
+        else if (elapsed >= 60_000) display = `${Math.floor(elapsed / 60_000)}m`;
+        else if (elapsed >= 1000) display = `${Math.floor(elapsed / 1000)}s`;
       }
-      const elapsed = Date.now() - lastActiveTime;
-      if (elapsed < 1000) {
-        setIdleDisplay("");
-      } else if (elapsed < 60_000) {
-        setIdleDisplay(`${Math.floor(elapsed / 1000)}s`);
-      } else if (elapsed < 3600_000) {
-        setIdleDisplay(`${Math.floor(elapsed / 60_000)}m`);
-      } else {
-        setIdleDisplay(`${Math.floor(elapsed / 3600_000)}h`);
+      if (display !== prevDisplay) {
+        prevDisplay = display;
+        setIdleDisplay(display);
       }
     }
-    updateIdleDisplay();
-    const timer = setInterval(updateIdleDisplay, 1000);
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [sessionActive, lastActiveTime]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync totalBytes to state when info panel opens (ref stays current always)
+  useEffect(() => {
+    if (infoOpen) setTotalBytes(totalBytesRef.current);
+  }, [infoOpen]);
 
   // ── Notification history: fetch on mount, close panel on outside click ──
   useEffect(() => {
@@ -571,12 +595,24 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     return cbs;
   }
 
-  // Open text viewer overlay with current visible terminal content
-  const openTextViewer = useCallback(() => {
-    const text = terminalRef.current?.getVisibleText() ?? "";
-    setTextViewerContent(text);
-    setTextViewerOpen(true);
+  // ── Stable toolbar callbacks (for React.memo on SessionMobileToolbar) ──
+  const toggleCtrl = useCallback(() => setCtrlOn(v => !v), []);
+  const toggleAlt = useCallback(() => setAltOn(v => !v), []);
+  const toggleTextViewer = useCallback(() => {
+    setTextViewerOpen(prev => {
+      if (prev) return false;
+      const text = terminalRef.current?.getVisibleText() ?? "";
+      setTextViewerContent(text);
+      return true;
+    });
   }, []);
+  const toolbarSendText = useCallback((text: string) => {
+    const handle = terminalRef.current ?? chatRef.current;
+    if (!handle) return;
+    handle.sendText(text);
+    setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
+  }, []);
+  const toggleFileBrowser = useCallback(() => setFileBrowserOpen(v => !v), []);
 
   // ── File upload ──
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1282,19 +1318,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           key={activeId}
           ctrlOn={ctrlOn}
           altOn={altOn}
-          onCtrlToggle={() => setCtrlOn(!ctrlOn)}
-          onAltToggle={() => setAltOn(!altOn)}
+          onCtrlToggle={toggleCtrl}
+          onAltToggle={toggleAlt}
           onSendKey={sendKey}
           textViewerOpen={textViewerOpen}
-          onTextViewerToggle={() => { textViewerOpen ? setTextViewerOpen(false) : openTextViewer(); }}
-          onSendText={(text) => {
-            const handle = terminalRef.current ?? chatRef.current;
-            if (!handle) return;
-            handle.sendText(text);
-            setTimeout(() => (terminalRef.current ?? chatRef.current)?.sendText("\r"), 50);
-          }}
+          onTextViewerToggle={toggleTextViewer}
+          onSendText={toolbarSendText}
           fileBrowserOpen={fileBrowserOpen}
-          onFileBrowserToggle={() => setFileBrowserOpen(v => !v)}
+          onFileBrowserToggle={toggleFileBrowser}
           hasSharedClipboard={!!sharedClipboard}
           onClipboardToggle={handleClipboardToggle}
         />

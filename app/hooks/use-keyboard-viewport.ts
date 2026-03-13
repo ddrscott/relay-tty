@@ -21,18 +21,23 @@ export function useKeyboardViewport(): void {
 
     let inputFocused = false;
 
+    // Always track vv.height so the container smoothly follows keyboard
+    // dismiss animation instead of snapping to 100dvh on focusout (which
+    // leaves a black box while the keyboard is still animating away).
     function applyViewport() {
       if (vv.scale > 1.05) return; // page is zoomed, not keyboard
 
+      // Always set --app-h to match visual viewport — when no keyboard
+      // is open, vv.height ≈ innerHeight ≈ 100dvh so there's no visible
+      // difference. During keyboard animation, this tracks smoothly.
+      root.style.setProperty("--app-h", `${vv.height}px`);
+
       if (inputFocused) {
-        root.style.setProperty("--app-h", `${vv.height}px`);
         window.scrollTo(0, 0);
         const focused = document.activeElement;
         if (focused instanceof HTMLElement) {
           focused.scrollIntoView({ block: "nearest", behavior: "instant" });
         }
-      } else {
-        root.style.removeProperty("--app-h");
       }
     }
 
@@ -46,7 +51,9 @@ export function useKeyboardViewport(): void {
 
     function onFocusOut() {
       inputFocused = false;
-      root.style.removeProperty("--app-h");
+      // Don't remove --app-h here — let vv resize events continue tracking
+      // the visual viewport as the keyboard animates away. When fully
+      // dismissed, vv.height returns to full height naturally.
     }
 
     // Keep vv listeners active at all times so we catch keyboard close

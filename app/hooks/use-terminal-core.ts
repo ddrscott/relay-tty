@@ -741,13 +741,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         new DataView(resumeMsg.buffer).setFloat64(1, byteOffset, false);
         ws.send(resumeMsg);
 
-        if (!opts.readOnly) {
-          const msg = new Uint8Array(5);
-          msg[0] = WS_MSG.RESIZE;
-          new DataView(msg.buffer).setUint16(1, term.cols, false);
-          new DataView(msg.buffer).setUint16(3, term.rows, false);
-          ws.send(msg);
-        }
+        // No auto-RESIZE on connect — SIGWINCH is only sent when the user
+        // clicks the floating resize button. If dims don't match the PTY,
+        // the mismatch button appears automatically.
 
         // Start heartbeat: send PING every 10s, detect zombie connections after 45s silence.
         // Tunnel connections (browser → DO → tunnel → local) can lose individual

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef, memo } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { useTerminalInput } from "../hooks/use-terminal-input";
 import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
@@ -53,7 +53,7 @@ interface TerminalProps {
   initialPtyRows?: number;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true, initialPtyCols, initialPtyRows }, ref) {
+export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true, initialPtyCols, initialPtyRows }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -187,7 +187,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults]);
 
   // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
-  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef });
+  // sendResize=false: don't auto-send RESIZE/SIGWINCH on every xterm refit
+  // (keyboard show/hide, window resize). The floating mismatch button is the
+  // only path that sends RESIZE — gives the user explicit control.
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef, sendResize: false });
 
   // Track local xterm dimensions after fit/resize
   useEffect(() => {
@@ -273,4 +276,4 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
     </div>
   );
-});
+}));

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, type TouchEvent } from "react";
+import { useRef, useState, useCallback, useEffect, memo, type TouchEvent } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -29,7 +29,7 @@ interface SessionMobileToolbarProps {
   onClipboardToggle?: () => void;
 }
 
-export function SessionMobileToolbar({
+export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   ctrlOn,
   altOn,
   onCtrlToggle,
@@ -307,4 +307,4 @@ export function SessionMobileToolbar({
       </div>
     </div>
   );
-}
+});
