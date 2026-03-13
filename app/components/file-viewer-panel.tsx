@@ -390,30 +390,26 @@ export function StandaloneFileViewer({ sessionId, filePath, line, column, onClos
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  // Close on click outside panel
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [onClose]);
+  // Click-outside is handled by the backdrop div's onClick
 
   return (
-    <div
-      ref={panelRef}
-      className="absolute inset-y-0 right-0 z-20 flex flex-col bg-[#0f0f1a] border-l border-[#2d2d44] shadow-2xl
-        w-full sm:w-[50%] md:w-[45%] lg:w-[40%] max-w-2xl
-        animate-slide-in-right"
-    >
-      <FileViewerPanel
-        sessionId={sessionId}
-        filePath={filePath}
-        line={line}
-        onClose={onClose}
-      />
+    <div className="fixed inset-0 z-50" aria-modal="true">
+      {/* Backdrop — click to close */}
+      <div className="absolute inset-0 bg-[#0a0a0f]/60" onClick={onClose} />
+      {/* Panel */}
+      <div
+        ref={panelRef}
+        className="absolute inset-y-0 right-0 z-10 flex flex-col bg-[#0f0f1a] border-l border-[#2d2d44] shadow-2xl
+          w-full sm:w-[50%] md:w-[45%] lg:w-[40%] max-w-2xl
+          animate-slide-in-right"
+      >
+        <FileViewerPanel
+          sessionId={sessionId}
+          filePath={filePath}
+          line={line}
+          onClose={onClose}
+        />
+      </div>
     </div>
   );
 }
