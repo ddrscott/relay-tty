@@ -63,6 +63,8 @@
 - [x] Remove slide-up animation from file browser — display instantly instead of animating in
 - [x] Fix terminal scroll jumping to top during active output — maintain bottom-follow or mid-scroll position ([detail](work-queue/scroll-position-during-output.md))
 - [x] Add sessionExited toggle to notification settings — currently hardcoded to always-on, no way to disable ([detail](work-queue/session-exit-notif-toggle.md))
+- [x] Notification history records events even when triggers are disabled — gate history on trigger settings ([detail](work-queue/notif-history-ignores-settings.md))
+- [x] Collapsible session list sidebar on desktop — toggle button to hide/show, persist preference
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

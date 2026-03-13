@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, Settings } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
@@ -119,6 +119,20 @@ export function SidebarDrawer({
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
 
+  // Desktop sidebar collapse state (persisted to localStorage)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("relay-tty-sidebar-collapsed") === "true";
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("relay-tty-sidebar-collapsed", String(next));
+      return next;
+    });
+  }, []);
+
   // Determine which session is currently active from the URL
   const activeSessionId = useMemo(() => {
     const match = location.pathname.match(/^\/sessions\/([^/]+)/);
@@ -194,11 +208,24 @@ export function SidebarDrawer({
   }, [location.pathname]);
 
   return (
-    <div className="drawer lg:drawer-open h-screen">
+    <div className={`drawer ${sidebarCollapsed ? "" : "lg:drawer-open"} h-screen`}>
       <input id="sidebar-drawer" type="checkbox" className="drawer-toggle" />
 
       {/* Main content */}
       <div className="drawer-content flex flex-col h-full">
+        {/* Collapsed sidebar expand button — only visible on desktop when sidebar is collapsed */}
+        {sidebarCollapsed && (
+          <button
+            className="hidden lg:flex fixed left-0 top-1/2 -translate-y-1/2 z-40 items-center justify-center w-6 h-12 bg-[#0a0a0f] border border-l-0 border-[#1e1e2e] rounded-r-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+            onClick={toggleSidebar}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            title="Show sidebar"
+            aria-label="Show sidebar"
+          >
+            <PanelLeftOpen className="w-3.5 h-3.5" />
+          </button>
+        )}
         {children}
       </div>
 
@@ -214,8 +241,18 @@ export function SidebarDrawer({
                 <span className="text-sm font-normal text-[#94a3b8]">@{hostname}</span>
               )}
             </h1>
-            <div className="hidden lg:block">
+            <div className="hidden lg:flex items-center gap-1">
               <LayoutSwitcher />
+              <button
+                className="p-1 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors"
+                onClick={toggleSidebar}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                title="Hide sidebar"
+                aria-label="Hide sidebar"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
