@@ -364,7 +364,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   return (
     <div
       ref={panelRef}
-      className="absolute inset-0 z-30 flex flex-col bg-[#0f0f1a] animate-slide-in-bottom"
+      className="absolute inset-0 z-30 flex flex-col bg-[#0f0f1a]"
     >
       {/* File viewer — layers on top of file list, preserving list scroll position */}
       {viewingFile && (
@@ -768,7 +768,7 @@ function FileViewerPanel({ sessionId, filePath, onBack, onCloseAll }: FileViewer
   }, [sessionId, filePath]);
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-[#0f0f1a] animate-slide-in-bottom">
+    <div className="absolute inset-0 z-30 flex flex-col bg-[#0f0f1a]">
       {/* Header */}
       <div className="flex items-center gap-1.5 px-2 py-2 border-b border-[#2d2d44] shrink-0">
         <button
