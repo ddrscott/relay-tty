@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, Menu, X, Settings } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
@@ -213,17 +213,17 @@ export function SidebarDrawer({
 
       {/* Main content */}
       <div className="drawer-content flex flex-col h-full">
-        {/* Collapsed sidebar expand button — only visible on desktop when sidebar is collapsed */}
+        {/* Hamburger menu button — only visible on desktop when sidebar is collapsed */}
         {sidebarCollapsed && (
           <button
-            className="hidden lg:flex fixed left-0 top-1/2 -translate-y-1/2 z-40 items-center justify-center w-6 h-12 bg-[#0a0a0f] border border-l-0 border-[#1e1e2e] rounded-r-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
+            className="hidden lg:flex fixed left-2 top-2 z-40 items-center justify-center w-9 h-9 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
             onClick={toggleSidebar}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
             title="Show sidebar"
             aria-label="Show sidebar"
           >
-            <PanelLeftOpen className="w-3.5 h-3.5" />
+            <Menu className="w-4 h-4" />
           </button>
         )}
         {children}
@@ -251,7 +251,7 @@ export function SidebarDrawer({
                 title="Hide sidebar"
                 aria-label="Hide sidebar"
               >
-                <PanelLeftClose className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>

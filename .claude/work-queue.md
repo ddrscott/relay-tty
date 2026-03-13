@@ -65,6 +65,7 @@
 - [x] Add sessionExited toggle to notification settings — currently hardcoded to always-on, no way to disable ([detail](work-queue/session-exit-notif-toggle.md))
 - [x] Notification history records events even when triggers are disabled — gate history on trigger settings ([detail](work-queue/notif-history-ignores-settings.md))
 - [x] Collapsible session list sidebar on desktop — toggle button to hide/show, persist preference
+- [x] Replace sidebar collapse button with hamburger menu — match mobile drawer toggle pattern ([detail](work-queue/sidebar-hamburger-menu.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
