@@ -4,6 +4,7 @@ import { useTerminalInput } from "../hooks/use-terminal-input";
 import { encodeResizeMessage } from "../lib/ws-messages";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "./terminal";
+import type { FileLink } from "../lib/file-link-provider";
 import { Maximize2, Search, FolderOpen, Info, Power } from "lucide-react";
 
 interface GridTerminalProps {
@@ -73,6 +74,28 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     setLiveRows(newRows);
   }, []);
 
+  // ── File link viewer state ──
+  const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
+  const [FileViewerComponent, setFileViewerComponent] =
+    useState<React.ComponentType<any> | null>(null);
+
+  const handleFileLink = useCallback((link: FileLink) => {
+    setFileViewerLink(link);
+  }, []);
+
+  const closeFileViewer = useCallback(() => {
+    setFileViewerLink(null);
+  }, []);
+
+  // Lazy-load file viewer only when first needed
+  useEffect(() => {
+    if (fileViewerLink && !FileViewerComponent && typeof window !== "undefined") {
+      import("./file-viewer-panel").then((mod) => {
+        setFileViewerComponent(() => mod.StandaloneFileViewer);
+      });
+    }
+  }, [fileViewerLink, FileViewerComponent]);
+
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
   // Thumbnails shrink via CSS transform: scale().
@@ -84,6 +107,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     fixedCols: session.cols,
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,
+    onFileLink: handleFileLink,
   });
 
   // When live dimensions change, resize the xterm instance directly.
@@ -276,6 +300,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
       setSearchOpen(false);
       setFileBrowserOpen(false);
       setInfoOpen(false);
+      setFileViewerLink(null);
     }
   }, [zoomed]);
 
@@ -517,6 +542,17 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
           initialPath={fileBrowserPathRef.current ?? session.cwd}
           onClose={() => setFileBrowserOpen(false)}
           onNavigate={(path: string) => { fileBrowserPathRef.current = path; }}
+        />
+      )}
+
+      {/* File viewer — opened when a file path link is clicked in terminal output */}
+      {fileViewerLink && FileViewerComponent && (
+        <FileViewerComponent
+          sessionId={session.id}
+          filePath={fileViewerLink.path}
+          line={fileViewerLink.line}
+          column={fileViewerLink.column}
+          onClose={closeFileViewer}
         />
       )}
 
