@@ -361,24 +361,25 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   // Breadcrumb segments
   const segments = pathSegments(currentPath);
 
-  // If viewing a file, render the file viewer
-  if (viewingFile) {
-    return (
-      <FileViewerPanel
-        sessionId={sessionId}
-        filePath={viewingFile}
-        onClose={() => setViewingFile(null)}
-        onBack={() => setViewingFile(null)}
-        onCloseAll={onClose}
-      />
-    );
-  }
-
   return (
     <div
       ref={panelRef}
       className="absolute inset-0 z-30 flex flex-col bg-[#0f0f1a] animate-slide-in-bottom"
     >
+      {/* File viewer — layers on top of file list, preserving list scroll position */}
+      {viewingFile && (
+        <FileViewerPanel
+          sessionId={sessionId}
+          filePath={viewingFile}
+          onClose={() => setViewingFile(null)}
+          onBack={() => setViewingFile(null)}
+          onCloseAll={onClose}
+        />
+      )}
+
+      {/* File list — always mounted, hidden when viewing a file */}
+      <div className={viewingFile ? "hidden" : "contents"}>
+
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-2 border-b border-[#2d2d44] shrink-0">
         <button
@@ -682,6 +683,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
           )}
         </div>
       </>)}
+      </div>{/* end file list wrapper */}
     </div>
   );
 }
