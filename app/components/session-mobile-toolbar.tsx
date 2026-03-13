@@ -149,7 +149,7 @@ export function SessionMobileToolbar({
   return (
     <div
       ref={toolbarRootRef}
-      className="relative bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
+      className="relative z-40 bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
       onMouseDown={(e) => { if (!(e.target instanceof HTMLTextAreaElement)) e.preventDefault(); }}
     >
       {/* Ctrl shortcut menu — rendered at toolbar root to avoid overflow clipping from scrollable key row */}
@@ -157,6 +157,10 @@ export function SessionMobileToolbar({
         <div
           className="absolute z-50 -translate-x-1/2 bg-[#0f0f1a] border border-[#2d2d44] border-b-0 rounded-t-lg shadow-xl py-1 flex flex-col min-w-[7rem]"
           style={{ left: menuLeft, bottom: "calc(2.75rem + env(safe-area-inset-bottom))" }}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onClick={(e) => e.stopPropagation()}
         >
           {shortcuts.map((s) => (
             <button
@@ -164,8 +168,8 @@ export function SessionMobileToolbar({
               className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs hover:bg-[#1a1a2e] active:bg-[#1a1a2e] whitespace-nowrap"
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); sendCtrlShortcut(s.key); }}
-              onClick={() => sendCtrlShortcut(s.key)}
+              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); sendCtrlShortcut(s.key); }}
+              onClick={(e) => { e.stopPropagation(); sendCtrlShortcut(s.key); }}
             >
               <span className="text-[#7dd3fc]">^{s.key}</span>
               <span className="text-[#64748b]">{s.label}</span>
