@@ -38,6 +38,8 @@ interface UseTerminalInputOpts {
   inputTransformRef?: React.RefObject<((data: string) => string | null) | null>;
   /** Whether to auto-send RESIZE on terminal resize (false for grid cells) */
   sendResize?: boolean;
+  /** State signal that termRef.current is set — triggers effect re-run after async init */
+  termReady?: boolean;
 }
 
 /**
@@ -51,6 +53,7 @@ export function useTerminalInput({
   enabled,
   inputTransformRef,
   sendResize = true,
+  termReady,
 }: UseTerminalInputOpts) {
   // Wire up terminal input → WS
   useEffect(() => {
@@ -69,7 +72,7 @@ export function useTerminalInput({
     });
 
     return () => disposable.dispose();
-  }, [termRef.current, sendBinary, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [termReady, sendBinary, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up resize → WS (dedup to avoid redundant SIGWINCH → full TUI redraws)
   const lastSentSizeRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
@@ -84,5 +87,5 @@ export function useTerminalInput({
     });
 
     return () => disposable.dispose();
-  }, [termRef.current, sendBinary, sendResize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [termReady, sendBinary, sendResize]); // eslint-disable-line react-hooks/exhaustive-deps
 }

@@ -69,7 +69,7 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
     }
   }, [sessionId]);
 
-  const { termRef, searchAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
+  const { termRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${sessionId}`,
     fontSize,
     active,
@@ -187,7 +187,7 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   // sendResize=false: don't auto-send RESIZE/SIGWINCH on every xterm refit
   // (keyboard show/hide, window resize). The floating mismatch button is the
   // only path that sends RESIZE — gives the user explicit control.
-  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef, sendResize: false });
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: active, inputTransformRef, sendResize: false, termReady });
 
   // Send RESIZE/SIGWINCH to PTY with current local xterm dimensions.
   const [resizeToast, setResizeToast] = useState(false);

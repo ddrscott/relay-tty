@@ -150,6 +150,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [retryCount, setRetryCount] = useState(0);
   const [contentReady, setContentReady] = useState(false);
+  // Signals that termRef.current is set (xterm initialized or restored from pool).
+  // useTerminalInput depends on this instead of termRef.current directly, because
+  // mutating a ref doesn't re-run effects — this state change does.
+  const [termReady, setTermReady] = useState(false);
   // True during buffer replay — suppresses onData forwarding so xterm's
   // CPR/DA responses to replayed DSR queries don't leak to the PTY as stdin.
   const replayingRef = useRef(false);
@@ -302,6 +306,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       termRef.current = term;
       fitAddonRef.current = fitAddon;
+      setTermReady(true);
 
       // Skip auto-fit when using fixed cols/rows (grid thumbnails).
       // The terminal is rendered at the session's actual dimensions
@@ -1082,6 +1087,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       fitAddonRef.current = pooled.fitAddon;
       webglRef.current = pooled.webgl;
       searchAddonRef.current = pooled.searchAddon;
+      setTermReady(true);
       byteOffset = pooled.byteOffset;
       cacheWriter = pooled.cacheWriter;
 
@@ -1189,6 +1195,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         });
         poolEvict();
         // Clear refs without disposing — pooled for reuse
+        setTermReady(false);
         termRef.current = null;
         fitAddonRef.current = null;
         webglRef.current = null;
@@ -1212,5 +1219,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, fit, sendBinary, replayingRef };
+  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef };
 }

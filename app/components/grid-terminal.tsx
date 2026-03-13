@@ -75,7 +75,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
   // Thumbnails shrink via CSS transform: scale().
-  const { termRef, status, contentReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
+  const { termRef, status, contentReady, termReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
     fontSize: 14,
     readOnly: true,
@@ -146,7 +146,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
   }, [contentReady, zoomed, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up keyboard input when selected (sendResize: false — grid manages RESIZE explicitly)
-  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: selected, sendResize: false });
+  useTerminalInput({ termRef, sendBinary, replayingRef, enabled: selected, sendResize: false, termReady });
 
   // Toggle stdin/cursor and focus when selection changes
   useEffect(() => {
