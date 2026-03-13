@@ -203,6 +203,8 @@ When installed via npm, a postinstall script automatically downloads the pre-bui
 | macOS | ARM64 (M1/M2/M3), x86_64 (Intel) |
 | Linux | x86_64, ARM64 |
 
+> **Windows**: Not natively supported. Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux) and install relay-tty inside your WSL distribution.
+
 If the download fails (offline, unsupported platform), it falls back to the Node.js pty-host. Set `RELAY_SKIP_BINARY_DOWNLOAD=1` to skip the download entirely.
 
 Binaries are built via GitHub Actions on each tagged release (`v*`). The workflow cross-compiles for all four targets and attaches stripped binaries to the GitHub release.
