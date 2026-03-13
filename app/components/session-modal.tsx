@@ -17,6 +17,7 @@ import {
   Power,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
+import { syncPushTriggers } from "../hooks/use-push-subscription";
 import {
   getEffectiveNotifSettings,
   getSessionNotifOverride,
@@ -166,6 +167,7 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
       const effective = prev ?? getEffectiveNotifSettings(session.id);
       const next = { ...effective, [key]: !effective[key] };
       setSessionNotifOverride(session.id, next);
+      syncPushTriggers();
       return next;
     });
   }, [session.id]);
@@ -173,6 +175,7 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
   const clearSessionNotifOverride = useCallback(() => {
     setSessionNotifOverride(session.id, null);
     setSessionNotifOverrideState(null);
+    syncPushTriggers();
   }, [session.id]);
 
   const effectiveNotif = sessionNotifOverride ?? getEffectiveNotifSettings(session.id);

@@ -62,3 +62,19 @@ export function setSessionNotifOverride(sessionId: string, settings: NotifSettin
 export function getEffectiveNotifSettings(sessionId: string): NotifSettings {
   return getSessionNotifOverride(sessionId) ?? getGlobalNotifSettings();
 }
+
+/** Collect all per-session notification overrides from localStorage. */
+export function getAllSessionNotifOverrides(): Record<string, NotifSettings> {
+  if (typeof window === "undefined") return {};
+  const PREFIX = "relay-tty-notif-";
+  const GLOBAL = "relay-tty-notif-settings";
+  const result: Record<string, NotifSettings> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(PREFIX) || key === GLOBAL) continue;
+    const sessionId = key.slice(PREFIX.length);
+    const settings = parse(localStorage.getItem(key));
+    if (settings) result[sessionId] = settings;
+  }
+  return result;
+}

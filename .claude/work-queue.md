@@ -58,6 +58,7 @@
 - [x] File browser: remember last-visited directory instead of resetting to cwd on every open ([detail](work-queue/file-browser-remember-path.md))
 - [x] Persist session sort preference per device — save to localStorage so it doesn't reset to "active" on reload ([detail](work-queue/persist-sort-preference.md))
 - [x] Fix xterm/chat radio selector not receiving clicks — events fall through to xterm instead of being captured by the selector ([detail](work-queue/xterm-chat-selector-click.md))
+- [x] Fix push notifications ignoring per-session settings — server has no per-session trigger overrides, only global ([detail](work-queue/push-per-session-triggers.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

@@ -6,7 +6,7 @@
  * Works on iOS PWA, Android, and desktop browsers.
  */
 import { useEffect, useRef, useCallback, useState } from "react";
-import { getGlobalNotifSettings } from "../lib/notif-settings";
+import { getGlobalNotifSettings, getAllSessionNotifOverrides } from "../lib/notif-settings";
 
 /** Convert a base64 URL-safe string to Uint8Array (for applicationServerKey) */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -28,6 +28,22 @@ function buildTriggers(): { activityStopped: boolean; activitySpiked: boolean; s
     activitySpiked: settings.activitySpiked,
     sessionExited: true, // always enabled, no UI toggle
   };
+}
+
+/** Build per-session trigger overrides from localStorage. */
+function buildPerSessionTriggers(): Record<string, { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean }> | undefined {
+  const overrides = getAllSessionNotifOverrides();
+  const keys = Object.keys(overrides);
+  if (keys.length === 0) return undefined;
+  const result: Record<string, { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean }> = {};
+  for (const sessionId of keys) {
+    result[sessionId] = {
+      activityStopped: overrides[sessionId].activityStopped,
+      activitySpiked: overrides[sessionId].activitySpiked,
+      sessionExited: true,
+    };
+  }
+  return result;
 }
 
 async function doSubscribe(): Promise<boolean> {
@@ -63,6 +79,7 @@ async function doSubscribe(): Promise<boolean> {
         },
         sessionIds: [], // empty = all sessions
         triggers: buildTriggers(),
+        perSessionTriggers: buildPerSessionTriggers(),
       }),
     });
 
@@ -102,6 +119,7 @@ export async function syncPushTriggers(): Promise<void> {
         },
         sessionIds: [],
         triggers: buildTriggers(),
+        perSessionTriggers: buildPerSessionTriggers(),
       }),
     });
   } catch (err) {

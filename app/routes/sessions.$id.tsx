@@ -33,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
-import { usePushSubscription } from "../hooks/use-push-subscription";
+import { usePushSubscription, syncPushTriggers } from "../hooks/use-push-subscription";
 import {
   getEffectiveNotifSettings,
   getSessionNotifOverride,
@@ -405,6 +405,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       const effective = prev ?? getEffectiveNotifSettings(activeId);
       const next = { ...effective, [key]: !effective[key] };
       setSessionNotifOverride(activeId, next);
+      syncPushTriggers();
       return next;
     });
   }, [activeId]);
@@ -412,6 +413,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const clearSessionNotifOverride = useCallback(() => {
     setSessionNotifOverride(activeId, null);
     setSessionNotifOverrideState(null);
+    syncPushTriggers();
   }, [activeId]);
 
   const effectiveNotif = sessionNotifOverride ?? getEffectiveNotifSettings(activeId);

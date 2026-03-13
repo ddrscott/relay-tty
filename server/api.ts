@@ -548,10 +548,11 @@ export function createApiRouter(
       res.status(500).json({ error: "Push not configured" });
       return;
     }
-    const { subscription, sessionIds = [], triggers } = req.body as {
+    const { subscription, sessionIds = [], triggers, perSessionTriggers } = req.body as {
       subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
       sessionIds?: string[];
       triggers?: { activityStopped?: boolean; activitySpiked?: boolean; sessionExited?: boolean };
+      perSessionTriggers?: Record<string, { activityStopped?: boolean; activitySpiked?: boolean; sessionExited?: boolean }>;
     };
     if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
       res.status(400).json({ error: "Invalid push subscription" });
@@ -561,7 +562,7 @@ export function createApiRouter(
       activityStopped: triggers?.activityStopped ?? true,
       activitySpiked: triggers?.activitySpiked ?? true,
       sessionExited: triggers?.sessionExited ?? true,
-    });
+    }, perSessionTriggers);
     res.json({ ok: true });
   });
 

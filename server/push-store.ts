@@ -16,6 +16,12 @@ const PUSH_DIR = path.join(RELAY_DIR, "push");
 const VAPID_FILE = path.join(PUSH_DIR, "vapid.json");
 const SUBSCRIPTIONS_FILE = path.join(PUSH_DIR, "subscriptions.json");
 
+export type TriggerFlags = {
+  activityStopped: boolean;
+  activitySpiked: boolean;
+  sessionExited: boolean;
+};
+
 export interface PushSubscriptionRecord {
   /** The push endpoint URL (unique identifier) */
   endpoint: string;
@@ -23,12 +29,10 @@ export interface PushSubscriptionRecord {
   keys: { p256dh: string; auth: string };
   /** Session IDs this subscription wants notifications for (empty = all) */
   sessionIds: string[];
-  /** Notification types enabled */
-  triggers: {
-    activityStopped: boolean;
-    activitySpiked: boolean;
-    sessionExited: boolean;
-  };
+  /** Notification types enabled (global default) */
+  triggers: TriggerFlags;
+  /** Per-session trigger overrides — checked before global triggers */
+  perSessionTriggers?: Record<string, Partial<TriggerFlags>>;
   /** When the subscription was created */
   createdAt: number;
 }
@@ -64,19 +68,24 @@ export class PushStore {
   subscribe(
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
     sessionIds: string[],
-    triggers: PushSubscriptionRecord["triggers"]
+    triggers: PushSubscriptionRecord["triggers"],
+    perSessionTriggers?: Record<string, Partial<TriggerFlags>>
   ): void {
     const existing = this.subscriptions.find(s => s.endpoint === subscription.endpoint);
     if (existing) {
       existing.keys = subscription.keys;
       existing.sessionIds = sessionIds;
       existing.triggers = triggers;
+      existing.perSessionTriggers = perSessionTriggers && Object.keys(perSessionTriggers).length > 0
+        ? perSessionTriggers : undefined;
     } else {
       this.subscriptions.push({
         endpoint: subscription.endpoint,
         keys: subscription.keys,
         sessionIds,
         triggers,
+        perSessionTriggers: perSessionTriggers && Object.keys(perSessionTriggers).length > 0
+          ? perSessionTriggers : undefined,
         createdAt: Date.now(),
       });
     }
@@ -100,10 +109,15 @@ export class PushStore {
     trigger: "activityStopped" | "activitySpiked" | "sessionExited"
   ): PushSubscriptionRecord[] {
     return this.subscriptions.filter(sub => {
-      // Check trigger is enabled
-      if (!sub.triggers[trigger]) return false;
       // Check session filter (empty = all sessions)
       if (sub.sessionIds.length > 0 && !sub.sessionIds.includes(sessionId)) return false;
+      // Per-session override takes priority over global trigger
+      const sessionOverride = sub.perSessionTriggers?.[sessionId];
+      if (sessionOverride && trigger in sessionOverride) {
+        return sessionOverride[trigger];
+      }
+      // Fall back to global trigger
+      if (!sub.triggers[trigger]) return false;
       return true;
     });
   }
