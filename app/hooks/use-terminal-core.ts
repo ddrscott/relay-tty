@@ -688,6 +688,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const stopMomentum = () => {
         scrollState.momentumActive = false;
         setViewportActive(true);
+        // Fire the scroll change callback that was suppressed during momentum.
+        // Without this, atBottom stays stale and the "Jump to bottom" button
+        // never appears after a momentum scroll away from the bottom.
+        if (opts.onScrollChange) {
+          const buf = term.buffer.active;
+          opts.onScrollChange(buf.viewportY >= buf.baseY);
+        }
       };
 
       const cancelMomentum = () => {
