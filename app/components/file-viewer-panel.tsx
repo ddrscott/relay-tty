@@ -7,7 +7,7 @@
  * line number toggling.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   X,
   File,
@@ -416,8 +416,38 @@ export function StandaloneFileViewer({ sessionId, filePath, line, column, onClos
 
 // ── Markdown renderer ───────────────────────────────────────────────────
 
+/** Parse YAML frontmatter from markdown content */
+function parseFrontmatter(content: string): { meta: Record<string, string> | null; body: string } {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { meta: null, body: content };
+
+  const meta: Record<string, string> = {};
+  for (const line of match[1].split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+    if (key) meta[key] = val;
+  }
+  return { meta: Object.keys(meta).length > 0 ? meta : null, body: match[2] };
+}
+
+function FrontmatterBlock({ meta }: { meta: Record<string, string> }) {
+  return (
+    <div className="mx-4 mt-3 mb-1 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#2d2d44] text-xs font-mono leading-relaxed">
+      {Object.entries(meta).map(([key, val]) => (
+        <div key={key} className="flex gap-2">
+          <span className="text-[#64748b] shrink-0">{key}:</span>
+          <span className="text-[#94a3b8] break-all">{val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MarkdownRenderer({ content }: { content: string }) {
   const [html, setHtml] = useState("");
+  const { meta, body } = useMemo(() => parseFrontmatter(content), [content]);
 
   useEffect(() => {
     // Dynamic import to keep bundle size down
@@ -426,28 +456,31 @@ function MarkdownRenderer({ content }: { content: string }) {
         gfm: true,
         breaks: true,
       });
-      const result = marked.parse(content);
+      const result = marked.parse(body);
       if (typeof result === "string") {
         setHtml(result);
       } else {
         result.then(setHtml);
       }
     });
-  }, [content]);
+  }, [body]);
 
   return (
-    <div
-      className="flex-1 overflow-auto px-4 py-3 prose prose-invert prose-sm max-w-none
-        prose-headings:text-[#e2e8f0] prose-p:text-[#cbd5e1]
-        prose-a:text-[#60a5fa] prose-strong:text-[#e2e8f0]
-        prose-code:text-[#f59e0b] prose-code:bg-[#1a1a2e] prose-code:px-1 prose-code:rounded
-        prose-pre:bg-[#19191f] prose-pre:border prose-pre:border-[#2d2d44]
-        prose-blockquote:border-[#2d2d44] prose-blockquote:text-[#94a3b8]
-        prose-li:text-[#cbd5e1] prose-td:text-[#cbd5e1] prose-th:text-[#e2e8f0]
-        prose-hr:border-[#2d2d44]
-        prose-img:rounded-lg prose-img:max-w-full"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="flex-1 overflow-auto min-h-0">
+      {meta && <FrontmatterBlock meta={meta} />}
+      <div
+        className="px-4 py-3 prose prose-invert prose-sm max-w-none
+          prose-headings:text-[#e2e8f0] prose-p:text-[#cbd5e1]
+          prose-a:text-[#60a5fa] prose-strong:text-[#e2e8f0]
+          prose-code:text-[#f59e0b] prose-code:bg-[#1a1a2e] prose-code:px-1 prose-code:rounded
+          prose-pre:bg-[#19191f] prose-pre:border prose-pre:border-[#2d2d44]
+          prose-blockquote:border-[#2d2d44] prose-blockquote:text-[#94a3b8]
+          prose-li:text-[#cbd5e1] prose-td:text-[#cbd5e1] prose-th:text-[#e2e8f0]
+          prose-hr:border-[#2d2d44]
+          prose-img:rounded-lg prose-img:max-w-full"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   );
 }
 
