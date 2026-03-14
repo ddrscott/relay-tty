@@ -233,9 +233,13 @@ export class TunnelClient {
     const path = payload.length > 0 ? payload.toString("utf-8") : "/ws";
     const localUrl = `ws://localhost:${this.opts.localPort}${path}`;
 
-    const localWs = new WebSocket(localUrl, {
-      headers: { "x-relay-tunnel": "1" },
-    });
+    // NOTE: No x-relay-tunnel header on WS connections. Unlike HTTP requests
+    // (where we forward all browser headers including cookies), the CLIENT_OPEN
+    // protocol only sends the path — no browser headers/cookies are forwarded.
+    // Adding x-relay-tunnel would make verifyWsAuth reject the connection (no
+    // cookie to verify). Fixing this properly requires protocol changes to
+    // include auth headers in CLIENT_OPEN frames.
+    const localWs = new WebSocket(localUrl);
     localWs.binaryType = "nodebuffer";
 
     localWs.on("open", () => {
