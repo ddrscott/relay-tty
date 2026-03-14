@@ -233,7 +233,9 @@ export class TunnelClient {
     const path = payload.length > 0 ? payload.toString("utf-8") : "/ws";
     const localUrl = `ws://localhost:${this.opts.localPort}${path}`;
 
-    const localWs = new WebSocket(localUrl);
+    const localWs = new WebSocket(localUrl, {
+      headers: { "x-relay-tunnel": "1" },
+    });
     localWs.binaryType = "nodebuffer";
 
     localWs.on("open", () => {

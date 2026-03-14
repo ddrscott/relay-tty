@@ -265,6 +265,57 @@ fn handshake_resume_valid_offset_gets_delta() {
     assert!(types.contains(&WS_MSG_SYNC), "Expected SYNC, got: {:?}", types);
 }
 
+#[test]
+fn handshake_resume_stale_offset_sends_cache_reset() {
+    // Write >20MB to guarantee the ring buffer (10MB) wraps past offset 1.0.
+    // Use `yes` piped through `head` for fast, reliable output.
+    let handle = spawn_pty_host(
+        "/bin/sh",
+        &["-c", "yes | head -c 20971520 && sleep 2"],
+    )
+    .expect("failed to spawn");
+
+    // Wait for all output to be written and ring buffer to wrap
+    std::thread::sleep(Duration::from_secs(5));
+
+    // Connect with offset 1.0 — definitely overwritten by the 10MB ring buffer
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(1.0).expect("send_resume failed");
+
+    let frames = client.collect_frames(Duration::from_secs(3));
+    let types: Vec<u8> = frames.iter().map(|f| f.msg_type).collect();
+
+    // Should get: SYNC(0.0) cache-reset, then BUFFER_REPLAY, then SYNC(total)
+    let sync_frames: Vec<&Frame> = frames.iter().filter(|f| f.msg_type == WS_MSG_SYNC).collect();
+    assert!(
+        sync_frames.len() >= 2,
+        "Expected at least 2 SYNC frames (cache-reset + final), got {}: types={:?}",
+        sync_frames.len(),
+        types
+    );
+
+    // First SYNC must be the cache-reset signal: offset == 0.0
+    let reset_offset = f64::from_be_bytes(sync_frames[0].data[..8].try_into().unwrap());
+    assert_eq!(
+        reset_offset, 0.0,
+        "First SYNC should be cache-reset (0.0), got {}",
+        reset_offset
+    );
+
+    // Second SYNC should have the real total offset (>> 0)
+    let real_offset = f64::from_be_bytes(sync_frames[1].data[..8].try_into().unwrap());
+    assert!(
+        real_offset > 1.0,
+        "Second SYNC should have positive offset, got {}",
+        real_offset
+    );
+
+    // Should also have a replay frame
+    let has_replay =
+        types.contains(&WS_MSG_BUFFER_REPLAY) || types.contains(&WS_MSG_BUFFER_REPLAY_GZ);
+    assert!(has_replay, "Expected BUFFER_REPLAY, got: {:?}", types);
+}
+
 // ── Data flow tests ─────────────────────────────────────────────────
 
 #[test]

@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { resolveHost } from "../config.js";
+import { readTunnelConfig } from "../tunnel-config.js";
 
 export function registerShareCommand(program: Command) {
   program
@@ -8,6 +9,15 @@ export function registerShareCommand(program: Command) {
     .option("-H, --host <url>", "server URL")
     .option("--ttl <seconds>", "link lifetime in seconds (default: 3600, max: 86400)", "3600")
     .action(async (id: string, opts) => {
+      // Guard: sharing without a tunnel produces useless localhost URLs
+      if (!opts.host && !readTunnelConfig()) {
+        process.stderr.write(
+          "Error: No tunnel configured. Share links require --tunnel for remote access.\n" +
+          "Hint: Start the server with `relay server start --tunnel`, or use `--host <url>` to specify the public URL.\n"
+        );
+        process.exit(1);
+      }
+
       const host = resolveHost(opts.host);
       const ttl = parseInt(opts.ttl, 10) || 3600;
 

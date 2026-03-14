@@ -2027,13 +2027,24 @@ async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, 
                 send_replay(writer, state, &delta).await;
             }
             None => {
-                // Offset too old -- full replay
+                // Offset too old -- full replay with cache reset signal
                 let buf_data = s.output_buffer.read();
                 drop(s);
+                send_cache_reset(writer).await;
                 send_replay(writer, state, &buf_data).await;
             }
         }
     }
+}
+
+/// Send SYNC(0.0) to tell the client its cached buffer is stale and must be discarded.
+async fn send_cache_reset(writer: &ClientWriter) {
+    let mut sync_msg = vec![0u8; 9];
+    sync_msg[0] = WS_MSG_SYNC;
+    // bytes 1..9 are already zero → f64 0.0
+    let frame = encode_frame(&sync_msg);
+    let mut w = writer.lock().await;
+    let _ = w.write_all(&frame).await;
 }
 
 async fn send_full_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>) {

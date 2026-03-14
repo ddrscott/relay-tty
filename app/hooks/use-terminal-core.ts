@@ -960,7 +960,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         case WS_MSG.SYNC:
           if (payload.length >= 8) {
             const view = new DataView(payload.buffer, payload.byteOffset);
-            byteOffset = view.getFloat64(0, false);
+            const serverOffset = view.getFloat64(0, false);
+            if (serverOffset === 0 && byteOffset > 0) {
+              // Server says our cached offset is stale — discard cache
+              byteOffset = 0;
+              if (cacheSessionId) deleteCache(cacheSessionId);
+              cacheWriter?.dispose();
+              cacheWriter = cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+            } else {
+              byteOffset = serverOffset;
+            }
             cacheWriter?.setOffset(byteOffset);
             opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: byteOffset });
             // If SYNC arrives and content isn't ready yet, the session has

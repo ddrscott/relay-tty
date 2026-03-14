@@ -12,7 +12,14 @@ const HOSTNAME = hostname();
 const PORT = parseInt(process.env.PORT || "7680", 10);
 const HOST = "0.0.0.0";
 const isDev = process.env.NODE_ENV !== "production";
-const APP_URL = process.env.APP_URL;
+let APP_URL = process.env.APP_URL;
+if (!APP_URL) {
+  try {
+    const tunnelFile = join(homedir(), ".config", "relay-tty", "tunnel.json");
+    const tunnelConfig = JSON.parse(readFileSync(tunnelFile, "utf-8"));
+    if (tunnelConfig?.url) APP_URL = tunnelConfig.url;
+  } catch {}
+}
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const CONFIG_DIR = join(homedir(), ".config", "relay-tty");
