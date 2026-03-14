@@ -188,9 +188,18 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return;
   }
 
-  // Allow static assets through — JS/CSS bundles are public and needed by
-  // share pages where the viewer has no auth cookie.
-  if (req.path.startsWith("/assets/") || req.path === "/manifest.webmanifest" || req.path === "/sw.js") {
+  // Allow static assets and module requests through — JS/CSS bundles are
+  // public and needed by share pages where the viewer has no auth cookie.
+  // In dev: Vite serves from /app/, /node_modules/, /@id/, /@vite/, etc.
+  // In prod: bundled assets live under /assets/.
+  if (
+    req.path.startsWith("/assets/") ||
+    req.path.startsWith("/app/") ||
+    req.path.startsWith("/node_modules/") ||
+    req.path.startsWith("/@") ||
+    req.path === "/manifest.webmanifest" ||
+    req.path === "/sw.js"
+  ) {
     next();
     return;
   }
