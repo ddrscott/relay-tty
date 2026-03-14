@@ -8,29 +8,12 @@ export function meta() {
   ];
 }
 
-export async function loader({ params, context }: Route.LoaderArgs) {
-  const token = params.token!;
-  let cols: number | undefined;
-  let rows: number | undefined;
-
-  // Decode JWT payload to get session dimensions for correct initial render.
-  // Full token verification happens in the WS handler — this is best-effort.
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    if (payload.sub) {
-      const session = (context as any).sessionStore?.get(payload.sub);
-      if (session) {
-        cols = session.cols;
-        rows = session.rows;
-      }
-    }
-  } catch {}
-
-  return { token, cols, rows };
+export async function loader({ params }: Route.LoaderArgs) {
+  return { token: params.token! };
 }
 
 export default function ShareView({ loaderData }: Route.ComponentProps) {
-  const { token, cols, rows } = loaderData as { token: string; cols?: number; rows?: number };
+  const { token } = loaderData as { token: string };
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [termTitle, setTermTitle] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
@@ -75,8 +58,6 @@ export default function ShareView({ loaderData }: Route.ComponentProps) {
           {TerminalComponent && (
             <TerminalComponent
               token={token}
-              cols={cols}
-              rows={rows}
               onExit={(code: number) => setExitCode(code)}
               onTitleChange={setTermTitle}
               onAuthError={() => setExpired(true)}

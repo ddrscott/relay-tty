@@ -3,15 +3,13 @@ import { useTerminalCore } from "../hooks/use-terminal-core";
 
 interface ReadOnlyTerminalProps {
   token: string;
-  cols?: number;
-  rows?: number;
   onExit?: (exitCode: number) => void;
   onTitleChange?: (title: string) => void;
   onAuthError?: () => void;
 }
 
 export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
-  function ReadOnlyTerminal({ token, cols, rows, onExit, onTitleChange, onAuthError }, _ref) {
+  function ReadOnlyTerminal({ token, onExit, onTitleChange, onAuthError }, _ref) {
     const containerRef = useRef<HTMLDivElement>(null);
 
     const { status, retryCount, contentReady } = useTerminalCore(containerRef, {
@@ -20,9 +18,6 @@ export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
       onExit,
       onTitleChange,
       onAuthError,
-      // Use the session's actual dimensions so replayed buffer renders correctly.
-      // The pty-host will also send RESIZE before BUFFER_REPLAY (once rebuilt).
-      ...(cols && rows ? { fixedCols: cols, fixedRows: rows } : {}),
     });
 
     const [showPill, setShowPill] = useState(false);
