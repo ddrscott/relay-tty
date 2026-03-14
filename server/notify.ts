@@ -65,6 +65,9 @@ export function setupNotifications(
     message: string,
     trigger: "activityStopped" | "activitySpiked" | "sessionExited"
   ): void {
+    // Only record + send if at least one subscription has this trigger enabled
+    if (pushStore && pushStore.getSubscriptionsFor(sessionId, trigger).length === 0) return;
+
     const name = session.title || session.command;
 
     // Record in notification store (so all devices see it in history)
