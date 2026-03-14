@@ -1685,6 +1685,7 @@ async fn main() {
             let mut s = state_resize.write().await;
             s.meta.cols = new_cols;
             s.meta.rows = new_rows;
+            s.meta_dirty = true;
             s.output_buffer.notify_resize();
         }
     });
