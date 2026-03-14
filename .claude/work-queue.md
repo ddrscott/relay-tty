@@ -73,6 +73,7 @@
 - [x] Make session IDs copyable via tap/click — copy to clipboard with brief toast confirmation ([detail](work-queue/copyable-session-ids.md))
 - [x] File viewer panel should cover session toolbar — act as modal overlay to prevent background interactions
 - [x] Wire up file path link clicks in grid/lanes expanded view — open file viewer like mobile session view
+- [x] Grid/lanes double-click to expand thumbnail, shrink icon when expanded ([detail](work-queue/grid-dblclick-expand.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

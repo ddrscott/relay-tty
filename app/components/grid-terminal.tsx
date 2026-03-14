@@ -5,7 +5,7 @@ import { encodeResizeMessage } from "../lib/ws-messages";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "./terminal";
 import type { FileLink } from "../lib/file-link-provider";
-import { Maximize2, Search, FolderOpen, Info, Power } from "lucide-react";
+import { Maximize2, Minimize2, Search, FolderOpen, Info, Power } from "lucide-react";
 import { CopyableId } from "./copyable-id";
 
 interface GridTerminalProps {
@@ -211,6 +211,18 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     [zoomed, onZoom, onUnzoom]
   );
 
+  // Double-click on the terminal thumbnail area expands the cell.
+  // When already zoomed, do nothing — let the system handle normal text selection.
+  const handleTerminalDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (zoomed) return; // allow normal text selection when expanded
+      e.stopPropagation();
+      e.preventDefault();
+      onZoom?.();
+    },
+    [zoomed, onZoom]
+  );
+
   // Compute visible cols×rows from the wrapper size and xterm cell dimensions,
   // then send a real RESIZE to the PTY so the running program redraws to fit.
   const handleFitToCell = useCallback(() => {
@@ -227,6 +239,10 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     const wrapperRect = wrapper.getBoundingClientRect();
     const newCols = Math.max(1, Math.floor(wrapperRect.width / cellW));
     const newRows = Math.max(1, Math.floor(wrapperRect.height / cellH));
+
+    // Skip if PTY is already at these dimensions (avoids unnecessary SIGWINCH
+    // on re-expand when the terminal already remembers the right size)
+    if (term.cols === newCols && term.rows === newRows) return;
 
     // Send RESIZE to PTY
     sendBinary(encodeResizeMessage(newCols, newRows));
@@ -503,9 +519,9 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
             onClick={(e) => { e.stopPropagation(); zoomed ? onUnzoom?.() : onZoom?.(); }}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
-            aria-label={zoomed ? "Unzoom" : "Zoom"}
+            aria-label={zoomed ? "Shrink" : "Expand"}
           >
-            <Maximize2 className="w-3 h-3" />
+            {zoomed ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
           </button>
         </div>
       </div>
@@ -523,7 +539,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
       )}
 
       {/* Terminal content — CSS-scaled to fit */}
-      <div ref={wrapperRef} className="flex-1 min-h-0 overflow-hidden">
+      <div ref={wrapperRef} className="flex-1 min-h-0 overflow-hidden" onDoubleClick={handleTerminalDoubleClick}>
         <div
           ref={containerRef}
           className="overflow-hidden"
