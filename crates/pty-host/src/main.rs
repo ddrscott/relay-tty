@@ -1674,6 +1674,7 @@ async fn main() {
 
     // ── Resize task ─────────────────────────────────────────────────
     let state_resize = Arc::clone(&state);
+    let broadcast_tx_resize = broadcast_tx.clone();
     tokio::spawn(async move {
         while let Some((new_cols, new_rows)) = resize_rx.recv().await {
             let s = state_resize.read().await;
@@ -1687,6 +1688,12 @@ async fn main() {
             s.meta.rows = new_rows;
             s.meta_dirty = true;
             s.output_buffer.notify_resize();
+
+            // Broadcast RESIZE to all clients so read-only viewers stay in sync
+            let mut resize_msg = vec![WS_MSG_RESIZE, 0, 0, 0, 0];
+            resize_msg[1..3].copy_from_slice(&new_cols.to_be_bytes());
+            resize_msg[3..5].copy_from_slice(&new_rows.to_be_bytes());
+            let _ = broadcast_tx_resize.send(encode_frame(&resize_msg));
         }
     });
 
@@ -2055,6 +2062,18 @@ async fn send_full_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>
 }
 
 async fn send_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, buf_data: &[u8]) {
+    // Send current dimensions before replay so clients render at the correct size.
+    // Uses RESIZE (0x01) server→client: [type(1)][cols(2 BE)][rows(2 BE)].
+    {
+        let s = state.read().await;
+        let mut resize_msg = vec![WS_MSG_RESIZE, 0, 0, 0, 0];
+        resize_msg[1..3].copy_from_slice(&s.meta.cols.to_be_bytes());
+        resize_msg[3..5].copy_from_slice(&s.meta.rows.to_be_bytes());
+        let frame = encode_frame(&resize_msg);
+        let mut w = writer.lock().await;
+        let _ = w.write_all(&frame).await;
+    }
+
     // Strip terminal query sequences
     let cleaned = if !buf_data.is_empty() {
         strip_terminal_queries(buf_data)

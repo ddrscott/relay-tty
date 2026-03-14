@@ -1067,6 +1067,19 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           }
           break;
         }
+        case WS_MSG.RESIZE: {
+          // Server→client: PTY dimensions [cols(2 BE)][rows(2 BE)]
+          // Resize xterm to match (don't send RESIZE back — this IS the server's size)
+          if (payload.length >= 4) {
+            const view = new DataView(payload.buffer, payload.byteOffset);
+            const newCols = view.getUint16(0, false);
+            const newRows = view.getUint16(2, false);
+            if (newCols > 0 && newRows > 0 && (term.cols !== newCols || term.rows !== newRows)) {
+              term.resize(newCols, newRows);
+            }
+          }
+          break;
+        }
         case WS_MSG.CLIPBOARD: {
           // UTF-8 clipboard text from another device or OSC 52
           const clipText = new TextDecoder().decode(payload);
