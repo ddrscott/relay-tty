@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  useLocation,
   useRevalidator,
 } from "react-router";
 import { useKeyboardViewport } from "./hooks/use-keyboard-viewport";
@@ -23,9 +24,12 @@ export const links: Route.LinksFunction = () => [
   { rel: "apple-touch-icon", href: "/icon-192.svg" },
 ];
 
-export async function loader({ context }: Route.LoaderArgs) {
-  const sessions = context.sessionStore.list();
-  const customCommands: string[] = context.readCustomCommands ? context.readCustomCommands() : [];
+export async function loader({ context, request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  // Don't expose session list to unauthenticated share viewers
+  const isShare = url.pathname.startsWith("/share/");
+  const sessions = isShare ? [] : context.sessionStore.list();
+  const customCommands: string[] = !isShare && context.readCustomCommands ? context.readCustomCommands() : [];
   return { sessions, version: context.version, hostname: context.hostname, customCommands };
 }
 
@@ -62,7 +66,13 @@ export default function App({ loaderData }: Route.ComponentProps) {
     customCommands: string[];
   };
   const { revalidate } = useRevalidator();
+  const location = useLocation();
+  const isShareRoute = location.pathname.startsWith("/share/");
   useSessionEvents(revalidate);
+
+  if (isShareRoute) {
+    return <Outlet />;
+  }
 
   return (
     <SidebarDrawer sessions={sessions} version={version} hostname={hostname} customCommands={customCommands}>

@@ -188,6 +188,13 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return;
   }
 
+  // Allow static assets through — JS/CSS bundles are public and needed by
+  // share pages where the viewer has no auth cookie.
+  if (req.path.startsWith("/assets/") || req.path === "/manifest.webmanifest" || req.path === "/sw.js") {
+    next();
+    return;
+  }
+
   const cookies = cookie.parse(req.headers.cookie || "");
   const token = cookies.session;
 
