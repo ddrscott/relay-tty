@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ExternalLink } from "lucide-react";
 import type { Route } from "./+types/share.$token";
 
 export function meta() {
@@ -111,12 +112,13 @@ export default function ShareView({ loaderData }: Route.ComponentProps) {
         <p className="text-xs text-[#64748b] font-mono">
           Live terminal shared via{" "}
           <a
-            href="https://github.com/ddrscott/relay-tty"
+            href="https://relaytty.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#3b82f6] hover:text-[#60a5fa] transition-colors"
+            className="inline-flex items-center gap-1 text-[#3b82f6] hover:text-[#60a5fa] transition-colors"
           >
             relay-tty
+            <ExternalLink className="w-3 h-3" />
           </a>
         </p>
       </div>
@@ -132,7 +134,7 @@ export default function ShareView({ loaderData }: Route.ComponentProps) {
 
             <div className="bg-[#19191f] rounded-lg p-4 mb-4 border border-[#1e1e2e]">
               <p className="text-xs text-[#64748b] mb-2 font-mono">Quick start</p>
-              <code className="text-sm font-mono select-all block text-[#22c55e]">npx relay-tty</code>
+              <code className="text-sm font-mono select-all block text-[#22c55e]">npx relay-tty --help</code>
             </div>
 
             <div className="bg-[#19191f] rounded-lg p-4 mb-4 border border-[#1e1e2e]">
@@ -141,14 +143,15 @@ export default function ShareView({ loaderData }: Route.ComponentProps) {
             </div>
 
             <p className="text-xs text-[#64748b]">
-              Open source on{" "}
+              Learn more at{" "}
               <a
-                href="https://github.com/ddrscott/relay-tty"
+                href="https://relaytty.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[#3b82f6] hover:text-[#60a5fa] transition-colors"
+                className="inline-flex items-center gap-1 text-[#3b82f6] hover:text-[#60a5fa] transition-colors"
               >
-                GitHub
+                relaytty.com
+                <ExternalLink className="w-3 h-3" />
               </a>
             </p>
 
