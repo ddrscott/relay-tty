@@ -34,6 +34,13 @@
   --app-h: 100dvh;
 }
 
+/* Prevent the browser from scrolling the document when the virtual keyboard
+   opens. Android Chrome can scroll <html> even when <body> has overflow:hidden. */
+html {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;

@@ -794,7 +794,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // Our capture-phase stopPropagation prevents xterm's own touchstart
             // handler from running, so the textarea never gets focused natively.
             const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-            if (textarea) textarea.focus();
+            if (textarea) textarea.focus({ preventScroll: true });
             opts.onTap?.();
           }
         }

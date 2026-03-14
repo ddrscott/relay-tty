@@ -220,7 +220,7 @@ export function SidebarDrawer({
   }, [location.pathname]);
 
   return (
-    <div className={`drawer ${sidebarCollapsed ? "" : "lg:drawer-open"} h-screen`} data-sidebar={sidebarCollapsed ? "collapsed" : "open"}>
+    <div className={`drawer ${sidebarCollapsed ? "" : "lg:drawer-open"} h-app`} data-sidebar={sidebarCollapsed ? "collapsed" : "open"}>
       <input id="sidebar-drawer" type="checkbox" className="drawer-toggle" />
 
       {/* Main content */}

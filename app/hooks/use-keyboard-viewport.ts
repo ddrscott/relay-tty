@@ -32,11 +32,24 @@ export function useKeyboardViewport(): void {
       // difference. During keyboard animation, this tracks smoothly.
       root.style.setProperty("--app-h", `${vv.height}px`);
 
+      // Always reset scroll — the browser can scroll <html> or <body> to
+      // show a focused input even when overflow:hidden is set. This fires
+      // on every vv resize during keyboard animation, counteracting any
+      // browser-initiated scroll displacement immediately.
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+
       if (inputFocused) {
-        window.scrollTo(0, 0);
         const focused = document.activeElement;
         if (focused instanceof HTMLElement) {
-          focused.scrollIntoView({ block: "nearest", behavior: "instant" });
+          // Only scrollIntoView for non-xterm inputs (e.g. scratchpad).
+          // xterm's .xterm-helper-textarea is positioned at the cursor location
+          // inside an overflow:hidden container — scrollIntoView would scroll
+          // parent containers and push the terminal out of view.
+          if (!focused.closest('.xterm')) {
+            focused.scrollIntoView({ block: "nearest", behavior: "instant" });
+          }
         }
       }
     }

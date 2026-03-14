@@ -186,7 +186,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
       const textarea = containerRef.current?.querySelector(
         ".xterm-helper-textarea"
       ) as HTMLTextAreaElement | null;
-      textarea?.focus();
+      textarea?.focus({ preventScroll: true });
     }
   }, [selected, termRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
