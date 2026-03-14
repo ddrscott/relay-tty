@@ -3,6 +3,7 @@ import { useRevalidator } from "react-router";
 import type { Route } from "./+types/grid";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
+import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -595,15 +596,15 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
       <div className="flex items-center justify-between mb-4 shrink-0 w-full">
         <div className="flex items-center gap-2">
-          <label
-            htmlFor="sidebar-drawer"
-            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer lg:hidden"
+          <button
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
+            onClick={() => toggleSidebarDrawer()}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
           >
             <Menu className="w-5 h-5" />
-          </label>
-          <h1 className="text-2xl font-bold font-mono text-[#64748b]">
+          </button>
+          <h1 className="text-2xl font-bold font-mono text-[#64748b] sidebar-redundant">
             Grid
             {hostname && (
               <span className="text-lg font-normal text-[#94a3b8] ml-2">@{hostname}</span>

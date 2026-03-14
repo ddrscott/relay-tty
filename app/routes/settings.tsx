@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRevalidator } from "react-router";
 import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power } from "lucide-react";
 import { PlainInput } from "../components/plain-input";
+import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import {
   getGlobalNotifSettings,
   setGlobalNotifSettings,
@@ -159,14 +160,14 @@ export default function Settings() {
       <div className="container mx-auto p-4 max-w-lg">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <label
-            htmlFor="sidebar-drawer"
-            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer lg:hidden"
+          <button
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
+            onClick={() => toggleSidebarDrawer()}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
           >
             <Menu className="w-4 h-4" />
-          </label>
+          </button>
           <h1 className="text-xl font-bold font-mono text-[#e2e8f0]">Settings</h1>
         </div>
 

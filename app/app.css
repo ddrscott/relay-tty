@@ -89,6 +89,13 @@ body {
   color: #64748b;
 }
 
+/* Hide hostname/title in session toolbar when desktop sidebar is open (redundant with sidebar header) */
+@media (min-width: 1024px) {
+  [data-sidebar="open"] .sidebar-redundant {
+    display: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

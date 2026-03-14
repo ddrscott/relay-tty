@@ -4,6 +4,7 @@ import type { Route } from "./+types/home";
 import { Terminal, type TerminalHandle } from "../components/terminal";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
+import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { Maximize, Minimize, Menu } from "lucide-react";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -139,14 +140,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     return (
       <main className="h-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
         <div className="text-center max-w-sm">
-          <label
-            htmlFor="sidebar-drawer"
-            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer mb-4 lg:hidden"
+          <button
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer mb-4"
+            onClick={() => toggleSidebarDrawer()}
             onMouseDown={(e) => e.preventDefault()}
             tabIndex={-1}
           >
             <Menu className="w-5 h-5" />
-          </label>
+          </button>
           <h2 className="text-lg font-mono text-[#e2e8f0] mb-2">No active sessions</h2>
           <p className="text-sm text-[#64748b] font-mono mb-4">
             Start a session from the terminal:
