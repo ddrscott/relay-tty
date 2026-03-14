@@ -451,6 +451,66 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // helper), so setting 16px has no visual effect but prevents the zoom.
       textarea.style.fontSize = "16px";
 
+      // ── iOS Safari input handling ────────────────────────────────────
+      //
+      // Two independent problems on iOS (not applicable to Android where
+      // autocomplete=off successfully suppresses composition):
+      //
+      // 1. Composition duplication: iOS ignores autocomplete=off and routes
+      //    typing through composition (insertCompositionText). Each event
+      //    carries the FULL accumulated buffer ("c", "cd", "cd "), not deltas.
+      //    We block xterm's CompositionHelper via stopImmediatePropagation,
+      //    compute deltas ourselves, and block xterm's input event handler
+      //    during composition to prevent it reading the textarea buffer.
+      //
+      // 2. keydown + insertText double-send: xterm processes printable keys
+      //    via keydown, then iOS also fires beforeinput(insertText) for the
+      //    same character. We track what keydown handled and skip the
+      //    duplicate insertText.
+
+      const ua = navigator.userAgent;
+      const isIOS = /iPhone|iPad|iPod/.test(ua) ||
+        (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+
+      let compositionSent = "";
+      let inComposition = false;
+      let keydownHandledKey = "";
+
+      if (isIOS) {
+        textarea.addEventListener("compositionstart", (e) => {
+          e.stopImmediatePropagation();
+          inComposition = true;
+        });
+        textarea.addEventListener("compositionupdate", (e) => {
+          e.stopImmediatePropagation();
+        });
+        textarea.addEventListener("compositionend", (e) => {
+          e.stopImmediatePropagation();
+          compositionSent = "";
+          setTimeout(() => { inComposition = false; }, 0);
+        });
+
+        // Block xterm's input event handler during composition — prevents it
+        // from reading the full composition buffer out of the textarea.
+        textarea.addEventListener("input", (e) => {
+          if (inComposition) {
+            e.stopImmediatePropagation();
+            textarea.value = "";
+          }
+        }, { capture: true });
+
+        // Track whether xterm's keydown handler already processed a key.
+        // keydown fires before beforeinput — if xterm handled the character,
+        // the subsequent insertText must be skipped to avoid double-send.
+        textarea.addEventListener("keydown", (e) => {
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            keydownHandledKey = e.key;
+          } else {
+            keydownHandledKey = "";
+          }
+        }, { capture: true });
+      }
+
       textarea.addEventListener("beforeinput", (e) => {
         if (e.inputType === "insertLineBreak") {
           e.preventDefault();
@@ -465,50 +525,67 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         // suppress full composition but Android still shows suggestions.
 
         if (e.inputType === "deleteContentBackward") {
-          // Single backspace (e.g. tapping backspace key)
           if (e.cancelable) e.preventDefault();
           term.input("\x7f");
           return;
         }
 
         if (e.inputType === "deleteContentForward") {
-          // Forward delete
           if (e.cancelable) e.preventDefault();
           term.input("\x1b[3~");
           return;
         }
 
         if (e.inputType === "deleteWordBackward") {
-          // Hold-delete or correction removing old word — send Ctrl-W
           if (e.cancelable) e.preventDefault();
           term.input("\x17");
           return;
         }
 
         if (e.inputType === "deleteWordForward") {
-          // Forward word delete — send ESC d (Meta-d)
           if (e.cancelable) e.preventDefault();
           term.input("\x1bd");
           return;
         }
 
         if (e.inputType === "insertReplacementText") {
-          // Autocorrect replacement — delete old word then type new one.
-          // The replacement text is in dataTransfer (plaintext) or data.
           if (e.cancelable) e.preventDefault();
           const text = e.dataTransfer?.getData("text/plain") ?? e.data ?? "";
           if (text) {
-            // Delete the word being replaced, then type the replacement
             term.input("\x17" + text);
           }
           return;
         }
 
-        if (e.inputType === "insertText") {
-          // Committed text — send directly to terminal.
-          // This fires for normal typing and after correction commits.
+        if (isIOS && e.inputType === "insertCompositionText") {
+          // iOS composition — full buffer each time. Send only the delta.
           if (e.cancelable) e.preventDefault();
+          const full = e.data ?? "";
+          if (full.startsWith(compositionSent)) {
+            const delta = full.slice(compositionSent.length);
+            if (delta) term.input(delta);
+          } else {
+            // Buffer was replaced (e.g. autocorrect) — delete old, type new
+            if (compositionSent) {
+              for (let i = 0; i < compositionSent.length; i++) term.input("\x7f");
+            }
+            if (full) term.input(full);
+          }
+          compositionSent = full;
+          return;
+        }
+
+        if (e.inputType === "insertText") {
+          if (e.cancelable) e.preventDefault();
+          // iOS: skip during composition (already handled above) and
+          // skip single chars that xterm already processed via keydown.
+          if (inComposition) return;
           const text = e.data ?? "";
+          if (isIOS && text.length === 1 && text === keydownHandledKey) {
+            keydownHandledKey = "";
+            return;
+          }
+          keydownHandledKey = "";
           if (text) {
             term.input(text);
           }
