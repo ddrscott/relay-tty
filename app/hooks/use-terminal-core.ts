@@ -634,6 +634,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           viewport._innerRefresh = origViewport._innerRefresh;
           viewport.syncScrollArea = origViewport.syncScrollArea;
           viewport._handleScroll = origViewport._handleScroll;
+          // _innerRefresh syncs DOM scrollTop FROM xterm's internal ydisp.
+          // Must run BEFORE syncScrollArea(true), which does the reverse
+          // (reads DOM scrollTop → sets ydisp). During momentum _innerRefresh
+          // was disabled so scrollTop is stale — often 0 from alt-screen.
+          // Without this, syncScrollArea would read the stale scrollTop and
+          // reset ydisp to 0, jumping the viewport to the top.
+          viewport._innerRefresh();
           viewport.syncScrollArea(true);
         } else {
           viewport._innerRefresh = () => {};
