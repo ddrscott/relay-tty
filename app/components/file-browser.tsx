@@ -40,6 +40,7 @@ interface FilterToggles {
   showFiles: boolean;
   showDirs: boolean;
   showHidden: boolean;
+  recursive: boolean;
 }
 
 const FILTER_STORAGE_KEY = "relay-tty:file-browser-filters";
@@ -53,10 +54,11 @@ function loadFilterToggles(): FilterToggles {
         showFiles: parsed.showFiles !== false,
         showDirs: parsed.showDirs !== false,
         showHidden: parsed.showHidden !== false,
+        recursive: parsed.recursive === true,
       };
     }
   } catch {}
-  return { showFiles: true, showDirs: true, showHidden: true };
+  return { showFiles: true, showDirs: true, showHidden: true, recursive: false };
 }
 
 function saveFilterToggles(toggles: FilterToggles) {
@@ -131,11 +133,13 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   onNavigateRef.current = onNavigate;
 
   // Fetch directory listing
-  const fetchDir = useCallback(async (dirPath: string) => {
+  const fetchDir = useCallback(async (dirPath: string, recursive?: boolean) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/ls?path=${encodeURIComponent(dirPath)}`);
+      let url = `/api/sessions/${sessionId}/ls?path=${encodeURIComponent(dirPath)}`;
+      if (recursive) url += "&recursive=1";
+      const res = await fetch(url);
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         throw new Error(data.error || `HTTP ${res.status}`);
@@ -152,16 +156,16 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   }, [sessionId]);
 
   useEffect(() => {
-    fetchDir(initialPath);
-  }, [fetchDir, initialPath]);
+    fetchDir(initialPath, filterToggles.recursive);
+  }, [fetchDir, initialPath, filterToggles.recursive]);
 
   // Navigate to a directory
   const navigateTo = useCallback((dirPath: string) => {
     setSearchQuery("");
     setViewingFile(null);
     setContextMenu(null);
-    fetchDir(dirPath);
-  }, [fetchDir]);
+    fetchDir(dirPath, filterToggles.recursive);
+  }, [fetchDir, filterToggles.recursive]);
 
   // Go up one directory
   const goUp = useCallback(() => {
@@ -236,10 +240,16 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
     if (!filterToggles.showFiles) result = result.filter(e => e.type === "directory");
     if (!filterToggles.showDirs) result = result.filter(e => e.type !== "directory");
 
-    // Fuzzy search
+    // Filter by name — try as regex first, fall back to substring match
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(e => e.name.toLowerCase().includes(q));
+      let re: RegExp | null = null;
+      try { re = new RegExp(searchQuery, "i"); } catch {}
+      if (re) {
+        result = result.filter(e => re!.test(e.name));
+      } else {
+        const q = searchQuery.toLowerCase();
+        result = result.filter(e => e.name.toLowerCase().includes(q));
+      }
     }
 
     // Sort
@@ -457,7 +467,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
         {/* Filter toggles dropdown */}
         <div className={`relative ${filterMenuOpen ? "z-50" : ""}`}>
           <button
-            className={`btn btn-ghost btn-xs gap-1 ${filterMenuOpen ? "text-[#e2e8f0]" : (!filterToggles.showFiles || !filterToggles.showDirs || !filterToggles.showHidden) ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+            className={`btn btn-ghost btn-xs gap-1 ${filterMenuOpen ? "text-[#e2e8f0]" : (!filterToggles.showFiles || !filterToggles.showDirs || !filterToggles.showHidden || filterToggles.recursive) ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => { setFilterMenuOpen(!filterMenuOpen); setSortMenuOpen(false); }}
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
@@ -489,6 +499,23 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
                   />
                 </label>
               ))}
+              <div className="border-t border-[#2d2d44] my-1" />
+              <label
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#94a3b8] hover:bg-[#2d2d44] cursor-pointer select-none"
+              >
+                <span className="flex-1">Recursive</span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-xs toggle-success"
+                  checked={filterToggles.recursive}
+                  onChange={() => {
+                    const next = { ...filterToggles, recursive: !filterToggles.recursive };
+                    setFilterToggles(next);
+                    saveFilterToggles(next);
+                  }}
+                  tabIndex={-1}
+                />
+              </label>
             </div>
           )}
         </div>
@@ -550,7 +577,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
         {/* Refresh */}
         <button
           className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
-          onClick={() => fetchDir(currentPath)}
+          onClick={() => fetchDir(currentPath, filterToggles.recursive)}
           tabIndex={-1}
           onMouseDown={(e) => e.preventDefault()}
           aria-label="Refresh"

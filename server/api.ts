@@ -201,25 +201,27 @@ export function createApiRouter(
     }
 
     try {
-      const entries = fs.readdirSync(resolved, { withFileTypes: true });
-      const items = entries.map(entry => {
-        let size = 0;
-        let mtime = "";
-        try {
-          const s = fs.statSync(path.join(resolved, entry.name));
-          size = s.size;
-          mtime = s.mtime.toISOString();
-        } catch {}
-        return {
-          name: entry.name,
-          type: entry.isDirectory() ? "directory" as const
+      const recursive = req.query.recursive === "1";
+      type Item = { name: string; type: "file" | "directory" | "symlink"; size: number; mtime: string };
+
+      const readDir = (dir: string, prefix: string): Item[] => {
+        let dirEntries: fs.Dirent[];
+        try { dirEntries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+        const items: Item[] = [];
+        for (const entry of dirEntries) {
+          const relName = prefix ? `${prefix}/${entry.name}` : entry.name;
+          let size = 0, mtime = "";
+          try { const s = fs.statSync(path.join(dir, entry.name)); size = s.size; mtime = s.mtime.toISOString(); } catch {}
+          const type = entry.isDirectory() ? "directory" as const
             : entry.isSymbolicLink() ? "symlink" as const
-            : "file" as const,
-          size,
-          mtime,
-        };
-      });
-      res.json({ path: resolved, entries: items });
+            : "file" as const;
+          items.push({ name: relName, type, size, mtime });
+          if (recursive && entry.isDirectory()) items.push(...readDir(path.join(dir, entry.name), relName));
+        }
+        return items;
+      };
+
+      res.json({ path: resolved, entries: readDir(resolved, "") });
     } catch (err: any) {
       res.status(500).json({ error: `Failed to read directory: ${err.message}` });
     }
