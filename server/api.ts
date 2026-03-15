@@ -18,6 +18,7 @@ const RELAY_DIR = path.join(os.homedir(), ".relay-tty");
 const COMMANDS_FILE = path.join(RELAY_DIR, "commands.txt");
 const UPLOAD_DIR_FILE = path.join(RELAY_DIR, "upload-dir.txt");
 const DEFAULT_UPLOAD_DIR = path.join(RELAY_DIR, "uploads");
+const SCRATCHPAD_HISTORY_FILE = path.join(RELAY_DIR, "scratchpad.hst");
 
 /** Read configured upload directory, defaulting to ~/.relay-tty/uploads. */
 export function readUploadDir(): string {
@@ -620,6 +621,29 @@ export function createApiRouter(
       }
     }
     res.json({ ok: true, sent, total: subs.length });
+  });
+
+  // GET /api/scratchpad-history — read scratchpad history
+  router.get("/scratchpad-history", (_req, res) => {
+    try {
+      const raw = fs.readFileSync(SCRATCHPAD_HISTORY_FILE, "utf-8");
+      const entries = raw.split("\n").filter((l) => l);
+      res.json({ entries });
+    } catch {
+      res.json({ entries: [] });
+    }
+  });
+
+  // POST /api/scratchpad-history — append entry to scratchpad history
+  router.post("/scratchpad-history", (req, res) => {
+    const { entry } = req.body as { entry: string };
+    if (typeof entry !== "string" || !entry.trim()) {
+      res.status(400).json({ error: "entry is required" });
+      return;
+    }
+    fs.mkdirSync(RELAY_DIR, { recursive: true });
+    fs.appendFileSync(SCRATCHPAD_HISTORY_FILE, entry.replace(/\n/g, "\\n") + "\n");
+    res.json({ ok: true });
   });
 
   return router;

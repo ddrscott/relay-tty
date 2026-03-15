@@ -1333,12 +1333,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             if (heightDebounce) { clearTimeout(heightDebounce); heightDebounce = null; }
             fit();
           } else if (h !== lastHeight) {
-            // Height-only change (keyboard open/close) — debounce to avoid
-            // rapid SIGWINCH during keyboard animation, then fit so xterm
-            // fills the available space.
+            // Height-only change (keyboard open/close, iOS suggestion bar
+            // toggle) — debounce generously. iOS predictive text toggles an
+            // extra row after every word, causing rapid height oscillation.
+            // 500ms ensures the suggestion bar flicker cancels itself out
+            // while still catching sustained changes like keyboard open/close.
             lastHeight = h;
             if (heightDebounce) clearTimeout(heightDebounce);
-            heightDebounce = setTimeout(fit, 150);
+            heightDebounce = setTimeout(fit, 500);
           }
         }
       });

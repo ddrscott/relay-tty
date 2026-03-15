@@ -5,9 +5,12 @@ import {
   ClipboardCopy,
   CornerDownLeft,
   FolderOpen,
+  History,
   Keyboard as KeyboardIcon,
   SendHorizontal,
   TextSelect,
+  Trash2,
+  X,
 } from "lucide-react";
 import { getCtrlShortcuts, ctrlChar, type CtrlShortcut } from "../lib/ctrl-shortcuts";
 
@@ -48,6 +51,10 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   const [inputBarOpen, setInputBarOpen] = useState(false);
   const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
+  const [padHistory, setPadHistory] = useState<string[]>([]);
+  const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const historyLoaded = useRef(false);
   const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
   const ctrlLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,6 +62,19 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   const toolbarRootRef = useRef<HTMLDivElement>(null);
   const ctrlWrapRef = useRef<HTMLDivElement>(null);
   const [menuLeft, setMenuLeft] = useState(0);
+
+  // Load scratchpad history from server on mount
+  useEffect(() => {
+    if (historyLoaded.current) return;
+    historyLoaded.current = true;
+    fetch("/api/scratchpad-history")
+      .then((r) => r.ok ? r.json() : { entries: [] })
+      .then((data) => {
+        const entries = (data.entries as string[]).map((e) => e.replace(/\\n/g, "\n"));
+        setPadHistory(entries);
+      })
+      .catch(() => {});
+  }, []);
 
   // Load shortcuts from localStorage on mount and when menu opens
   useEffect(() => {
@@ -97,9 +117,47 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
 
   const sendPad = useCallback(() => {
     if (!padText.trim()) return;
+    setPadHistory((prev) => [...prev, padText]);
+    // Persist to server
+    fetch("/api/scratchpad-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entry: padText }),
+    }).catch(() => {});
     onSendText(padText);
     setPadText("");
+    if (padRef.current) padRef.current.style.height = "";
   }, [padText, onSendText]);
+
+  const pickHistory = useCallback((entry: string) => {
+    setPadText(entry);
+    setHistoryPickerOpen(false);
+    if (!padExpanded) setPadExpanded(true);
+    requestAnimationFrame(() => {
+      if (padRef.current) {
+        padRef.current.style.height = "auto";
+        padRef.current.style.height = `${padRef.current.scrollHeight}px`;
+        padRef.current.focus({ preventScroll: true });
+      }
+    });
+  }, [padExpanded]);
+
+  const confirmClear = useCallback(() => {
+    setClearConfirm(false);
+    setPadText("");
+    if (padRef.current) padRef.current.style.height = "";
+    padRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Auto-grow textarea in expanded mode
+  const handlePadChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPadText(e.target.value);
+    if (padExpanded) {
+      const ta = e.target;
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+    }
+  }, [padExpanded]);
 
   const toggleInputBar = useCallback(() => {
     setInputBarOpen((v) => {
@@ -178,53 +236,146 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         </div>
       )}
 
-      {/* Input bar — in normal flex flow. Height changes don't trigger
-           SIGWINCH because the ResizeObserver only fires on width changes. */}
-      {inputBarOpen && <div className="toolbar-row border-b border-[#1e1e2e]">
-        <button
-          className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-          tabIndex={-1}
-          onMouseDown={(e) => e.preventDefault()}
-          onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
-          onClick={() => setPadExpanded((v) => !v)}
-          aria-label={padExpanded ? "Single line" : "Multi-line"}
-        >
-          {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
-        </button>
-        <textarea
-          ref={padRef}
-          className="toolbar-input resize-none"
-          rows={padExpanded ? 3 : 1}
-          wrap={padExpanded ? "soft" : "off"}
-          style={padExpanded
-            ? { paddingTop: "0.3em", paddingBottom: "0.3em" }
-            : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
-          }
-          value={padText}
-          onChange={(e) => setPadText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
-          placeholder="Type a command..."
-          autoComplete="one-time-code"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          data-form-type="other"
-          data-lpignore="true"
-          data-1p-ignore="true"
-          data-gramm="false"
-          enterKeyHint="send"
-        />
-        <button
-          className="btn btn-primary toolbar-btn rounded-none"
-          tabIndex={-1}
-          onMouseDown={(e) => e.preventDefault()}
-          onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
-          onClick={sendPad}
-          disabled={!padText.trim()}
-        >
-          <SendHorizontal className="w-5 h-5" />
-        </button>
+      {/* Scratchpad — floats above the key row, overlaying xterm so the
+           terminal doesn't resize when the scratchpad opens/expands. */}
+      {inputBarOpen && <div
+        className="absolute bottom-full left-0 right-0 flex flex-col bg-[#0f0f1a]/95 backdrop-blur-sm shadow-[0_-4px_12px_rgba(0,0,0,0.5)]"
+        style={{ maxHeight: "calc(100dvh - 3rem)" }}
+      >
+        {/* Input row + textarea */}
+        <div className="toolbar-row border-b border-[#1e1e2e]">
+          <button
+            className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
+            onClick={() => setPadExpanded((v) => !v)}
+            aria-label={padExpanded ? "Single line" : "Multi-line"}
+          >
+            {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+          </button>
+          <textarea
+            ref={padRef}
+            className="toolbar-input resize-none"
+            rows={padExpanded ? 3 : 1}
+            wrap={padExpanded ? "soft" : "off"}
+            style={padExpanded
+              ? { paddingTop: "0.3em", paddingBottom: "0.3em", overflowY: "auto" }
+              : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
+            }
+            value={padText}
+            onChange={handlePadChange}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
+            placeholder="Type a command..."
+            autoComplete="one-time-code"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-gramm="false"
+            enterKeyHint={padExpanded ? "enter" : "send"}
+          />
+          {/* Action buttons — stacked vertically next to send */}
+          <div className="flex flex-col items-center">
+            {padExpanded && (
+              <div className="flex items-center gap-0.5 pb-0.5">
+                <div className="relative">
+                  <button
+                    className="btn btn-ghost btn-xs min-h-0 h-7 px-1.5 text-[#64748b] hover:text-[#e2e8f0]"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onTouchEnd={(e) => { e.preventDefault(); setClearConfirm(true); }}
+                    onClick={() => setClearConfirm(true)}
+                    title="Clear"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  {clearConfirm && (
+                    <div className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#2d2d44] shadow-xl animate-banner-in whitespace-nowrap">
+                      <span className="text-xs font-mono text-[#e2e8f0]">Clear?</span>
+                      <button
+                        className="btn btn-error btn-xs"
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onTouchEnd={(e) => { e.preventDefault(); confirmClear(); }}
+                        onClick={confirmClear}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-xs text-[#94a3b8]"
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onTouchEnd={(e) => { e.preventDefault(); setClearConfirm(false); }}
+                        onClick={() => setClearConfirm(false)}
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="btn btn-ghost btn-xs min-h-0 h-7 px-1.5 text-[#64748b] hover:text-[#e2e8f0]"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
+                  onClick={() => setHistoryPickerOpen(true)}
+                  disabled={padHistory.length === 0}
+                  title="Recall history"
+                >
+                  <History className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <button
+              className="btn btn-primary toolbar-btn rounded-none"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
+              onClick={sendPad}
+              disabled={!padText.trim()}
+            >
+              <SendHorizontal className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>}
+
+      {/* History picker — full-screen overlay like file browser */}
+      {historyPickerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#0a0a0f] animate-slide-in-bottom">
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1e1e2e] shrink-0">
+            <History className="w-4 h-4 text-[#64748b]" />
+            <span className="text-sm font-mono text-[#e2e8f0] flex-1">Scratchpad History</span>
+            <button
+              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(false); }}
+              onClick={() => setHistoryPickerOpen(false)}
+              aria-label="Close history"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {[...padHistory].reverse().map((entry, i) => (
+              <button
+                key={padHistory.length - 1 - i}
+                className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
+                onClick={() => pickHistory(entry)}
+                onTouchEnd={(e) => { e.preventDefault(); pickHistory(entry); }}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+              >
+                <pre className="text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-words">{entry}</pre>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Key row: scrollable keys | pinned keyboard */}
       <div className="flex items-center h-11">
