@@ -36,7 +36,34 @@ interface DirEntry {
 
 type SortField = "name" | "size" | "mtime";
 type SortDir = "asc" | "desc";
-type FilterMode = "all" | "files" | "dirs";
+interface FilterToggles {
+  showFiles: boolean;
+  showDirs: boolean;
+  showHidden: boolean;
+}
+
+const FILTER_STORAGE_KEY = "relay-tty:file-browser-filters";
+
+function loadFilterToggles(): FilterToggles {
+  try {
+    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        showFiles: parsed.showFiles !== false,
+        showDirs: parsed.showDirs !== false,
+        showHidden: parsed.showHidden !== false,
+      };
+    }
+  } catch {}
+  return { showFiles: true, showDirs: true, showHidden: true };
+}
+
+function saveFilterToggles(toggles: FilterToggles) {
+  try {
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(toggles));
+  } catch {}
+}
 
 interface FileBrowserProps {
   sessionId: string;
@@ -82,7 +109,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const [error, setError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [filterToggles, setFilterToggles] = useState<FilterToggles>(loadFilterToggles);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -190,12 +217,10 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const visibleEntries = useMemo(() => {
     let result = [...entries];
 
-    // Filter hidden files (start with .)
-    // Show all files including hidden
-
-    // Filter by type
-    if (filterMode === "files") result = result.filter(e => e.type !== "directory");
-    if (filterMode === "dirs") result = result.filter(e => e.type === "directory");
+    // Filter by toggles
+    if (!filterToggles.showHidden) result = result.filter(e => !e.name.startsWith("."));
+    if (!filterToggles.showFiles) result = result.filter(e => e.type === "directory");
+    if (!filterToggles.showDirs) result = result.filter(e => e.type !== "directory");
 
     // Fuzzy search
     if (searchQuery) {
@@ -221,7 +246,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
     });
 
     return result;
-  }, [entries, filterMode, searchQuery, sortField, sortDir]);
+  }, [entries, filterToggles, searchQuery, sortField, sortDir]);
 
   // Long press handler for context menu
   const startLongPress = useCallback((e: React.TouchEvent, entry: DirEntry) => {
@@ -415,10 +440,10 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
           )}
         </div>
 
-        {/* Filter dropdown */}
+        {/* Filter toggles dropdown */}
         <div className="relative">
           <button
-            className={`btn btn-ghost btn-xs gap-1 ${filterMenuOpen ? "text-[#e2e8f0]" : filterMode !== "all" ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+            className={`btn btn-ghost btn-xs gap-1 ${filterMenuOpen ? "text-[#e2e8f0]" : (!filterToggles.showFiles || !filterToggles.showDirs || !filterToggles.showHidden) ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => { setFilterMenuOpen(!filterMenuOpen); setSortMenuOpen(false); }}
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
@@ -426,16 +451,30 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
             <Filter className="w-3.5 h-3.5" />
           </button>
           {filterMenuOpen && (
-            <div className="absolute top-full left-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1 min-w-24">
-              {([["all", "All"], ["files", "Files"], ["dirs", "Dirs"]] as [FilterMode, string][]).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[#2d2d44] ${filterMode === mode ? "text-[#22c55e]" : "text-[#94a3b8]"}`}
-                  onClick={() => { setFilterMode(mode); setFilterMenuOpen(false); }}
+            <div className="absolute top-full left-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1.5 min-w-32">
+              {([
+                ["showFiles", "Files"],
+                ["showDirs", "Dirs"],
+                ["showHidden", "Hidden"],
+              ] as [keyof FilterToggles, string][]).map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#94a3b8] hover:bg-[#2d2d44] cursor-pointer select-none"
                   onMouseDown={(e) => e.preventDefault()}
                 >
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-xs toggle-success"
+                    checked={filterToggles[key]}
+                    onChange={() => {
+                      const next = { ...filterToggles, [key]: !filterToggles[key] };
+                      setFilterToggles(next);
+                      saveFilterToggles(next);
+                    }}
+                    tabIndex={-1}
+                  />
                   {label}
-                </button>
+                </label>
               ))}
             </div>
           )}
@@ -528,7 +567,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <FolderOpen className="w-8 h-8 text-[#64748b]/50" />
             <span className="text-sm text-[#64748b]">
-              {searchQuery ? "No matching files" : "Empty directory"}
+              {searchQuery ? "No matching files" : (!filterToggles.showFiles && !filterToggles.showDirs) ? "All filters disabled" : "Empty directory"}
             </span>
           </div>
         ) : (

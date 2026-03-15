@@ -74,6 +74,7 @@
 - [x] File viewer panel should cover session toolbar — act as modal overlay to prevent background interactions
 - [x] Wire up file path link clicks in grid/lanes expanded view — open file viewer like mobile session view
 - [x] Grid/lanes double-click to expand thumbnail, shrink icon when expanded ([detail](work-queue/grid-dblclick-expand.md))
+- [x] File browser filter toggles — replace dropdown with switch toggles for files/dirs/hidden, persist to localStorage ([detail](work-queue/file-browser-filter-toggles.md))
 
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
