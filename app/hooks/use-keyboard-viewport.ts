@@ -20,22 +20,15 @@ export function useKeyboardViewport(): void {
     const root = document.documentElement;
 
     let inputFocused = false;
+    let focusOutTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Always track vv.height so the container smoothly follows keyboard
-    // dismiss animation instead of snapping to 100dvh on focusout (which
-    // leaves a black box while the keyboard is still animating away).
     function applyViewport() {
       if (vv.scale > 1.05) return; // page is zoomed, not keyboard
 
-      // Always set --app-h to match visual viewport — when no keyboard
-      // is open, vv.height ≈ innerHeight ≈ 100dvh so there's no visible
-      // difference. During keyboard animation, this tracks smoothly.
       root.style.setProperty("--app-h", `${vv.height}px`);
 
-      // Always reset scroll — the browser can scroll <html> or <body> to
-      // show a focused input even when overflow:hidden is set. This fires
-      // on every vv resize during keyboard animation, counteracting any
-      // browser-initiated scroll displacement immediately.
+      // Reset scroll — the browser can scroll <html> or <body> to show a
+      // focused input even when overflow:hidden is set.
       window.scrollTo(0, 0);
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
@@ -58,20 +51,35 @@ export function useKeyboardViewport(): void {
       const t = e.target;
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) {
         inputFocused = true;
+        // Cancel any pending focusout revert (focus moved input → input,
+        // keyboard stays open).
+        if (focusOutTimer) { clearTimeout(focusOutTimer); focusOutTimer = null; }
         applyViewport();
       }
     }
 
     function onFocusOut() {
       inputFocused = false;
-      // Don't remove --app-h here — let vv resize events continue tracking
-      // the visual viewport as the keyboard animates away. When fully
-      // dismissed, vv.height returns to full height naturally.
+      // iOS Safari does NOT fire visualViewport resize events during the
+      // keyboard dismiss animation (~250ms). It only fires one final event
+      // after the animation completes. This leaves --app-h stuck at the
+      // keyboard-open value, creating a visible gap ("black box") below the
+      // app while the keyboard animates away.
+      //
+      // Fix: proactively revert --app-h to 100dvh on focusout. This makes
+      // the app expand to full height immediately, so when the keyboard
+      // slides away it reveals already-correctly-positioned content.
+      //
+      // Use a short delay (60ms) so that focus-move (input A → input B)
+      // can cancel the revert via onFocusIn — the keyboard stays open in
+      // that case and we should keep tracking vv.height.
+      if (focusOutTimer) clearTimeout(focusOutTimer);
+      focusOutTimer = setTimeout(() => {
+        focusOutTimer = null;
+        root.style.setProperty("--app-h", "100dvh");
+      }, 60);
     }
 
-    // Keep vv listeners active at all times so we catch keyboard close
-    // even if focusout already fired (e.g. iOS "Done" button dismisses
-    // keyboard without blur, or keyboard animation outlasts focusout).
     vv.addEventListener("resize", applyViewport);
     vv.addEventListener("scroll", applyViewport);
     document.addEventListener("focusin", onFocusIn);
@@ -81,6 +89,7 @@ export function useKeyboardViewport(): void {
       vv.removeEventListener("scroll", applyViewport);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      if (focusOutTimer) clearTimeout(focusOutTimer);
       root.style.removeProperty("--app-h");
     };
   }, []);

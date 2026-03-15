@@ -1333,14 +1333,24 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             if (heightDebounce) { clearTimeout(heightDebounce); heightDebounce = null; }
             fit();
           } else if (h !== lastHeight) {
-            // Height-only change (keyboard open/close, iOS suggestion bar
-            // toggle) — debounce generously. iOS predictive text toggles an
-            // extra row after every word, causing rapid height oscillation.
-            // 500ms ensures the suggestion bar flicker cancels itself out
-            // while still catching sustained changes like keyboard open/close.
+            const grew = h > lastHeight;
             lastHeight = h;
-            if (heightDebounce) clearTimeout(heightDebounce);
-            heightDebounce = setTimeout(fit, 10);
+            if (grew) {
+              // Height increased (keyboard dismiss, rotation) — fit immediately.
+              // The gap below the xterm canvas is visible as a black box;
+              // debouncing here would leave it exposed for the entire keyboard
+              // dismiss animation (~250ms on iOS).
+              if (heightDebounce) { clearTimeout(heightDebounce); heightDebounce = null; }
+              fit();
+            } else {
+              // Height decreased (keyboard open, iOS suggestion bar toggle) —
+              // debounce. Content is just clipped by overflow:hidden, so there's
+              // no visible artifact. iOS predictive text toggles the suggestion
+              // bar after every word, causing rapid height oscillation; debouncing
+              // prevents unnecessary reflows.
+              if (heightDebounce) clearTimeout(heightDebounce);
+              heightDebounce = setTimeout(fit, 10);
+            }
           }
         }
       });
