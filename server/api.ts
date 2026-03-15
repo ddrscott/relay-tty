@@ -324,7 +324,18 @@ export function createApiRouter(
 
     const ext = path.extname(realFilePath).toLowerCase();
     const mimeType = MIME_TYPES[ext] || "application/octet-stream";
-    const isText = mimeType === "text/plain";
+    // Treat as text if known text MIME or if unknown extension and file looks like text
+    // (check first 8KB for null bytes — a simple binary detection heuristic)
+    let isText = mimeType === "text/plain";
+    if (!isText && mimeType === "application/octet-stream" && stat.size <= MAX_TEXT_SIZE) {
+      try {
+        const probe = Buffer.alloc(Math.min(8192, stat.size));
+        const fd = fs.openSync(realFilePath, "r");
+        fs.readSync(fd, probe, 0, probe.length, 0);
+        fs.closeSync(fd);
+        isText = !probe.subarray(0, probe.length).includes(0);
+      } catch { /* fall through to binary */ }
+    }
 
     // Size limits
     if (isText && stat.size > MAX_TEXT_SIZE) {

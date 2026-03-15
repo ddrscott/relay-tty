@@ -1340,7 +1340,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // while still catching sustained changes like keyboard open/close.
             lastHeight = h;
             if (heightDebounce) clearTimeout(heightDebounce);
-            heightDebounce = setTimeout(fit, 500);
+            heightDebounce = setTimeout(fit, 10);
           }
         }
       });

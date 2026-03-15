@@ -131,10 +131,17 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
           const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(data.error || `HTTP ${res.status}`);
         }
-        return res.json();
+        // Server returns JSON-wrapped content for known text types,
+        // but raw content for unknown extensions. Handle both.
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          return (await res.json()).content as string;
+        }
+        // Unknown type served as raw bytes — read as text
+        return await res.text();
       })
-      .then((data) => {
-        setContent(data.content);
+      .then((text) => {
+        setContent(text);
         setLoading(false);
       })
       .catch((err) => {

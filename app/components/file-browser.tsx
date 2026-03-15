@@ -534,19 +534,22 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
         ) : (
           <div className="divide-y divide-[#1e1e2e]">
             {visibleEntries.map((entry) => (
-              <button
+              <div
                 key={entry.name}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors text-left"
+                role="button"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors text-left cursor-pointer"
                 onClick={() => handleEntryClick(entry)}
                 onTouchStart={(e) => startLongPress(e, entry)}
                 onTouchMove={cancelLongPress}
-                onTouchEnd={endLongPress}
+                onTouchEnd={(e) => {
+                  endLongPress(e);
+                  // If long press fired, endLongPress already called preventDefault
+                  // Otherwise, let click handler fire naturally (no keyboard)
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, entry });
                 }}
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
               >
                 {getFileIcon(entry.name, entry.type)}
                 <span className="flex-1 min-w-0 text-sm font-mono text-[#e2e8f0] truncate">
@@ -561,7 +564,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
                 {entry.type === "directory" && (
                   <ChevronRight className="w-3.5 h-3.5 text-[#3d3d54] shrink-0" />
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}

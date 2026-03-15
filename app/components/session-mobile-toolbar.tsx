@@ -149,6 +149,13 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     padRef.current?.focus({ preventScroll: true });
   }, []);
 
+  // Focus scratchpad textarea when opened
+  useEffect(() => {
+    if (inputBarOpen && padRef.current) {
+      padRef.current.focus({ preventScroll: true });
+    }
+  }, [inputBarOpen]);
+
   // Auto-grow textarea in expanded mode
   const handlePadChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPadText(e.target.value);
@@ -164,10 +171,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
       const opening = !v;
       if (opening) {
         setPadExpanded(false);
-        // Focus synchronously within the user gesture so iOS shows the keyboard.
-        // The textarea is always in the DOM (hidden when closed) to avoid the
-        // race between React render and iOS's user-gesture focus window.
-        padRef.current?.focus();
       }
       return opening;
     });

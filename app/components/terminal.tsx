@@ -264,7 +264,7 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
           <span className="text-warning text-xs font-medium">{pillLabel}</span>
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full overflow-hidden" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
+      <div ref={containerRef} className="w-full h-full" style={{ visibility: contentReady ? 'visible' : 'hidden' }} />
     </div>
   );
 }));
