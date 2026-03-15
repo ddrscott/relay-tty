@@ -205,6 +205,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   }, [onSendKey]);
 
   return (
+    <>
     <div
       ref={toolbarRootRef}
       className="relative z-40 bg-[#0f0f1a]/95 backdrop-blur-sm border-t border-[#1e1e2e] pb-[env(safe-area-inset-bottom)]"
@@ -343,40 +344,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         </div>
       </div>}
 
-      {/* History picker — full-screen overlay like file browser */}
-      {historyPickerOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#0a0a0f] animate-slide-in-bottom">
-          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1e1e2e] shrink-0">
-            <History className="w-4 h-4 text-[#64748b]" />
-            <span className="text-sm font-mono text-[#e2e8f0] flex-1">Scratchpad History</span>
-            <button
-              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(false); }}
-              onClick={() => setHistoryPickerOpen(false)}
-              aria-label="Close history"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {[...padHistory].reverse().map((entry, i) => (
-              <button
-                key={padHistory.length - 1 - i}
-                className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
-                onClick={() => pickHistory(entry)}
-                onTouchEnd={(e) => { e.preventDefault(); pickHistory(entry); }}
-                onMouseDown={(e) => e.preventDefault()}
-                tabIndex={-1}
-              >
-                <pre className="text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-words">{entry}</pre>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Key row: scrollable keys | pinned keyboard */}
       <div className="flex items-center h-11">
         {/* Scrollable keys */}
@@ -457,5 +424,41 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         </button>
       </div>
     </div>
+
+    {/* History picker — covers full viewport from toolbar's position.
+         Uses h-app + bottom-0 to fill exactly the app viewport height. */}
+    {historyPickerOpen && (
+      <div className="fixed inset-0 h-app z-[9999] flex flex-col bg-[#0a0a0f] animate-slide-in-bottom">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1e1e2e] shrink-0">
+          <History className="w-4 h-4 text-[#64748b]" />
+          <span className="text-sm font-mono text-[#e2e8f0] flex-1">Scratchpad History</span>
+          <button
+            className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(false); }}
+            onClick={() => setHistoryPickerOpen(false)}
+            aria-label="Close history"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {[...padHistory].reverse().map((entry, i) => (
+            <button
+              key={padHistory.length - 1 - i}
+              className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
+              onClick={() => pickHistory(entry)}
+              onTouchEnd={(e) => { e.preventDefault(); pickHistory(entry); }}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+            >
+              <pre className="text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-words">{entry}</pre>
+            </button>
+          ))}
+        </div>
+      </div>
+    )}
+    </>
   );
 });
