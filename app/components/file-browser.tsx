@@ -119,6 +119,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
@@ -192,7 +193,10 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   // Close dropdown menus on click outside
   useEffect(() => {
     if (!sortMenuOpen && !filterMenuOpen) return;
-    const handler = () => {
+    const handler = (e: MouseEvent) => {
+      // Label→input forwarding fires a second synthetic click from the input;
+      // stopPropagation on the container can't catch it. Check containment instead.
+      if (filterMenuOpen && filterDropdownRef.current?.contains(e.target as Node)) return;
       setSortMenuOpen(false);
       setFilterMenuOpen(false);
     };
@@ -212,6 +216,16 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
       setTimeout(() => searchRef.current?.focus(), 50);
     }
   }, [searchOpen]);
+
+  // Counts for filter toggles (computed from raw entries, before filtering)
+  const filterCounts = useMemo(() => {
+    let files = 0, dirs = 0, hidden = 0;
+    for (const e of entries) {
+      if (e.type === "directory") dirs++; else files++;
+      if (e.name.startsWith(".")) hidden++;
+    }
+    return { files, dirs, hidden };
+  }, [entries]);
 
   // Sorted + filtered entries
   const visibleEntries = useMemo(() => {
@@ -441,7 +455,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
         </div>
 
         {/* Filter toggles dropdown */}
-        <div className="relative">
+        <div className={`relative ${filterMenuOpen ? "z-50" : ""}`}>
           <button
             className={`btn btn-ghost btn-xs gap-1 ${filterMenuOpen ? "text-[#e2e8f0]" : (!filterToggles.showFiles || !filterToggles.showDirs || !filterToggles.showHidden) ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => { setFilterMenuOpen(!filterMenuOpen); setSortMenuOpen(false); }}
@@ -451,17 +465,17 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
             <Filter className="w-3.5 h-3.5" />
           </button>
           {filterMenuOpen && (
-            <div className="absolute top-full left-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1.5 min-w-32">
+            <div ref={filterDropdownRef} className="absolute top-full left-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1.5 min-w-32">
               {([
-                ["showFiles", "Files"],
-                ["showDirs", "Dirs"],
-                ["showHidden", "Hidden"],
-              ] as [keyof FilterToggles, string][]).map(([key, label]) => (
+                ["showFiles", "Files", filterCounts.files],
+                ["showDirs", "Dirs", filterCounts.dirs],
+                ["showHidden", "Hidden", filterCounts.hidden],
+              ] as [keyof FilterToggles, string, number][]).map(([key, label, count]) => (
                 <label
                   key={key}
                   className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#94a3b8] hover:bg-[#2d2d44] cursor-pointer select-none"
-                  onMouseDown={(e) => e.preventDefault()}
                 >
+                  <span className="flex-1">{label} <span className="text-[#64748b]">({count})</span></span>
                   <input
                     type="checkbox"
                     className="toggle toggle-xs toggle-success"
@@ -473,7 +487,6 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
                     }}
                     tabIndex={-1}
                   />
-                  {label}
                 </label>
               ))}
             </div>
