@@ -271,7 +271,7 @@ fn handshake_resume_stale_offset_sends_cache_reset() {
     // Use `yes` piped through `head` for fast, reliable output.
     let handle = spawn_pty_host(
         "/bin/sh",
-        &["-c", "yes | head -c 20971520 && sleep 2"],
+        &["-c", "yes | head -c 20971520 && sleep 30"],
     )
     .expect("failed to spawn");
 
