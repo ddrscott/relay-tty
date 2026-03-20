@@ -476,6 +476,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       let inComposition = false;
       let keydownHandledKey = "";
 
+      // Track whether xterm's keydown handler already processed a key.
+      // keydown fires before beforeinput — if xterm handled the character,
+      // the subsequent insertText must be skipped to avoid double-send.
+      // This applies to ALL browsers: some browser versions fire
+      // beforeinput(insertText) for space/shift+letter even after xterm
+      // called preventDefault() on keydown.
+      textarea.addEventListener("keydown", (e) => {
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          keydownHandledKey = e.key;
+        } else {
+          keydownHandledKey = "";
+        }
+      }, { capture: true });
+
       if (isIOS) {
         textarea.addEventListener("compositionstart", (e) => {
           e.stopImmediatePropagation();
@@ -496,17 +510,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           if (inComposition) {
             e.stopImmediatePropagation();
             textarea.value = "";
-          }
-        }, { capture: true });
-
-        // Track whether xterm's keydown handler already processed a key.
-        // keydown fires before beforeinput — if xterm handled the character,
-        // the subsequent insertText must be skipped to avoid double-send.
-        textarea.addEventListener("keydown", (e) => {
-          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            keydownHandledKey = e.key;
-          } else {
-            keydownHandledKey = "";
           }
         }, { capture: true });
       }
@@ -577,11 +580,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
         if (e.inputType === "insertText") {
           if (e.cancelable) e.preventDefault();
-          // iOS: skip during composition (already handled above) and
+          // Skip during composition (already handled above) and
           // skip single chars that xterm already processed via keydown.
+          // Applies to ALL browsers — not just iOS — because some browser
+          // versions fire beforeinput(insertText) even after xterm called
+          // preventDefault() on keydown (observed for space, shift+letter).
           if (inComposition) return;
           const text = e.data ?? "";
-          if (isIOS && text.length === 1 && text === keydownHandledKey) {
+          if (text.length === 1 && text === keydownHandledKey) {
             keydownHandledKey = "";
             return;
           }
