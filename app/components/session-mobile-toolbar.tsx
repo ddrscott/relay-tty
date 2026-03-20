@@ -30,6 +30,11 @@ interface SessionMobileToolbarProps {
   onFileBrowserToggle?: () => void;
   hasSharedClipboard?: boolean;
   onClipboardToggle?: () => void;
+  /** Externally controlled history picker (e.g. from FAB) */
+  externalHistoryOpen?: boolean;
+  onExternalHistoryClose?: () => void;
+  /** Called with history count so parent can disable FAB history when empty */
+  onHistoryCountChange?: (count: number) => void;
 }
 
 export const SessionMobileToolbar = memo(function SessionMobileToolbar({
@@ -45,6 +50,9 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   onFileBrowserToggle,
   hasSharedClipboard,
   onClipboardToggle,
+  externalHistoryOpen,
+  onExternalHistoryClose,
+  onHistoryCountChange,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -72,9 +80,28 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
       .then((data) => {
         const entries = (data.entries as string[]).map((e) => e.replace(/\\n/g, "\n"));
         setPadHistory(entries);
+        onHistoryCountChange?.(entries.length);
       })
       .catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report history count changes to parent
+  useEffect(() => {
+    onHistoryCountChange?.(padHistory.length);
+  }, [padHistory.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync external history open trigger (e.g. from FAB)
+  useEffect(() => {
+    if (externalHistoryOpen && !historyPickerOpen) {
+      setHistoryPickerOpen(true);
+    }
+  }, [externalHistoryOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notify parent when history picker closes
+  const closeHistoryPicker = useCallback(() => {
+    setHistoryPickerOpen(false);
+    onExternalHistoryClose?.();
+  }, [onExternalHistoryClose]);
 
   // Load shortcuts from localStorage on mount and when menu opens
   useEffect(() => {
@@ -131,7 +158,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
 
   const pickHistory = useCallback((entry: string) => {
     setPadText(entry);
-    setHistoryPickerOpen(false);
+    closeHistoryPicker();
     if (!padExpanded) setPadExpanded(true);
     requestAnimationFrame(() => {
       if (padRef.current) {
@@ -140,7 +167,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         padRef.current.focus({ preventScroll: true });
       }
     });
-  }, [padExpanded]);
+  }, [padExpanded, closeHistoryPicker]);
 
   const confirmClear = useCallback(() => {
     setClearConfirm(false);
@@ -439,20 +466,20 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
             className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(false); }}
-            onClick={() => setHistoryPickerOpen(false)}
+            onTouchEnd={(e) => { e.preventDefault(); closeHistoryPicker(); }}
+            onClick={closeHistoryPicker}
             aria-label="Close history"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onTouchStart={onScrollAreaTouchStart}>
           {[...padHistory].reverse().map((entry, i) => (
             <button
               key={padHistory.length - 1 - i}
               className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
               onClick={() => pickHistory(entry)}
-              onTouchEnd={(e) => { e.preventDefault(); pickHistory(entry); }}
+              onTouchEnd={tapGuard(() => pickHistory(entry))}
               onMouseDown={(e) => e.preventDefault()}
               tabIndex={-1}
             >

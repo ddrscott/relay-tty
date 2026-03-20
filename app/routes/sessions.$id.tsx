@@ -13,6 +13,7 @@ import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
 import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
+import { FloatingActionButton } from "../components/floating-action-button";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
@@ -250,6 +251,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const fileBrowserPathRef = useRef<string | null>(null);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
   const carouselTrackRef = useRef<HTMLDivElement>(null);
+  const [fabHistoryOpen, setFabHistoryOpen] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
 
   // ── Reset per-session UI state when switching sessions ──
   // The Terminal component survives (keep-alive), but the route's UI chrome
@@ -275,6 +278,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setCtrlOn(false);
     setAltOn(false);
     setExpandedImage(null);
+    setFabHistoryOpen(false);
     // Don't clear inlineImages on session switch — images persist per-session
     // and are cleared manually by the user. They accumulate across reconnects.
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1323,6 +1327,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           onFileBrowserToggle={toggleFileBrowser}
           hasSharedClipboard={!!sharedClipboard}
           onClipboardToggle={handleClipboardToggle}
+          externalHistoryOpen={fabHistoryOpen}
+          onExternalHistoryClose={() => setFabHistoryOpen(false)}
+          onHistoryCountChange={setHistoryCount}
+        />
+      )}
+
+      {/* ── Mobile: floating action button (hidden when overlays are open) ── */}
+      {isMobile && (
+        <FloatingActionButton
+          onOpenHistory={() => setFabHistoryOpen(true)}
+          historyDisabled={historyCount === 0}
+          visible={!fileBrowserOpen && !textViewerOpen && !clipboardPanelOpen && !fileViewerLink}
         />
       )}
 
