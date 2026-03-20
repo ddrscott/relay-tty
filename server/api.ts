@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import type { NotificationStore } from "./notification-store.js";
@@ -396,6 +397,42 @@ export function createApiRouter(
     fs.mkdirSync(path.dirname(COMMANDS_FILE), { recursive: true });
     fs.writeFileSync(COMMANDS_FILE, content);
     res.json({ ok: true, commands: readCustomCommands() });
+  });
+
+  // GET /api/available-commands — detect installed AI tools and shells
+  router.get("/available-commands", (_req, res) => {
+    const AI_TOOLS = [
+      { name: "claude", label: "Claude Code" },
+      { name: "codex", label: "Codex CLI" },
+      { name: "opencode", label: "OpenCode" },
+      { name: "aider", label: "Aider" },
+      { name: "goose", label: "Goose" },
+      { name: "gemini", label: "Gemini CLI" },
+      { name: "amp", label: "Amp" },
+    ];
+
+    const SHELLS = [
+      { name: "bash", label: "bash" },
+      { name: "zsh", label: "zsh" },
+      { name: "fish", label: "fish" },
+    ];
+
+    function commandExists(cmd: string): boolean {
+      try {
+        execFileSync("sh", ["-c", `command -v ${cmd}`], { stdio: "ignore", timeout: 2000 });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    const tools = AI_TOOLS.filter((t) => commandExists(t.name));
+    const shells: { name: string; label: string }[] = [{ name: "$SHELL", label: process.env.SHELL?.split("/").pop() || "shell" }];
+    for (const s of SHELLS) {
+      if (commandExists(s.name)) shells.push(s);
+    }
+
+    res.json({ tools, shells });
   });
 
   // GET /api/upload-dir — read configured upload directory

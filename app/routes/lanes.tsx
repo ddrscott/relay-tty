@@ -5,6 +5,7 @@ import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
+import { QuickLaunch } from "../components/quick-launch";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -688,11 +689,8 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
       </div>
 
       {sessions.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-[#64748b] mb-2">No active sessions</p>
-          <code className="text-sm text-[#94a3b8]">
-            relay bash
-          </code>
+        <div className="flex-1 flex items-center justify-center py-16">
+          <QuickLaunch />
         </div>
       ) : sortedLaneSessions.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">

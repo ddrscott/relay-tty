@@ -1,11 +1,12 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import type { Route } from "./+types/home";
 import { Terminal, type TerminalHandle } from "../components/terminal";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { Maximize, Minimize, Menu } from "lucide-react";
+import { QuickLaunch } from "../components/quick-launch";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -82,8 +83,11 @@ function PhoneFrame({ session, onNavigate }: { session: Session; onNavigate: (id
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { sessions } = loaderData as { sessions: Session[]; version: string; hostname: string };
+  const { sessions: realSessions } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // ?new — force empty state to show the quick-launch welcome screen
+  const sessions = searchParams.has("new") ? [] : realSessions;
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Desktop detection
@@ -139,23 +143,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   if (!isDesktop && sessions.length === 0) {
     return (
       <main className="h-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
-        <div className="text-center max-w-sm">
-          <button
-            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer mb-4"
-            onClick={() => toggleSidebarDrawer()}
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <h2 className="text-lg font-mono text-[#e2e8f0] mb-2">No active sessions</h2>
-          <p className="text-sm text-[#64748b] font-mono mb-4">
-            Start a session from the terminal:
-          </p>
-          <code className="block bg-[#0f0f1a] border border-[#2d2d44] rounded-lg px-4 py-3 text-sm text-[#94a3b8] font-mono">
-            relay bash
-          </code>
-        </div>
+        <button
+          className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer mb-4"
+          onClick={() => toggleSidebarDrawer()}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <QuickLaunch />
       </main>
     );
   }
@@ -176,10 +172,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
       {sessions.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-[#64748b] mb-2">No active sessions</p>
-            <code className="text-sm text-[#94a3b8]">relay bash</code>
-          </div>
+          <QuickLaunch />
         </div>
       ) : (
         <div className="flex-1 min-h-0">

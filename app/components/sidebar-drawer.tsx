@@ -1,17 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, ChevronUp, Terminal, Sparkles, Loader2 } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { LayoutSwitcher } from "./layout-switcher";
 import { CopyableId } from "./copyable-id";
-
-const SHELL_OPTIONS = [
-  { label: "$SHELL", command: "$SHELL" },
-  { label: "bash", command: "bash" },
-  { label: "zsh", command: "zsh" },
-];
+import { QuickLaunch } from "./quick-launch";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "recent", label: "Recent" },
@@ -119,6 +114,19 @@ export function SidebarDrawer({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
+  const [showNewPanel, setShowNewPanel] = useState(false);
+  const [availableCommands, setAvailableCommands] = useState<{ tools: { name: string; label: string }[]; shells: { name: string; label: string }[] } | null>(null);
+
+  // Fetch available commands when the new-session panel opens
+  useEffect(() => {
+    if (!showNewPanel || availableCommands) return;
+    let cancelled = false;
+    fetch("/api/available-commands")
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setAvailableCommands(data); })
+      .catch(() => { if (!cancelled) setAvailableCommands({ tools: [], shells: [{ name: "$SHELL", label: "shell" }] }); });
+    return () => { cancelled = true; };
+  }, [showNewPanel, availableCommands]);
 
   // Desktop sidebar collapse state (persisted to localStorage)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -255,55 +263,18 @@ export function SidebarDrawer({
             </div>
           </div>
 
-          {/* New session + sort controls */}
+          {/* New session toggle + sort controls */}
           <div className="px-3 py-2 flex items-center gap-2 border-b border-[#1e1e2e]">
-            {/* New session dropdown */}
-            <div className="dropdown dropdown-bottom">
-              <button
-                tabIndex={0}
-                className="btn btn-sm btn-ghost text-xs text-[#64748b] hover:text-[#e2e8f0] gap-1"
-                disabled={creating}
-              >
-                + New
-              </button>
-              <ul
-                tabIndex={0}
-                className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-[60] w-56 p-1 shadow-lg max-h-64 overflow-y-auto"
-              >
-                {SHELL_OPTIONS.map((opt) => (
-                  <li key={opt.command}>
-                    <button
-                      className="font-mono text-sm text-[#e2e8f0] hover:bg-[#0f0f1a]"
-                      onClick={() => {
-                        (document.activeElement as HTMLElement)?.blur();
-                        createSession(opt.command);
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  </li>
-                ))}
-                {customCommands.length > 0 && (
-                  <>
-                    <div className="border-t border-[#2d2d44] my-1" />
-                    {customCommands.map((cmd) => (
-                      <li key={cmd}>
-                        <button
-                          className="font-mono text-sm text-[#e2e8f0] hover:bg-[#0f0f1a] truncate"
-                          onClick={() => {
-                            (document.activeElement as HTMLElement)?.blur();
-                            createSession(cmd);
-                          }}
-                          title={cmd}
-                        >
-                          {cmd}
-                        </button>
-                      </li>
-                    ))}
-                  </>
-                )}
-              </ul>
-            </div>
+            <button
+              className={`btn btn-sm btn-ghost text-xs gap-1 cursor-pointer ${showNewPanel ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+              onClick={() => setShowNewPanel((p) => !p)}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+              disabled={creating}
+            >
+              {showNewPanel ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+              New
+            </button>
 
             <div className="flex-1" />
 
@@ -355,13 +326,77 @@ export function SidebarDrawer({
             )}
           </div>
 
+          {/* New session panel — full-width, collapsible */}
+          {showNewPanel && (
+            <div className="border-b border-[#1e1e2e] px-3 py-3">
+              {!availableCommands ? (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="w-4 h-4 text-[#64748b] animate-spin" />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {availableCommands.tools.length > 0 && (
+                    <>
+                      <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">AI Assistants</p>
+                      {availableCommands.tools.map((t) => (
+                        <button
+                          key={t.name}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
+                          disabled={creating}
+                          onClick={() => createSession(t.name)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          tabIndex={-1}
+                        >
+                          <Sparkles className="w-4 h-4 text-[#64748b] shrink-0" />
+                          {t.label}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {availableCommands.tools.length > 0 && <div className="border-t border-[#1e1e2e] my-1" />}
+                  <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">Shells</p>
+                  {availableCommands.shells.map((s) => (
+                    <button
+                      key={s.name}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
+                      disabled={creating}
+                      onClick={() => createSession(s.name)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      tabIndex={-1}
+                    >
+                      <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
+                      {s.label}
+                    </button>
+                  ))}
+                  {customCommands.length > 0 && (
+                    <>
+                      <div className="border-t border-[#1e1e2e] my-1" />
+                      <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">Custom</p>
+                      {customCommands.map((cmd) => (
+                        <button
+                          key={cmd}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer truncate"
+                          disabled={creating}
+                          onClick={() => createSession(cmd)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          tabIndex={-1}
+                          title={cmd}
+                        >
+                          <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
+                          {cmd}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Session list */}
           <div className="flex-1 overflow-y-auto">
             {sessions.length === 0 ? (
-              <div className="text-center py-8 px-3">
-                <p className="text-[#64748b] text-sm mb-2">No sessions</p>
-                <code className="text-xs text-[#94a3b8]">relay bash</code>
-              </div>
+              <QuickLaunch compact />
             ) : (
               <div className="flex flex-col">
                 {groups.map((group) => {
