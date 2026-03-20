@@ -80,11 +80,6 @@ export const FloatingActionButton = memo(function FloatingActionButton({
   // Close menu on outside touch
   useEffect(() => {
     if (!menuOpen) return;
-    const onTouch = () => {
-      // Delay slightly so the menu item's handler fires first
-      setTimeout(() => setMenuOpen(false), 200);
-    };
-    // Use a click listener on document to detect outside clicks
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("[data-fab-menu]") || target.closest("[data-fab-button]")) return;
@@ -151,16 +146,30 @@ export const FloatingActionButton = memo(function FloatingActionButton({
 
   if (!visible) return null;
 
-  const posStyle = dragging && dragPos
-    ? { position: "fixed" as const, left: dragPos.x, top: dragPos.y, right: "auto", bottom: "auto" }
-    : {
-        position: "fixed" as const,
-        ...cornerPosition(corner, safeBottom + 52), // 52px = toolbar height approximation
-      };
+  // Compute numeric positions for FAB and menu
+  const toolbarOffset = safeBottom + 52; // 52px = toolbar height approximation
+  const cornerPos = cornerPosition(corner, toolbarOffset);
+
+  const fabStyle: React.CSSProperties = dragging && dragPos
+    ? { position: "fixed", left: dragPos.x, top: dragPos.y }
+    : { position: "fixed", ...cornerPos };
 
   // Menu opens toward the center of the screen
   const menuOnLeft = corner.endsWith("right");
   const menuOnTop = corner.startsWith("bottom");
+
+  // Menu position — computed from corner positions (always numeric)
+  const menuStyle: React.CSSProperties = { position: "fixed" };
+  if (menuOnTop) {
+    menuStyle.bottom = (cornerPos.bottom ?? 0) + FAB_SIZE + 8;
+  } else {
+    menuStyle.top = (cornerPos.top ?? 0) + FAB_SIZE + 8;
+  }
+  if (menuOnLeft) {
+    menuStyle.right = cornerPos.right ?? CORNER_MARGIN;
+  } else {
+    menuStyle.left = cornerPos.left ?? CORNER_MARGIN;
+  }
 
   return (
     <>
@@ -171,7 +180,7 @@ export const FloatingActionButton = memo(function FloatingActionButton({
           menuOpen ? "bg-[#1a1a2e] opacity-100" : idle ? "bg-[#0f0f1a]/60 opacity-40" : "bg-[#0f0f1a]/90 opacity-80"
         }`}
         style={{
-          ...posStyle,
+          ...fabStyle,
           width: FAB_SIZE,
           height: FAB_SIZE,
           touchAction: "none",
@@ -195,14 +204,7 @@ export const FloatingActionButton = memo(function FloatingActionButton({
         <div
           data-fab-menu
           className="fixed z-[100] bg-[#0f0f1a] border border-[#2d2d44] rounded-xl shadow-xl py-1.5 min-w-[10rem] animate-banner-in"
-          style={{
-            ...(menuOnTop
-              ? { bottom: (posStyle.bottom ?? 0) + FAB_SIZE + 8 }
-              : { top: (posStyle.top ?? 0) + FAB_SIZE + 8 }),
-            ...(menuOnLeft
-              ? { right: posStyle.right ?? CORNER_MARGIN }
-              : { left: posStyle.left ?? CORNER_MARGIN }),
-          }}
+          style={menuStyle}
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.stopPropagation()}
         >
