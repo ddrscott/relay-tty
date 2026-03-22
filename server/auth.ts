@@ -1,6 +1,11 @@
 import type { Request, Response, NextFunction } from "express";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import * as cookie from "cookie";
+
+const PASSWD_FILE = path.join(os.homedir(), ".relay-tty", "passwd");
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
 
@@ -132,6 +137,7 @@ export function generateShareToken(sessionId: string, ttlSeconds = 3600): string
 
 /**
  * Verify a share token. Returns the session ID if valid, null otherwise.
+ * Returns null for password-protected tokens — use verifyPasswordShareToken instead.
  */
 export function verifyShareToken(token: string): string | null {
   if (!JWT_SECRET) return null;
@@ -140,8 +146,82 @@ export function verifyShareToken(token: string): string | null {
   if (parts.length !== 3) return null;
 
   try {
+    // Reject password-protected tokens — they need verifyPasswordShareToken
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString()
+    ) as JwtPayload;
+    if (payload.pwd === true) return null;
+
     const headerPayload = `${parts[0]}.${parts[1]}`;
     const signature = createHmac("sha256", JWT_SECRET)
+      .update(headerPayload)
+      .digest("base64url");
+
+    if (signature !== parts[2]) return null;
+
+    if (payload.iss !== "relay-tty") return null;
+    if (payload.scope !== "share:read") return null;
+    if (typeof payload.exp === "number" && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (typeof payload.sub !== "string") return null;
+
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the global relay password hash from ~/.relay-tty/passwd.
+ */
+export function readPasswordHash(): string | null {
+  try {
+    const hash = fs.readFileSync(PASSWD_FILE, "utf-8").trim();
+    return hash || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hash a raw password with SHA-256 (for storing or deriving signing secrets).
+ */
+export function hashPassword(password: string): string {
+  return createHash("sha256").update(password).digest("hex");
+}
+
+/**
+ * Generate a password-protected share token.
+ * The JWT is signed with a derived secret (JWT_SECRET + passwordHash) so the
+ * token is cryptographically unverifiable without knowing the password.
+ */
+export function generatePasswordShareToken(sessionId: string, passwordHash: string, ttlSeconds = 3600): string | null {
+  if (!JWT_SECRET) return null;
+  const derivedSecret = JWT_SECRET + passwordHash;
+  return signJwt({
+    iss: "relay-tty",
+    sub: sessionId,
+    scope: "share:read",
+    pwd: true,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+  }, derivedSecret);
+}
+
+/**
+ * Verify a password-protected share token.
+ * The caller provides the raw password; we hash it and reconstruct the derived secret.
+ */
+export function verifyPasswordShareToken(token: string, password: string): string | null {
+  if (!JWT_SECRET) return null;
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  try {
+    const passwordHash = hashPassword(password);
+    const derivedSecret = JWT_SECRET + passwordHash;
+    const headerPayload = `${parts[0]}.${parts[1]}`;
+    const signature = createHmac("sha256", derivedSecret)
       .update(headerPayload)
       .digest("base64url");
 
@@ -153,10 +233,25 @@ export function verifyShareToken(token: string): string | null {
 
     if (payload.iss !== "relay-tty") return null;
     if (payload.scope !== "share:read") return null;
+    if (payload.pwd !== true) return null;
     if (typeof payload.exp === "number" && payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (typeof payload.sub !== "string") return null;
 
     return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Peek at a JWT's payload without verifying the signature.
+ * Used by the share page to check the `pwd` flag before prompting.
+ */
+export function peekJwtPayload(token: string): JwtPayload | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString()) as JwtPayload;
   } catch {
     return null;
   }

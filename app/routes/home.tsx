@@ -142,16 +142,23 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   // ── Mobile: no sessions empty state ──
   if (!isDesktop && sessions.length === 0) {
     return (
-      <main className="h-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
-        <button
-          className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer mb-4"
-          onClick={() => toggleSidebarDrawer()}
-          onMouseDown={(e) => e.preventDefault()}
-          tabIndex={-1}
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        <QuickLaunch />
+      <main className="h-full bg-[#0a0a0f] flex flex-col">
+        {/* Title bar */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#1e1e2e] shrink-0">
+          <button
+            className="btn btn-ghost btn-sm text-[#64748b] hover:text-[#e2e8f0] cursor-pointer"
+            onClick={() => toggleSidebarDrawer()}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-mono text-[#94a3b8]">relay-tty</span>
+        </div>
+        {/* Quick launch content */}
+        <div className="flex-1 flex items-center justify-center p-6">
+          <QuickLaunch />
+        </div>
       </main>
     );
   }

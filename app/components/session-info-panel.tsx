@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Power,
   Settings,
+  Share2,
   TerminalSquare,
   Zap,
 } from "lucide-react";
@@ -38,6 +39,7 @@ interface SessionInfoPanelProps {
   onClearNotifOverride: () => void;
   onClose: () => void;
   onKillSession: () => void;
+  onShare?: () => void;
 }
 
 export function SessionInfoPanel({
@@ -58,6 +60,7 @@ export function SessionInfoPanel({
   onClearNotifOverride,
   onClose,
   onKillSession,
+  onShare,
 }: SessionInfoPanelProps) {
   return (
     <div
@@ -241,6 +244,20 @@ export function SessionInfoPanel({
             onChange={() => onToggleNotif("sessionExited")}
           />
         </div>
+
+        {/* Share link */}
+        <div className="border-t border-[#2d2d44] my-1.5" />
+        {onShare && (
+          <button
+            className="flex items-center gap-1.5 text-[#3b82f6] hover:text-[#60a5fa] transition-colors w-full"
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            onClick={() => { onClose(); onShare(); }}
+          >
+            <Share2 className="w-3 h-3" />
+            <span>Share session</span>
+          </button>
+        )}
 
         {/* Link to global settings */}
         <div className="border-t border-[#2d2d44] my-1.5" />

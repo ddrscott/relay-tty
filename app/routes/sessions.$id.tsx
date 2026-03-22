@@ -13,7 +13,7 @@ import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
 import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
-import { FloatingActionButton } from "../components/floating-action-button";
+import { ShareDialog } from "../components/share-dialog";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
@@ -31,6 +31,7 @@ import {
   Upload,
   FolderOpen,
   ImageIcon,
+  Keyboard,
   Search,
   X,
 } from "lucide-react";
@@ -251,8 +252,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const fileBrowserPathRef = useRef<string | null>(null);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
   const carouselTrackRef = useRef<HTMLDivElement>(null);
-  const [fabHistoryOpen, setFabHistoryOpen] = useState(false);
-  const [historyCount, setHistoryCount] = useState(0);
+  const [scratchpadOpen, setScratchpadOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // ── Reset per-session UI state when switching sessions ──
   // The Terminal component survives (keep-alive), but the route's UI chrome
@@ -278,7 +279,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     setCtrlOn(false);
     setAltOn(false);
     setExpandedImage(null);
-    setFabHistoryOpen(false);
+    setScratchpadOpen(false);
     // Don't clear inlineImages on session switch — images persist per-session
     // and are cleared manually by the user. They accumulate across reconnects.
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1036,6 +1037,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               onToggleNotif={toggleSessionNotif}
               onClearNotifOverride={clearSessionNotifOverride}
               onClose={() => setInfoOpen(false)}
+              onShare={() => setShareDialogOpen(true)}
               onKillSession={async () => {
                 if (!confirm("Kill this session?")) return;
                 await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
@@ -1327,18 +1329,37 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           onFileBrowserToggle={toggleFileBrowser}
           hasSharedClipboard={!!sharedClipboard}
           onClipboardToggle={handleClipboardToggle}
-          externalHistoryOpen={fabHistoryOpen}
-          onExternalHistoryClose={() => setFabHistoryOpen(false)}
-          onHistoryCountChange={setHistoryCount}
+          scratchpadOpen={scratchpadOpen}
+          onScratchpadClose={() => setScratchpadOpen(false)}
         />
       )}
 
-      {/* ── Mobile: floating action button (hidden when overlays are open) ── */}
-      {isMobile && (
-        <FloatingActionButton
-          onOpenHistory={() => setFabHistoryOpen(true)}
-          historyDisabled={historyCount === 0}
-          visible={!fileBrowserOpen && !textViewerOpen && !clipboardPanelOpen && !fileViewerLink}
+      {/* ── Mobile: Input Button (opens scratchpad) — hidden when scratchpad is open ── */}
+      {isMobile && !scratchpadOpen && !fileBrowserOpen && !textViewerOpen && !clipboardPanelOpen && !fileViewerLink && (
+        <button
+          className="fixed z-50 rounded-full shadow-lg flex items-center justify-center border border-[#2d2d44] bg-[#0f0f1a]/90 opacity-60 transition-opacity duration-200"
+          style={{
+            width: 48,
+            height: 48,
+            right: 12,
+            bottom: "calc(2.75rem + env(safe-area-inset-bottom) + 12px)",
+            touchAction: "none",
+          }}
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchEnd={(e) => { e.preventDefault(); setScratchpadOpen(true); }}
+          onClick={() => setScratchpadOpen(true)}
+          aria-label="Open scratchpad"
+        >
+          <Keyboard className="w-5 h-5 text-[#94a3b8]" />
+        </button>
+      )}
+
+      {/* ── Share dialog ── */}
+      {shareDialogOpen && (
+        <ShareDialog
+          sessionId={session.id}
+          onClose={() => setShareDialogOpen(false)}
         />
       )}
 

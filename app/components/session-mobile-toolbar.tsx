@@ -1,21 +1,18 @@
 import { useRef, useState, useCallback, useEffect, memo, type TouchEvent } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   ClipboardCopy,
   CornerDownLeft,
   FolderOpen,
   History,
-  Keyboard as KeyboardIcon,
   SendHorizontal,
   TextSelect,
-  Trash2,
   X,
 } from "lucide-react";
 import { getCtrlShortcuts, ctrlChar, type CtrlShortcut } from "../lib/ctrl-shortcuts";
 
 const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
 const LONG_PRESS_MS = 300; // ms — hold Ctrl longer than this to toggle sticky modifier
+const RECENT_HISTORY_COUNT = 3; // number of recent entries shown inline
 
 interface SessionMobileToolbarProps {
   ctrlOn: boolean;
@@ -30,11 +27,9 @@ interface SessionMobileToolbarProps {
   onFileBrowserToggle?: () => void;
   hasSharedClipboard?: boolean;
   onClipboardToggle?: () => void;
-  /** Externally controlled history picker (e.g. from FAB) */
-  externalHistoryOpen?: boolean;
-  onExternalHistoryClose?: () => void;
-  /** Called with history count so parent can disable FAB history when empty */
-  onHistoryCountChange?: (count: number) => void;
+  /** Controlled scratchpad open state from parent (Input Button) */
+  scratchpadOpen: boolean;
+  onScratchpadClose: () => void;
 }
 
 export const SessionMobileToolbar = memo(function SessionMobileToolbar({
@@ -50,18 +45,14 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   onFileBrowserToggle,
   hasSharedClipboard,
   onClipboardToggle,
-  externalHistoryOpen,
-  onExternalHistoryClose,
-  onHistoryCountChange,
+  scratchpadOpen,
+  onScratchpadClose,
 }: SessionMobileToolbarProps) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const [inputBarOpen, setInputBarOpen] = useState(false);
-  const [padExpanded, setPadExpanded] = useState(false);
   const [padText, setPadText] = useState("");
   const [padHistory, setPadHistory] = useState<string[]>([]);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
-  const [clearConfirm, setClearConfirm] = useState(false);
   const historyLoaded = useRef(false);
   const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
@@ -80,28 +71,9 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
       .then((data) => {
         const entries = (data.entries as string[]).map((e) => e.replace(/\\n/g, "\n"));
         setPadHistory(entries);
-        onHistoryCountChange?.(entries.length);
       })
       .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Report history count changes to parent
-  useEffect(() => {
-    onHistoryCountChange?.(padHistory.length);
-  }, [padHistory.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync external history open trigger (e.g. from FAB)
-  useEffect(() => {
-    if (externalHistoryOpen && !historyPickerOpen) {
-      setHistoryPickerOpen(true);
-    }
-  }, [externalHistoryOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Notify parent when history picker closes
-  const closeHistoryPicker = useCallback(() => {
-    setHistoryPickerOpen(false);
-    onExternalHistoryClose?.();
-  }, [onExternalHistoryClose]);
+  }, []);
 
   // Load shortcuts from localStorage on mount and when menu opens
   useEffect(() => {
@@ -158,8 +130,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
 
   const pickHistory = useCallback((entry: string) => {
     setPadText(entry);
-    closeHistoryPicker();
-    if (!padExpanded) setPadExpanded(true);
+    setHistoryPickerOpen(false);
     requestAnimationFrame(() => {
       if (padRef.current) {
         padRef.current.style.height = "auto";
@@ -167,10 +138,9 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         padRef.current.focus({ preventScroll: true });
       }
     });
-  }, [padExpanded, closeHistoryPicker]);
+  }, []);
 
-  const confirmClear = useCallback(() => {
-    setClearConfirm(false);
+  const clearPad = useCallback(() => {
     setPadText("");
     if (padRef.current) padRef.current.style.height = "";
     padRef.current?.focus({ preventScroll: true });
@@ -178,29 +148,17 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
 
   // Focus scratchpad textarea when opened
   useEffect(() => {
-    if (inputBarOpen && padRef.current) {
+    if (scratchpadOpen && padRef.current) {
       padRef.current.focus({ preventScroll: true });
     }
-  }, [inputBarOpen]);
+  }, [scratchpadOpen]);
 
-  // Auto-grow textarea in expanded mode
+  // Auto-grow textarea when content changes
   const handlePadChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPadText(e.target.value);
-    if (padExpanded) {
-      const ta = e.target;
-      ta.style.height = "auto";
-      ta.style.height = `${ta.scrollHeight}px`;
-    }
-  }, [padExpanded]);
-
-  const toggleInputBar = useCallback(() => {
-    setInputBarOpen((v) => {
-      const opening = !v;
-      if (opening) {
-        setPadExpanded(false);
-      }
-      return opening;
-    });
+    const ta = e.target;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
   }, []);
 
   // Ctrl button: short tap toggles menu, long press toggles sticky modifier
@@ -233,6 +191,9 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     onSendKey(ctrlChar(key));
     setCtrlMenuOpen(false);
   }, [onSendKey]);
+
+  // Recent history entries (last N, reversed for newest-first)
+  const recentHistory = padHistory.slice(-RECENT_HISTORY_COUNT).reverse();
 
   return (
     <>
@@ -268,115 +229,112 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
       )}
 
       {/* Scratchpad — floats above the key row, overlaying xterm so the
-           terminal doesn't resize when the scratchpad opens/expands. */}
-      {inputBarOpen && <div
-        className="absolute bottom-full left-0 right-0 flex flex-col bg-[#0f0f1a]/95 backdrop-blur-sm shadow-[0_-4px_12px_rgba(0,0,0,0.5)]"
+           terminal doesn't resize when the scratchpad opens. */}
+      {scratchpadOpen && <div
+        className="absolute bottom-full left-0 right-0 flex flex-col bg-[#1a1a2e]/95 backdrop-blur-sm shadow-[0_-4px_12px_rgba(0,0,0,0.5)]"
         style={{ maxHeight: "calc(100dvh - 3rem)" }}
       >
-        {/* Input row + textarea */}
-        <div className="toolbar-row border-b border-[#1e1e2e]">
-          <button
-            className="btn btn-ghost toolbar-btn text-[#64748b] hover:text-[#e2e8f0] rounded-none"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); setPadExpanded((v) => !v); }}
-            onClick={() => setPadExpanded((v) => !v)}
-            aria-label={padExpanded ? "Single line" : "Multi-line"}
-          >
-            {padExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
-          </button>
-          <textarea
-            ref={padRef}
-            className="toolbar-input resize-none"
-            rows={padExpanded ? 3 : 1}
-            wrap={padExpanded ? "soft" : "off"}
-            style={padExpanded
-              ? { paddingTop: "0.3em", paddingBottom: "0.3em", overflowY: "auto" }
-              : { height: "2.2em", paddingTop: "0.3em", paddingBottom: "0.3em", overflowX: "auto", overflowY: "hidden" }
-            }
-            value={padText}
-            onChange={handlePadChange}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !padExpanded && padText.trim()) { e.preventDefault(); sendPad(); } }}
-            placeholder="Type a command..."
-            autoComplete="one-time-code"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            data-form-type="other"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-gramm="false"
-            enterKeyHint={padExpanded ? "enter" : "send"}
-          />
-          {/* Action buttons — stacked vertically next to send */}
-          <div className="flex flex-col items-center">
-            {padExpanded && (
-              <div className="flex items-center gap-0.5 pb-0.5">
-                <div className="relative">
-                  <button
-                    className="btn btn-ghost btn-xs min-h-0 h-7 px-1.5 text-[#64748b] hover:text-[#e2e8f0]"
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onTouchEnd={(e) => { e.preventDefault(); setClearConfirm(true); }}
-                    onClick={() => setClearConfirm(true)}
-                    title="Clear"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                  {clearConfirm && (
-                    <div className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#2d2d44] shadow-xl animate-banner-in whitespace-nowrap">
-                      <span className="text-xs font-mono text-[#e2e8f0]">Clear?</span>
-                      <button
-                        className="btn btn-error btn-xs"
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onTouchEnd={(e) => { e.preventDefault(); confirmClear(); }}
-                        onClick={confirmClear}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs text-[#94a3b8]"
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onTouchEnd={(e) => { e.preventDefault(); setClearConfirm(false); }}
-                        onClick={() => setClearConfirm(false)}
-                      >
-                        No
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  className="btn btn-ghost btn-xs min-h-0 h-7 px-1.5 text-[#64748b] hover:text-[#e2e8f0]"
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
-                  onClick={() => setHistoryPickerOpen(true)}
-                  disabled={padHistory.length === 0}
-                  title="Recall history"
-                >
-                  <History className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+        {/* Header bar — always visible, with history link + close button */}
+        <div className="flex items-center px-3 py-1.5 border-b border-[#2d2d44]">
+          {padHistory.length > 0 ? (
             <button
-              className="btn btn-primary toolbar-btn rounded-none"
+              className="flex-1 text-left text-xs font-mono text-[#7dd3fc] hover:text-[#93e0ff] active:text-[#93e0ff]"
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
-              onClick={sendPad}
-              disabled={!padText.trim()}
+              onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
+              onClick={() => setHistoryPickerOpen(true)}
             >
-              <SendHorizontal className="w-5 h-5" />
+              <History className="w-3 h-3 inline mr-1 -mt-0.5" />
+              All history ({padHistory.length})
             </button>
+          ) : (
+            <span className="flex-1 text-xs font-mono text-[#64748b]">Scratchpad</span>
+          )}
+          <button
+            className="btn btn-ghost btn-xs min-h-0 h-6 px-1 text-[#64748b] hover:text-[#e2e8f0]"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); onScratchpadClose(); }}
+            onClick={onScratchpadClose}
+            aria-label="Close scratchpad"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Inline recent history entries */}
+        {recentHistory.length > 0 && (
+          <div onTouchStart={onScrollAreaTouchStart}>
+            {recentHistory.map((entry, i) => {
+              const originalIdx = padHistory.length - 1 - i;
+              return (
+                <button
+                  key={originalIdx}
+                  className="w-full text-left px-3 py-2 border-b border-[#2d2d44]/50 hover:bg-[#252540] active:bg-[#252540] transition-colors"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchEnd={tapGuard(() => pickHistory(entry))}
+                  onClick={() => pickHistory(entry)}
+                >
+                  <span className="text-sm font-mono text-[#e2e8f0] block truncate">{entry}</span>
+                </button>
+              );
+            })}
           </div>
+        )}
+
+        {/* Input row + textarea */}
+        <div className="toolbar-row border-b border-[#1e1e2e]">
+          <div className="relative flex-1 min-w-0">
+            <textarea
+              ref={padRef}
+              className="toolbar-input resize-none w-full"
+              rows={1}
+              wrap="soft"
+              style={{ paddingTop: "0.3em", paddingBottom: "0.3em", paddingRight: padText ? "2rem" : undefined, overflowY: "auto" }}
+              value={padText}
+              onChange={handlePadChange}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && padText.trim()) { e.preventDefault(); sendPad(); } }}
+              placeholder="Type a command..."
+              autoComplete="one-time-code"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-gramm="false"
+              enterKeyHint="send"
+            />
+            {/* Clear button inset inside textarea */}
+            {padText && (
+              <button
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-[#64748b] hover:text-[#e2e8f0] active:text-[#e2e8f0]"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={(e) => { e.preventDefault(); clearPad(); }}
+                onClick={clearPad}
+                aria-label="Clear"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button
+            className="btn btn-primary toolbar-btn rounded-none"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
+            onClick={sendPad}
+            disabled={!padText.trim()}
+          >
+            <SendHorizontal className="w-5 h-5" />
+          </button>
         </div>
       </div>}
 
-      {/* Key row: scrollable keys | pinned keyboard */}
+      {/* Key row: scrollable keys (no pinned keyboard button — Input Button is external) */}
       <div className="flex items-center h-11">
-        {/* Scrollable keys */}
         <div className="flex-1 overflow-x-auto flex items-center gap-0 px-0 scrollbar-none" style={{ touchAction: "pan-x" }} onTouchStart={onScrollAreaTouchStart}>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[D"))} onClick={() => onSendKey("\x1b[D")}>&larr;</button>
           <button className="btn btn-ghost h-11 min-h-0 font-mono px-2.5 min-w-0 shrink-0 text-[#94a3b8] hover:text-[#e2e8f0] text-base rounded-none" tabIndex={-1} onTouchEnd={tapGuard(() => onSendKey("\x1b[B"))} onClick={() => onSendKey("\x1b[B")}>&darr;</button>
@@ -439,19 +397,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
             </button>
           )}
         </div>
-
-        <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
-        {/* Pinned right: keyboard */}
-        <button
-          className={`btn h-11 min-h-0 shrink-0 px-2.5 min-w-0 rounded-none ${inputBarOpen ? "btn-primary" : "btn-ghost text-[#64748b] hover:text-[#e2e8f0]"}`}
-          tabIndex={-1}
-          onMouseDown={(e) => e.preventDefault()}
-          onTouchEnd={(e) => { e.preventDefault(); toggleInputBar(); }}
-          onClick={toggleInputBar}
-          aria-label="Keyboard input"
-        >
-          <KeyboardIcon className="w-5 h-5" />
-        </button>
       </div>
     </div>
 
@@ -466,8 +411,8 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
             className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); closeHistoryPicker(); }}
-            onClick={closeHistoryPicker}
+            onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(false); }}
+            onClick={() => setHistoryPickerOpen(false)}
             aria-label="Close history"
           >
             <X className="w-4 h-4" />

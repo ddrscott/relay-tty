@@ -3,17 +3,23 @@ import { useTerminalCore } from "../hooks/use-terminal-core";
 
 interface ReadOnlyTerminalProps {
   token: string;
+  password?: string;
   onExit?: (exitCode: number) => void;
   onTitleChange?: (title: string) => void;
-  onAuthError?: () => void;
+  onAuthError?: (reason?: string) => void;
 }
 
 export const ReadOnlyTerminal = forwardRef<unknown, ReadOnlyTerminalProps>(
-  function ReadOnlyTerminal({ token, onExit, onTitleChange, onAuthError }, _ref) {
+  function ReadOnlyTerminal({ token, password, onExit, onTitleChange, onAuthError }, _ref) {
     const containerRef = useRef<HTMLDivElement>(null);
 
+    let wsPath = `/ws/share?token=${encodeURIComponent(token)}`;
+    if (password) {
+      wsPath += `&pwd=${encodeURIComponent(password)}`;
+    }
+
     const { status, retryCount, contentReady } = useTerminalCore(containerRef, {
-      wsPath: `/ws/share?token=${encodeURIComponent(token)}`,
+      wsPath,
       readOnly: true,
       onExit,
       onTitleChange,

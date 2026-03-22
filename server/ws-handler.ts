@@ -5,7 +5,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
-import { verifyShareToken } from "./auth.js";
+import { verifyShareToken, verifyPasswordShareToken, peekJwtPayload } from "./auth.js";
 import { WS_MSG } from "../shared/types.js";
 
 /** Ping interval to keep connections alive through proxies (e.g. Cloudflare Tunnel ~100s idle timeout) */
@@ -181,6 +181,9 @@ export class WsHandler {
     }
 
     // Share (read-only) WS — token is passed as query param
+    // Auth errors must be sent as proper WS close codes (not HTTP 401)
+    // because browsers don't expose HTTP rejection details on failed upgrades —
+    // the client only sees code 1006 and cannot distinguish auth errors from network failures.
     const shareMatch = url.pathname.match(/^\/ws\/share$/);
     if (shareMatch) {
       const token = url.searchParams.get("token");
@@ -189,20 +192,42 @@ export class WsHandler {
         return;
       }
 
-      const sessionId = verifyShareToken(token);
-      if (!sessionId) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
+      // Check if token is password-protected by peeking at the payload
+      const payload = peekJwtPayload(token);
+      let sessionId: string | null = null;
+      let authError: string | null = null;
+
+      if (payload?.pwd === true) {
+        const pwd = url.searchParams.get("pwd");
+        if (!pwd) {
+          authError = "password-required";
+        } else {
+          sessionId = verifyPasswordShareToken(token, pwd);
+          if (!sessionId) authError = "wrong-password";
+        }
+      } else {
+        sessionId = verifyShareToken(token);
+        if (!sessionId) authError = "invalid-or-expired";
+      }
+
+      if (authError) {
+        // Complete the upgrade, then immediately close with 4001 + reason
+        // so the browser gets a proper close code it can act on.
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
+          ws.close(4001, authError!);
+        });
         return;
       }
 
-      this.resolveSession(sessionId).then((session) => {
+      this.resolveSession(sessionId!).then((session) => {
         if (!session) {
-          socket.destroy();
+          this.wss.handleUpgrade(req, socket, head, (ws) => {
+            ws.close(4004, "session-not-found");
+          });
           return;
         }
         this.wss.handleUpgrade(req, socket, head, (ws) => {
-          this.handleReadOnlyConnection(ws, sessionId);
+          this.handleReadOnlyConnection(ws, sessionId!);
         });
       });
       return;
