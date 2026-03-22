@@ -420,19 +420,21 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto" onTouchStart={onScrollAreaTouchStart}>
-          {[...padHistory].reverse().map((entry, i) => (
-            <button
-              key={padHistory.length - 1 - i}
-              className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
-              onClick={() => pickHistory(entry)}
-              onTouchEnd={tapGuard(() => pickHistory(entry))}
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
-            >
-              <pre className="text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-words">{entry}</pre>
-            </button>
-          ))}
+        <div className="flex-1 overflow-y-auto flex flex-col-reverse" onTouchStart={onScrollAreaTouchStart}>
+          <div>
+            {padHistory.map((entry, i) => (
+              <button
+                key={i}
+                className="w-full text-left px-3 py-2.5 border-b border-[#1e1e2e] hover:bg-[#1a1a2e] active:bg-[#1a1a2e] transition-colors"
+                onClick={() => pickHistory(entry)}
+                onTouchEnd={tapGuard(() => pickHistory(entry))}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+              >
+                <pre className="text-sm font-mono text-[#e2e8f0] whitespace-pre-wrap break-words">{entry}</pre>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     )}
