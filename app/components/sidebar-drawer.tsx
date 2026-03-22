@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, ChevronUp, Terminal, Sparkles, Loader2 } from "lucide-react";
+import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
@@ -116,6 +117,7 @@ export function SidebarDrawer({
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showNewPanel, setShowNewPanel] = useState(false);
   const [availableCommands, setAvailableCommands] = useState<{ tools: { name: string; label: string }[]; shells: { name: string; label: string }[] } | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<{ name: string; label: string; isAiTool: boolean; isCustom?: boolean } | null>(null);
 
   // Fetch available commands when the new-session panel opens
   useEffect(() => {
@@ -163,14 +165,16 @@ export function SidebarDrawer({
   const isSingleGroup = groups.length === 1;
 
   const createSession = useCallback(
-    async (command: string) => {
+    async (command: string, cwd?: string) => {
       if (creating) return;
       setCreating(true);
       try {
+        const body: Record<string, unknown> = { command };
+        if (cwd) body.cwd = cwd;
         const res = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(await res.text());
         const { session } = await res.json();
@@ -183,6 +187,15 @@ export function SidebarDrawer({
       }
     },
     [creating, navigate]
+  );
+
+  /** All commands show the project picker */
+  const handleLaunch = useCallback(
+    (command: string, label: string, isAiTool: boolean, isCustom?: boolean) => {
+      if (creating) return;
+      setPendingCommand({ name: command, label, isAiTool, isCustom });
+    },
+    [creating],
   );
 
   const toggleGroup = useCallback((cwd: string) => {
@@ -343,7 +356,7 @@ export function SidebarDrawer({
                           key={t.name}
                           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
                           disabled={creating}
-                          onClick={() => createSession(t.name)}
+                          onClick={() => handleLaunch(t.name, t.label, true, false)}
                           onMouseDown={(e) => e.preventDefault()}
                           tabIndex={-1}
                         >
@@ -360,7 +373,7 @@ export function SidebarDrawer({
                       key={s.name}
                       className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
                       disabled={creating}
-                      onClick={() => createSession(s.name)}
+                      onClick={() => handleLaunch(s.name, s.label, false, false)}
                       onMouseDown={(e) => e.preventDefault()}
                       tabIndex={-1}
                     >
@@ -377,7 +390,7 @@ export function SidebarDrawer({
                           key={cmd}
                           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer truncate"
                           disabled={creating}
-                          onClick={() => createSession(cmd)}
+                          onClick={() => handleLaunch(cmd, cmd, false, true)}
                           onMouseDown={(e) => e.preventDefault()}
                           tabIndex={-1}
                           title={cmd}
@@ -463,6 +476,22 @@ export function SidebarDrawer({
           </div>
         </div>
       </div>
+
+      {/* Project picker modal — rendered outside drawer to avoid z-index issues */}
+      {pendingCommand && (
+        <ProjectPicker
+          command={pendingCommand.name}
+          commandLabel={pendingCommand.label}
+          isAiTool={pendingCommand.isAiTool}
+          isCustom={pendingCommand.isCustom}
+          onSelect={(cwd) => {
+            const cmd = pendingCommand.name;
+            setPendingCommand(null);
+            createSession(cmd, cwd || undefined);
+          }}
+          onCancel={() => setPendingCommand(null)}
+        />
+      )}
     </div>
   );
 }

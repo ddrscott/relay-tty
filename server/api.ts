@@ -8,7 +8,8 @@ import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import type { NotificationStore } from "./notification-store.js";
 import type { PushStore } from "./push-store.js";
-import { generateShareToken } from "./auth.js";
+import { generateShareToken, generatePasswordShareToken, readPasswordHash, hashPassword } from "./auth.js";
+import { discoverProjects, readProjectRootsRaw, writeProjectRoots, invalidateProjectCache } from "./projects.js";
 import type {
   CreateSessionRequest,
   CreateSessionResponse,
@@ -108,6 +109,7 @@ export function createApiRouter(
       : rawCommand;
 
     const session = await ptyManager.spawn(command, args, cols, rows, cwd);
+    invalidateProjectCache();
 
     const proto = req.headers["x-forwarded-proto"] || req.protocol;
     const host = req.headers["x-forwarded-host"] || req.headers.host;
@@ -145,7 +147,29 @@ export function createApiRouter(
     }
 
     const ttl = Math.min(Math.max(parseInt(req.body?.ttl) || 3600, 60), 86400); // 1min to 24h
-    const token = generateShareToken(req.params.id, ttl);
+    // password can be: string (raw password from web UI), true (use global relay password), or falsy (no password)
+    const passwordField = req.body?.password;
+
+    let token: string | null;
+    let usePassword = false;
+    if (typeof passwordField === "string" && passwordField) {
+      // Raw password from web UI — hash it
+      const passwordHash = hashPassword(passwordField);
+      token = generatePasswordShareToken(req.params.id, passwordHash, ttl);
+      usePassword = true;
+    } else if (passwordField === true) {
+      // CLI: use global relay password
+      const passwordHash = readPasswordHash();
+      if (!passwordHash) {
+        res.status(400).json({ error: "No relay password set. Run: relay set-password" });
+        return;
+      }
+      token = generatePasswordShareToken(req.params.id, passwordHash, ttl);
+      usePassword = true;
+    } else {
+      token = generateShareToken(req.params.id, ttl);
+    }
+
     if (!token) {
       res.status(500).json({ error: "JWT_SECRET not configured" });
       return;
@@ -157,7 +181,7 @@ export function createApiRouter(
       || `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.headers.host}`;
     const url = `${baseUrl}/share/${token}`;
 
-    res.json({ token, url, expiresIn: ttl });
+    res.json({ token, url, expiresIn: ttl, passwordProtected: usePassword });
   });
 
   // DELETE /api/sessions/:id — kill and remove session
@@ -379,6 +403,11 @@ export function createApiRouter(
         res.status(500).json({ error: "Failed to read file" });
       }
     });
+  });
+
+  // GET /api/password-status — check if a global relay password is set
+  router.get("/password-status", (_req, res) => {
+    res.json({ hasPassword: readPasswordHash() !== null });
   });
 
   // GET /api/commands — list custom commands
@@ -694,6 +723,27 @@ export function createApiRouter(
     fs.mkdirSync(RELAY_DIR, { recursive: true });
     fs.appendFileSync(SCRATCHPAD_HISTORY_FILE, entry.replace(/\n/g, "\\n") + "\n");
     res.json({ ok: true });
+  });
+
+  // GET /api/projects — discover projects for the project picker
+  router.get("/projects", (_req, res) => {
+    res.json({ projects: discoverProjects() });
+  });
+
+  // GET /api/project-roots — return raw project-roots.txt content
+  router.get("/project-roots", (_req, res) => {
+    res.json({ content: readProjectRootsRaw() });
+  });
+
+  // PUT /api/project-roots — overwrite project-roots.txt
+  router.put("/project-roots", (req, res) => {
+    const { content } = req.body as { content: string };
+    if (typeof content !== "string") {
+      res.status(400).json({ error: "content must be a string" });
+      return;
+    }
+    writeProjectRoots(content);
+    res.json({ ok: true, content: readProjectRootsRaw() });
   });
 
   return router;

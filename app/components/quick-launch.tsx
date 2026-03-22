@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Terminal, Sparkles, Loader2 } from "lucide-react";
+import { ProjectPicker } from "./project-picker";
 
 interface CommandOption {
   name: string;
@@ -16,6 +17,7 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
   const navigate = useNavigate();
   const [commands, setCommands] = useState<AvailableCommands | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<{ cmd: CommandOption; isAiTool: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,15 +32,17 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
     return () => { cancelled = true; };
   }, []);
 
-  const launch = useCallback(
-    async (command: string) => {
+  const launchWithCwd = useCallback(
+    async (command: string, cwd?: string) => {
       if (creating) return;
       setCreating(command);
       try {
+        const body: Record<string, unknown> = { command };
+        if (cwd) body.cwd = cwd;
         const res = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(await res.text());
         const { session } = await res.json();
@@ -48,6 +52,14 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
       }
     },
     [creating, navigate],
+  );
+
+  const launch = useCallback(
+    (command: string, label: string, isAiTool: boolean) => {
+      if (creating) return;
+      setPendingCommand({ cmd: { name: command, label }, isAiTool });
+    },
+    [creating],
   );
 
   if (!commands) {
@@ -62,22 +74,37 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
 
   const { tools, shells } = commands;
 
+  const picker = pendingCommand && (
+    <ProjectPicker
+      command={pendingCommand.cmd.name}
+      commandLabel={pendingCommand.cmd.label}
+      isAiTool={pendingCommand.isAiTool}
+      onSelect={(cwd) => {
+        const cmd = pendingCommand.cmd.name;
+        setPendingCommand(null);
+        launchWithCwd(cmd, cwd || undefined);
+      }}
+      onCancel={() => setPendingCommand(null)}
+    />
+  );
+
   if (compact) {
     return (
       <div className="px-3 py-4">
         <p className="text-xs text-[#64748b] mb-3 text-center">Launch a session</p>
         <div className="flex flex-col gap-1.5">
           {tools.map((t) => (
-            <LaunchButton key={t.name} cmd={t} icon="sparkles" creating={creating} onLaunch={launch} />
+            <LaunchButton key={t.name} cmd={t} icon="sparkles" creating={creating} onLaunch={() => launch(t.name, t.label, true)} />
           ))}
           {tools.length > 0 && shells.length > 0 && <div className="border-t border-[#1e1e2e] my-1" />}
           {shells.map((s) => (
-            <LaunchButton key={s.name} cmd={s} icon="terminal" creating={creating} onLaunch={launch} />
+            <LaunchButton key={s.name} cmd={s} icon="terminal" creating={creating} onLaunch={() => launch(s.name, s.label, false)} />
           ))}
         </div>
         <p className="text-xs text-[#64748b]/60 mt-3 text-center font-mono">
           relay &lt;command&gt;
         </p>
+        {picker}
       </div>
     );
   }
@@ -94,7 +121,7 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
           <p className="text-xs text-[#64748b] uppercase tracking-wider mb-2.5">AI Assistants</p>
           <div className="flex flex-wrap justify-center gap-2">
             {tools.map((t) => (
-              <LaunchButton key={t.name} cmd={t} icon="sparkles" creating={creating} onLaunch={launch} />
+              <LaunchButton key={t.name} cmd={t} icon="sparkles" creating={creating} onLaunch={() => launch(t.name, t.label, true)} />
             ))}
           </div>
         </div>
@@ -104,7 +131,7 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
         <p className="text-xs text-[#64748b] uppercase tracking-wider mb-2.5">Shells</p>
         <div className="flex flex-wrap justify-center gap-2">
           {shells.map((s) => (
-            <LaunchButton key={s.name} cmd={s} icon="terminal" creating={creating} onLaunch={launch} />
+            <LaunchButton key={s.name} cmd={s} icon="terminal" creating={creating} onLaunch={() => launch(s.name, s.label, false)} />
           ))}
         </div>
       </div>
@@ -112,6 +139,7 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
       <p className="text-xs text-[#64748b]/60 font-mono">
         or from your terminal: relay &lt;command&gt;
       </p>
+      {picker}
     </div>
   );
 }
@@ -125,7 +153,7 @@ function LaunchButton({
   cmd: CommandOption;
   icon: "sparkles" | "terminal";
   creating: string | null;
-  onLaunch: (name: string) => void;
+  onLaunch: () => void;
 }) {
   const isCreating = creating === cmd.name;
   const disabled = creating !== null;
@@ -135,7 +163,7 @@ function LaunchButton({
     <button
       className="inline-flex items-center gap-2 bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm rounded-lg px-4 py-2.5 transition-colors cursor-pointer"
       disabled={disabled}
-      onClick={() => onLaunch(cmd.name)}
+      onClick={onLaunch}
       onMouseDown={(e) => e.preventDefault()}
       tabIndex={-1}
     >

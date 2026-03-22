@@ -103,8 +103,8 @@ export interface TerminalCoreOpts {
   onScrollChange?: (atBottom: boolean) => void;
   /** Called during large buffer replay with progress 0-1, null when done */
   onReplayProgress?: (progress: number | null) => void;
-  /** Called on WS auth error (close code 4001/1008) */
-  onAuthError?: () => void;
+  /** Called on WS auth error (close code 4001/1008). Reason string from server if available. */
+  onAuthError?: (reason?: string) => void;
   /** Called when an OSC 9 notification arrives from the PTY */
   onNotification?: (message: string) => void;
   /** Called when a pinch-to-zoom gesture requests a font size change */
@@ -322,8 +322,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       if (!opts.readOnly) {
         setupMobileInput(term, xtermWrapper!);
-        setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState);
       }
+      setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState);
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
       const iosStyle = document.createElement("style");
@@ -901,9 +901,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         new DataView(resumeMsg.buffer).setFloat64(1, byteOffset, false);
         ws.send(resumeMsg);
 
-        // No auto-RESIZE on connect — SIGWINCH is only sent when the user
-        // clicks the floating resize button. If dims don't match the PTY,
-        // the mismatch button appears automatically.
+        // Auto-RESIZE happens after SYNC (see handleWsMessage) when the
+        // handshake completes, not here — we need to wait for buffer replay.
 
         // Start heartbeat: send PING every 10s, detect zombie connections after 45s silence.
         // Tunnel connections (browser → DO → tunnel → local) can lose individual
@@ -934,7 +933,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         if (disposed) return;
         if (event.code === 4001 || event.code === 1008) {
-          opts.onAuthError?.();
+          opts.onAuthError?.(event.reason || undefined);
           return;
         }
         setStatus("disconnected");
@@ -995,6 +994,28 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // If SYNC arrives and content isn't ready yet, the session has
             // no buffered output (BUFFER_REPLAY was skipped) — show terminal.
             markContentReady();
+
+            // After the handshake completes, fit xterm to the actual container
+            // size and send RESIZE to the PTY. This corrects the 80x24 default
+            // that the server uses when spawning from the web UI.
+            // Skip for fixed-size terminals (gallery thumbnails) and read-only.
+            if (activeRef.current && opts.fixedCols == null && !opts.readOnly) {
+              requestAnimationFrame(() => {
+                if (disposed || !fitAddonRef.current) return;
+                fitAddonRef.current.fit();
+                // Explicitly send RESIZE — sendResize is false in the main
+                // terminal so onResize won't propagate automatically.
+                const ws = wsRef.current;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  const { cols, rows } = term;
+                  const msg = new Uint8Array(5);
+                  msg[0] = WS_MSG.RESIZE;
+                  new DataView(msg.buffer).setUint16(1, cols, false);
+                  new DataView(msg.buffer).setUint16(3, rows, false);
+                  ws.send(msg);
+                }
+              });
+            }
           }
           break;
         case WS_MSG.DATA: {

@@ -78,3 +78,11 @@ export interface CreateSessionResponse {
 export interface SessionListResponse {
   sessions: Session[];
 }
+
+export interface Project {
+  path: string;
+  name: string;
+  label: string;
+  source: "recent" | "discovered" | "configured";
+  lastUsed?: number;
+}

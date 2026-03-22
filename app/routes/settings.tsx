@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRevalidator } from "react-router";
-import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power } from "lucide-react";
+import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power, FolderGit2 } from "lucide-react";
 import { PlainInput } from "../components/plain-input";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import {
@@ -44,6 +44,12 @@ export default function Settings() {
   const [uploadDirError, setUploadDirError] = useState<string | null>(null);
   const [uploadDirLoading, setUploadDirLoading] = useState(true);
 
+  // Project roots state
+  const [projectRootsText, setProjectRootsText] = useState("");
+  const [projectRootsSaved, setProjectRootsSaved] = useState(false);
+  const [projectRootsError, setProjectRootsError] = useState<string | null>(null);
+  const [projectRootsLoading, setProjectRootsLoading] = useState(true);
+
   // Ctrl shortcuts state
   const [ctrlText, setCtrlText] = useState("");
   const [ctrlSaved, setCtrlSaved] = useState(false);
@@ -66,6 +72,20 @@ export default function Settings() {
       .catch((err) => {
         setCommandsError(`Failed to load commands: ${err.message}`);
         setCommandsLoading(false);
+      });
+    // Load project roots from server
+    fetch("/api/project-roots")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(({ content }) => {
+        setProjectRootsText(content);
+        setProjectRootsLoading(false);
+      })
+      .catch((err) => {
+        setProjectRootsError(`Failed to load: ${err.message}`);
+        setProjectRootsLoading(false);
       });
     // Load upload directory from server
     fetch("/api/upload-dir")
@@ -152,6 +172,22 @@ export default function Settings() {
     }
   }, [commandsText, revalidate]);
 
+  const saveProjectRoots = useCallback(async () => {
+    setProjectRootsError(null);
+    try {
+      const res = await fetch("/api/project-roots", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: projectRootsText }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setProjectRootsSaved(true);
+      setTimeout(() => setProjectRootsSaved(false), 2000);
+    } catch (err: any) {
+      setProjectRootsError(`Failed to save: ${err.message}`);
+    }
+  }, [projectRootsText]);
+
   const notifPermission =
     typeof Notification !== "undefined" ? Notification.permission : "unsupported";
 
@@ -215,6 +251,58 @@ export default function Settings() {
                 <button
                   className="btn btn-sm btn-primary font-mono text-xs"
                   onClick={saveCommands}
+                >
+                  Save
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* Project Roots section */}
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+          <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
+            <FolderGit2 className="w-4 h-4 text-[#64748b]" />
+            Project Roots
+          </h2>
+          <p className="text-xs font-mono text-[#64748b] mb-3">
+            Directories to scan for projects (one level deep for git repos). Uncomment to enable, add your own paths.
+          </p>
+
+          {projectRootsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <span className="loading loading-spinner loading-sm text-[#64748b]" />
+            </div>
+          ) : (
+            <>
+              <textarea
+                className="w-full bg-[#0a0a0f] border border-[#2d2d44] rounded-lg px-3 py-2 text-sm font-mono text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:border-[#3d3d5c] resize-none"
+                rows={10}
+                placeholder={"# Uncomment or add directories\n# ~/code\n# ~/projects"}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                value={projectRootsText}
+                onChange={(e) => {
+                  setProjectRootsText(e.target.value);
+                  setProjectRootsSaved(false);
+                }}
+              />
+              {projectRootsError && (
+                <div className="mt-2 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#ef4444]/30 text-xs font-mono text-[#ef4444]">
+                  {projectRootsError}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2 mt-2">
+                {projectRootsSaved && (
+                  <span className="text-xs font-mono text-[#22c55e] flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Saved
+                  </span>
+                )}
+                <button
+                  className="btn btn-sm btn-primary font-mono text-xs"
+                  onClick={saveProjectRoots}
                 >
                   Save
                 </button>
