@@ -713,7 +713,7 @@ export function createApiRouter(
     }
   });
 
-  // POST /api/scratchpad-history — append entry to scratchpad history
+  // POST /api/scratchpad-history — add entry to scratchpad history (deduplicates)
   router.post("/scratchpad-history", (req, res) => {
     const { entry } = req.body as { entry: string };
     if (typeof entry !== "string" || !entry.trim()) {
@@ -721,7 +721,15 @@ export function createApiRouter(
       return;
     }
     fs.mkdirSync(RELAY_DIR, { recursive: true });
-    fs.appendFileSync(SCRATCHPAD_HISTORY_FILE, entry.replace(/\n/g, "\\n") + "\n");
+    const encoded = entry.replace(/\n/g, "\\n");
+    // Deduplicate: remove existing occurrence, then append to end
+    let existing: string[] = [];
+    try {
+      existing = fs.readFileSync(SCRATCHPAD_HISTORY_FILE, "utf-8").split("\n").filter((l) => l);
+    } catch {}
+    const deduped = existing.filter((l) => l !== encoded);
+    deduped.push(encoded);
+    fs.writeFileSync(SCRATCHPAD_HISTORY_FILE, deduped.join("\n") + "\n");
     res.json({ ok: true });
   });
 

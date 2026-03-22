@@ -116,8 +116,9 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
 
   const sendPad = useCallback(() => {
     if (!padText.trim()) return;
-    setPadHistory((prev) => [...prev, padText]);
-    // Persist to server
+    // Deduplicate: remove existing entry then add to end (most recent)
+    setPadHistory((prev) => [...prev.filter((e) => e !== padText), padText]);
+    // Persist to server (server deduplicates too)
     fetch("/api/scratchpad-history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -126,7 +127,8 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     onSendText(padText);
     setPadText("");
     if (padRef.current) padRef.current.style.height = "";
-  }, [padText, onSendText]);
+    onScratchpadClose();
+  }, [padText, onSendText, onScratchpadClose]);
 
   const pickHistory = useCallback((entry: string) => {
     setPadText(entry);
