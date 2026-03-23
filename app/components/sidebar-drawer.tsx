@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, ChevronUp, Terminal, Sparkles, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2 } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
@@ -252,7 +252,7 @@ export function SidebarDrawer({
       {/* Sidebar */}
       <div className="drawer-side z-50">
         <label htmlFor="sidebar-drawer" aria-label="close sidebar" className="drawer-overlay" />
-        <div className="w-72 bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full">
+        <div className="w-72 bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full relative">
           {/* Header */}
           <div className="px-3 py-3 border-b border-[#1e1e2e] flex items-center justify-between">
             <h1 className="font-mono text-[#64748b]">
@@ -276,16 +276,16 @@ export function SidebarDrawer({
             </div>
           </div>
 
-          {/* New session toggle + sort controls */}
+          {/* New + sort controls */}
           <div className="px-3 py-2 flex items-center gap-2 border-b border-[#1e1e2e]">
             <button
-              className={`btn btn-sm btn-ghost text-xs gap-1 cursor-pointer ${showNewPanel ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-              onClick={() => setShowNewPanel((p) => !p)}
+              className="btn btn-sm btn-ghost text-xs gap-1 cursor-pointer text-[#64748b] hover:text-[#e2e8f0]"
+              onClick={() => setShowNewPanel(true)}
               onMouseDown={(e) => e.preventDefault()}
               tabIndex={-1}
               disabled={creating}
             >
-              {showNewPanel ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+              <Plus className="w-3.5 h-3.5" />
               New
             </button>
 
@@ -338,73 +338,6 @@ export function SidebarDrawer({
               </div>
             )}
           </div>
-
-          {/* New session panel — full-width, collapsible */}
-          {showNewPanel && (
-            <div className="border-b border-[#1e1e2e] px-3 py-3">
-              {!availableCommands ? (
-                <div className="flex justify-center py-2">
-                  <Loader2 className="w-4 h-4 text-[#64748b] animate-spin" />
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  {availableCommands.tools.length > 0 && (
-                    <>
-                      <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">AI Assistants</p>
-                      {availableCommands.tools.map((t) => (
-                        <button
-                          key={t.name}
-                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
-                          disabled={creating}
-                          onClick={() => handleLaunch(t.name, t.label, true, false)}
-                          onMouseDown={(e) => e.preventDefault()}
-                          tabIndex={-1}
-                        >
-                          <Sparkles className="w-4 h-4 text-[#64748b] shrink-0" />
-                          {t.label}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {availableCommands.tools.length > 0 && <div className="border-t border-[#1e1e2e] my-1" />}
-                  <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">Shells</p>
-                  {availableCommands.shells.map((s) => (
-                    <button
-                      key={s.name}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
-                      disabled={creating}
-                      onClick={() => handleLaunch(s.name, s.label, false, false)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      tabIndex={-1}
-                    >
-                      <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
-                      {s.label}
-                    </button>
-                  ))}
-                  {customCommands.length > 0 && (
-                    <>
-                      <div className="border-t border-[#1e1e2e] my-1" />
-                      <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5">Custom</p>
-                      {customCommands.map((cmd) => (
-                        <button
-                          key={cmd}
-                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f1a] border border-[#2d2d44] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer truncate"
-                          disabled={creating}
-                          onClick={() => handleLaunch(cmd, cmd, false, true)}
-                          onMouseDown={(e) => e.preventDefault()}
-                          tabIndex={-1}
-                          title={cmd}
-                        >
-                          <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
-                          {cmd}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Session list */}
           <div className="flex-1 overflow-y-auto">
@@ -474,24 +407,110 @@ export function SidebarDrawer({
               <Settings className="w-4 h-4" />
             </button>
           </div>
+
+          {/* New session panel — full-width overlay */}
+          {showNewPanel && (
+            <div className="absolute inset-0 z-30 flex flex-col bg-[#0a0a0f]">
+              {/* Header */}
+              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1e1e2e] shrink-0">
+                <Plus className="w-4 h-4 text-[#64748b] shrink-0" />
+                <span className="font-mono text-sm text-[#e2e8f0] flex-1">New Session</span>
+                <button
+                  className="p-1.5 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1a1a2e] rounded-lg transition-colors"
+                  onClick={() => setShowNewPanel(false)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Command list — scrollable */}
+              <div className="flex-1 overflow-y-auto min-h-0 px-2 py-2">
+                {!availableCommands ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-5 h-5 text-[#64748b] animate-spin" />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {availableCommands.tools.length > 0 && (
+                      <>
+                        <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5 px-1">AI Assistants</p>
+                        {availableCommands.tools.map((t) => (
+                          <button
+                            key={t.name}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1a1a2e] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
+                            disabled={creating}
+                            onClick={() => handleLaunch(t.name, t.label, true, false)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            tabIndex={-1}
+                          >
+                            <Sparkles className="w-4 h-4 text-[#64748b] shrink-0" />
+                            {t.label}
+                          </button>
+                        ))}
+                        <div className="border-t border-[#1e1e2e] my-1 mx-2" />
+                      </>
+                    )}
+                    <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5 px-1">Shells</p>
+                    {availableCommands.shells.map((s) => (
+                      <button
+                        key={s.name}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1a1a2e] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer"
+                        disabled={creating}
+                        onClick={() => handleLaunch(s.name, s.label, false, false)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        tabIndex={-1}
+                      >
+                        <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
+                        {s.label}
+                      </button>
+                    ))}
+                    {customCommands.length > 0 && (
+                      <>
+                        <div className="border-t border-[#1e1e2e] my-1 mx-2" />
+                        <p className="text-xs text-[#64748b] uppercase tracking-wider mb-0.5 px-1">Custom</p>
+                        {customCommands.map((cmd) => (
+                          <button
+                            key={cmd}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1a1a2e] disabled:opacity-40 text-[#e2e8f0] font-mono text-sm transition-colors cursor-pointer truncate"
+                            disabled={creating}
+                            onClick={() => handleLaunch(cmd, cmd, false, true)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            tabIndex={-1}
+                            title={cmd}
+                          >
+                            <Terminal className="w-4 h-4 text-[#64748b] shrink-0" />
+                            {cmd}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Project picker — full-width overlay (layers on top of new session panel) */}
+          {pendingCommand && (
+            <ProjectPicker
+              command={pendingCommand.name}
+              commandLabel={pendingCommand.label}
+              isAiTool={pendingCommand.isAiTool}
+              isCustom={pendingCommand.isCustom}
+              onSelect={(cwd) => {
+                const cmd = pendingCommand.name;
+                setPendingCommand(null);
+                setShowNewPanel(false);
+                createSession(cmd, cwd || undefined);
+              }}
+              onCancel={() => setPendingCommand(null)}
+            />
+          )}
         </div>
       </div>
-
-      {/* Project picker modal — rendered outside drawer to avoid z-index issues */}
-      {pendingCommand && (
-        <ProjectPicker
-          command={pendingCommand.name}
-          commandLabel={pendingCommand.label}
-          isAiTool={pendingCommand.isAiTool}
-          isCustom={pendingCommand.isCustom}
-          onSelect={(cwd) => {
-            const cmd = pendingCommand.name;
-            setPendingCommand(null);
-            createSession(cmd, cwd || undefined);
-          }}
-          onCancel={() => setPendingCommand(null)}
-        />
-      )}
     </div>
   );
 }

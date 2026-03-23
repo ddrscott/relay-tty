@@ -74,7 +74,7 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
 
   const { tools, shells } = commands;
 
-  const picker = pendingCommand && (
+  const pickerContent = pendingCommand && (
     <ProjectPicker
       command={pendingCommand.cmd.name}
       commandLabel={pendingCommand.cmd.label}
@@ -86,6 +86,16 @@ export function QuickLaunch({ compact }: { compact?: boolean }) {
       }}
       onCancel={() => setPendingCommand(null)}
     />
+  );
+
+  // In compact mode (sidebar), ProjectPicker renders as absolute overlay within the sidebar's relative container.
+  // In full mode (main content), wrap in a fixed overlay so it covers the viewport.
+  const picker = compact ? pickerContent : pendingCommand && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="relative w-full max-w-lg h-full sm:h-[80vh] sm:rounded-2xl overflow-hidden border-0 sm:border sm:border-[#2d2d44]">
+        {pickerContent}
+      </div>
+    </div>
   );
 
   if (compact) {
