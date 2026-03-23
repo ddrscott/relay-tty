@@ -237,11 +237,11 @@ export class WsHandler {
   }
 
   /**
-   * Look up a session, auto-discovering from disk if not in the in-memory store.
-   * Sessions spawned directly by the CLI won't be in the store until discovered.
+   * Look up a session, ensuring a monitor connection is started if needed.
+   * Sessions spawned directly by the CLI need monitor setup on first access.
    */
   private async resolveSession(id: string) {
-    return this.sessionStore.get(id) || await this.ptyManager.discoverOne(id);
+    return await this.ptyManager.ensureMonitor(id);
   }
 
   private initKeepAlive(ws: WebSocket): void {

@@ -41,11 +41,13 @@ export class PtyManager extends EventEmitter {
   }
 
   /**
-   * Discover existing pty-host processes from disk and reconnect.
+   * Discover existing pty-host processes from disk and start monitors.
    * Called on server startup to recover sessions from previous run.
    *
-   * Reality-first: check PID liveness before attempting socket probe.
-   * Also cleans up orphan sockets with no matching session file.
+   * The session store reads from disk directly, so we only need to:
+   * 1. Start monitor connections for running sessions
+   * 2. Mark dead sessions (PID gone, socket gone)
+   * 3. Clean orphan sockets
    */
   async discover(): Promise<void> {
     if (!fs.existsSync(SESSIONS_DIR)) return;
@@ -67,16 +69,13 @@ export class PtyManager extends EventEmitter {
           const age = Date.now() - (meta.exitedAt || meta.createdAt);
           if (age > 60 * 60 * 1000) {
             fs.unlinkSync(sessionPath);
-            continue;
           }
-          this.sessionStore.create(meta);
           continue;
         }
 
         // Reality check: is the process actually alive?
         if (meta.pid && !isPidAlive(meta.pid)) {
           this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
           continue;
         }
 
@@ -84,19 +83,16 @@ export class PtyManager extends EventEmitter {
         const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
         if (!fs.existsSync(socketPath)) {
           this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
           continue;
         }
 
         const alive = await this.probeSocket(socketPath);
         if (alive) {
-          this.sessionStore.create(meta);
           this.startMonitor(meta.id, socketPath);
           reconnected.push(meta.command);
         } else {
           try { fs.unlinkSync(socketPath); } catch {}
           this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
         }
       } catch {
         try { fs.unlinkSync(sessionPath); } catch {}
@@ -156,6 +152,7 @@ export class PtyManager extends EventEmitter {
       rows,
     };
 
+    // Store in pending — pty-host hasn't written the JSON yet
     this.sessionStore.create(session);
 
     // Await socket readiness before returning — caller gets a session that's ready to connect
@@ -204,128 +201,45 @@ export class PtyManager extends EventEmitter {
   }
 
   /**
-   * Sync in-memory session store with disk.
-   * Discovers any sessions on disk that are missing from the store,
-   * and removes store entries whose disk files have been deleted.
-   * Called by the list endpoint to ensure disk is always the source of truth.
+   * Ensure a monitor connection exists for a session.
+   * Called when a WS client connects to a session that was spawned
+   * by the CLI (not through the server). Starts a monitor if the
+   * session is alive and not already monitored.
+   * Returns the session if found, null otherwise.
    */
-  async syncFromDisk(): Promise<void> {
-    if (!fs.existsSync(SESSIONS_DIR)) return;
+  async ensureMonitor(id: string): Promise<Session | null> {
+    const session = this.sessionStore.get(id);
+    if (!session) return null;
 
-    const diskIds = new Set<string>();
-    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json"));
+    // Already monitoring or exited — nothing to do
+    if (this.monitors.has(id) || session.status === "exited") return session;
 
-    for (const file of files) {
-      const id = file.replace(".json", "");
-      diskIds.add(id);
-
-      // Skip sessions already in the store
-      if (this.sessionStore.get(id)) continue;
-
-      // New session on disk — discover it (same logic as discoverOne)
-      const sessionPath = path.join(SESSIONS_DIR, file);
-      try {
-        const raw = fs.readFileSync(sessionPath, "utf-8");
-        const meta = JSON.parse(raw) as Session;
-        if (!meta.cwd) meta.cwd = process.env.HOME || "/";
-
-        if (meta.status === "exited") {
-          const age = Date.now() - (meta.exitedAt || meta.createdAt);
-          if (age > 60 * 60 * 1000) {
-            fs.unlinkSync(sessionPath);
-            continue;
-          }
-          this.sessionStore.create(meta);
-          continue;
-        }
-
-        if (meta.pid && !isPidAlive(meta.pid)) {
-          this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
-          continue;
-        }
-
-        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
-        if (!fs.existsSync(socketPath)) {
-          this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
-          continue;
-        }
-
-        const alive = await this.probeSocket(socketPath);
-        if (alive) {
-          this.sessionStore.create(meta);
-          this.startMonitor(meta.id, socketPath);
-        } else {
-          try { fs.unlinkSync(socketPath); } catch {}
-          this.markDead(meta, sessionPath);
-          this.sessionStore.create(meta);
-        }
-      } catch {
-        try { fs.unlinkSync(sessionPath); } catch {}
-      }
+    // Reality check: PID alive?
+    if (session.pid && !isPidAlive(session.pid)) {
+      const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
+      this.markDead(session, sessionPath);
+      // Re-read from disk to get the updated status
+      return this.sessionStore.get(id) || null;
     }
 
-    // Remove store entries whose disk files no longer exist
-    for (const session of this.sessionStore.list()) {
-      if (!diskIds.has(session.id)) {
-        this.sessionStore.delete(session.id);
-      }
+    // Socket connectable?
+    const socketPath = path.join(SOCKETS_DIR, `${id}.sock`);
+    if (!fs.existsSync(socketPath)) {
+      const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
+      this.markDead(session, sessionPath);
+      return this.sessionStore.get(id) || null;
     }
-  }
 
-  /**
-   * Discover a single session from disk by ID.
-   * Used for lazy discovery when a client connects to a session
-   * that was spawned directly by the CLI (not through the server).
-   * Returns the session if found and alive, null otherwise.
-   */
-  async discoverOne(id: string): Promise<Session | null> {
-    const existing = this.sessionStore.get(id);
-    if (existing) return existing;
+    const alive = await this.probeSocket(socketPath);
+    if (alive) {
+      this.startMonitor(id, socketPath);
+      return session;
+    }
 
+    try { fs.unlinkSync(socketPath); } catch {}
     const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
-    if (!fs.existsSync(sessionPath)) return null;
-
-    try {
-      const raw = fs.readFileSync(sessionPath, "utf-8");
-      const meta = JSON.parse(raw) as Session;
-      if (!meta.cwd) meta.cwd = process.env.HOME || "/";
-
-      if (meta.status === "exited") {
-        this.sessionStore.create(meta);
-        return meta;
-      }
-
-      // Reality check: PID alive?
-      if (meta.pid && !isPidAlive(meta.pid)) {
-        this.markDead(meta, sessionPath);
-        this.sessionStore.create(meta);
-        return meta;
-      }
-
-      // Socket connectable?
-      const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
-      if (!fs.existsSync(socketPath)) {
-        this.markDead(meta, sessionPath);
-        this.sessionStore.create(meta);
-        return meta;
-      }
-
-      const alive = await this.probeSocket(socketPath);
-      if (alive) {
-        this.sessionStore.create(meta);
-        this.startMonitor(meta.id, socketPath);
-        return meta;
-      }
-
-      try { fs.unlinkSync(socketPath); } catch {}
-      this.markDead(meta, sessionPath);
-      this.sessionStore.create(meta);
-      return meta;
-    } catch {
-      return null;
-    }
+    this.markDead(session, sessionPath);
+    return this.sessionStore.get(id) || null;
   }
 
   /**
@@ -342,11 +256,11 @@ export class PtyManager extends EventEmitter {
    * Watch session JSON files for changes and propagate updates.
    *
    * When pty-host flushes updated metadata to disk (every 5s), this
-   * detects the change, reads the JSON, diffs against the in-memory
-   * session state, and emits "session-update" with the updated Session.
+   * detects the change, reads the JSON, diffs against the overlay,
+   * and emits "session-update" with the updated Session.
    *
-   * This is general-purpose — any field pty-host writes (metrics, title,
-   * status, cols/rows, future fields) propagates automatically to WS clients.
+   * Also auto-discovers new sessions (e.g. CLI-spawned) and starts
+   * monitors for them.
    */
   startFileWatcher(): void {
     if (this.fileWatcher) return;
@@ -384,50 +298,59 @@ export class PtyManager extends EventEmitter {
     }
   }
 
-  /** Read updated session JSON from disk, diff against in-memory, emit changes. */
+  /**
+   * Read updated session JSON from disk, diff against previous state,
+   * emit changes. Also auto-starts monitors for newly discovered sessions.
+   */
   private handleSessionFileChange(id: string): void {
     const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
     try {
       const raw = fs.readFileSync(sessionPath, "utf-8");
       const diskMeta = JSON.parse(raw) as Session;
 
-      const memSession = this.sessionStore.get(id);
-      if (!memSession) {
-        // New session (e.g. CLI-spawned) — auto-discover it
+      // If this is a new session (not yet monitored), start a monitor
+      if (!this.monitors.has(id) && diskMeta.status === "running") {
         if (!diskMeta.cwd) diskMeta.cwd = process.env.HOME || "/";
-        if (diskMeta.status === "running") {
-          const socketPath = path.join(SOCKETS_DIR, `${diskMeta.id}.sock`);
-          if (fs.existsSync(socketPath)) {
-            this.sessionStore.create(diskMeta);
-            this.startMonitor(diskMeta.id, socketPath);
-          }
+        const socketPath = path.join(SOCKETS_DIR, `${diskMeta.id}.sock`);
+        if (fs.existsSync(socketPath)) {
+          this.startMonitor(diskMeta.id, socketPath);
+          // Emit change so WS clients learn about the new session
+          this.sessionStore.emitChange();
         }
-        return;
       }
 
-      // Diff: check if any fields changed
+      // Read the current merged session (disk + overlay) to detect changes
+      const currentSession = this.sessionStore.get(id);
+      if (!currentSession) return;
+
+      // Diff: check if any fields from disk differ from current merged state
       let changed = false;
       const updatedFields: Partial<Session> = {};
 
       for (const key of Object.keys(diskMeta) as Array<keyof Session>) {
-        if (key === "id") continue; // Never changes
+        if (key === "id") continue;
         const diskVal = diskMeta[key];
-        const memVal = memSession[key];
-        if (diskVal !== memVal) {
+        const currentVal = currentSession[key];
+        if (diskVal !== currentVal) {
           changed = true;
           (updatedFields as any)[key] = diskVal;
-          // Update in-memory state
-          (memSession as any)[key] = diskVal;
         }
       }
 
       if (changed) {
-        // Always include id in the update payload for client routing
+        // Apply disk updates to the overlay so subsequent reads are consistent
+        this.sessionStore.applyUpdate(id, updatedFields);
         updatedFields.id = id;
-        this.emit("session-update", id, memSession, updatedFields);
+
+        // Re-read the merged session for the emit
+        const mergedSession = this.sessionStore.get(id);
+        if (mergedSession) {
+          this.emit("session-update", id, mergedSession, updatedFields);
+        }
       }
     } catch {
-      // File may have been deleted or corrupted — ignore
+      // File may have been deleted — emit change so list updates
+      this.sessionStore.emitChange();
     }
   }
 

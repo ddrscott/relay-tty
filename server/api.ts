@@ -119,19 +119,16 @@ export function createApiRouter(
     res.status(201).json(response);
   });
 
-  // GET /api/sessions — list all sessions (syncs from disk first)
-  router.get("/sessions", async (_req, res) => {
-    await ptyManager.syncFromDisk();
+  // GET /api/sessions — list all sessions (reads directly from disk)
+  router.get("/sessions", (_req, res) => {
     const sessions = sessionStore.list();
     const response: SessionListResponse = { sessions };
     res.json(response);
   });
 
-  // GET /api/sessions/:id — get single session
+  // GET /api/sessions/:id — get single session (reads from disk, ensures monitor)
   router.get("/sessions/:id", async (req, res) => {
-    // Try in-memory store first, then discover from disk (CLI-spawned sessions)
-    const session = sessionStore.get(req.params.id)
-      || await ptyManager.discoverOne(req.params.id);
+    const session = await ptyManager.ensureMonitor(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -201,9 +198,8 @@ export function createApiRouter(
   // GET /api/sessions/:id/ls — list directory contents for the file browser.
   // Query param `path` is resolved relative to the session CWD.
   // Returns entries with name, type, size, and mtime.
-  router.get("/sessions/:id/ls", async (req, res) => {
-    const session = sessionStore.get(req.params.id)
-      || await ptyManager.discoverOne(req.params.id);
+  router.get("/sessions/:id/ls", (req, res) => {
+    const session = sessionStore.get(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -255,9 +251,8 @@ export function createApiRouter(
 
   // PUT /api/sessions/:id/write-file — write file content (for inline editing)
   // Body: { path: string, content: string }
-  router.put("/sessions/:id/write-file", async (req, res) => {
-    const session = sessionStore.get(req.params.id)
-      || await ptyManager.discoverOne(req.params.id);
+  router.put("/sessions/:id/write-file", (req, res) => {
+    const session = sessionStore.get(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -282,9 +277,8 @@ export function createApiRouter(
   // GET /api/sessions/:id/files/* — serve files relative to session CWD or absolute path.
   // When ?abs=1 query param is set, treats the wildcard path as an absolute filesystem path.
   // Without ?abs, restricts to session CWD (legacy behavior for terminal link clicks).
-  router.get("/sessions/:id/files/*filepath", async (req, res) => {
-    const session = sessionStore.get(req.params.id)
-      || await ptyManager.discoverOne(req.params.id);
+  router.get("/sessions/:id/files/*filepath", (req, res) => {
+    const session = sessionStore.get(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;

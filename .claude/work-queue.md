@@ -78,5 +78,7 @@
 - [x] Fix scratchpad history scroll-selects-item on mobile — add tapGuard to history picker list
 - [x] Floating action button (FAB) for mobile — draggable, corner-snapping button for history & future command features ([detail](work-queue/floating-action-button.md))
 
+- [x] Make session store disk-authoritative — remove in-memory-only session store, read/write disk directly ([detail](work-queue/disk-authoritative-sessions.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
