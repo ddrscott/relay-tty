@@ -204,6 +204,77 @@ export class PtyManager extends EventEmitter {
   }
 
   /**
+   * Sync in-memory session store with disk.
+   * Discovers any sessions on disk that are missing from the store,
+   * and removes store entries whose disk files have been deleted.
+   * Called by the list endpoint to ensure disk is always the source of truth.
+   */
+  async syncFromDisk(): Promise<void> {
+    if (!fs.existsSync(SESSIONS_DIR)) return;
+
+    const diskIds = new Set<string>();
+    const files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json"));
+
+    for (const file of files) {
+      const id = file.replace(".json", "");
+      diskIds.add(id);
+
+      // Skip sessions already in the store
+      if (this.sessionStore.get(id)) continue;
+
+      // New session on disk — discover it (same logic as discoverOne)
+      const sessionPath = path.join(SESSIONS_DIR, file);
+      try {
+        const raw = fs.readFileSync(sessionPath, "utf-8");
+        const meta = JSON.parse(raw) as Session;
+        if (!meta.cwd) meta.cwd = process.env.HOME || "/";
+
+        if (meta.status === "exited") {
+          const age = Date.now() - (meta.exitedAt || meta.createdAt);
+          if (age > 60 * 60 * 1000) {
+            fs.unlinkSync(sessionPath);
+            continue;
+          }
+          this.sessionStore.create(meta);
+          continue;
+        }
+
+        if (meta.pid && !isPidAlive(meta.pid)) {
+          this.markDead(meta, sessionPath);
+          this.sessionStore.create(meta);
+          continue;
+        }
+
+        const socketPath = path.join(SOCKETS_DIR, `${meta.id}.sock`);
+        if (!fs.existsSync(socketPath)) {
+          this.markDead(meta, sessionPath);
+          this.sessionStore.create(meta);
+          continue;
+        }
+
+        const alive = await this.probeSocket(socketPath);
+        if (alive) {
+          this.sessionStore.create(meta);
+          this.startMonitor(meta.id, socketPath);
+        } else {
+          try { fs.unlinkSync(socketPath); } catch {}
+          this.markDead(meta, sessionPath);
+          this.sessionStore.create(meta);
+        }
+      } catch {
+        try { fs.unlinkSync(sessionPath); } catch {}
+      }
+    }
+
+    // Remove store entries whose disk files no longer exist
+    for (const session of this.sessionStore.list()) {
+      if (!diskIds.has(session.id)) {
+        this.sessionStore.delete(session.id);
+      }
+    }
+  }
+
+  /**
    * Discover a single session from disk by ID.
    * Used for lazy discovery when a client connects to a session
    * that was spawned directly by the CLI (not through the server).

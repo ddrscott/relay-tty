@@ -119,8 +119,9 @@ export function createApiRouter(
     res.status(201).json(response);
   });
 
-  // GET /api/sessions — list all sessions
-  router.get("/sessions", (_req, res) => {
+  // GET /api/sessions — list all sessions (syncs from disk first)
+  router.get("/sessions", async (_req, res) => {
+    await ptyManager.syncFromDisk();
     const sessions = sessionStore.list();
     const response: SessionListResponse = { sessions };
     res.json(response);
