@@ -136,7 +136,8 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     requestAnimationFrame(() => {
       if (padRef.current) {
         padRef.current.style.height = "auto";
-        padRef.current.style.height = `${padRef.current.scrollHeight}px`;
+        const maxH = 128;
+        padRef.current.style.height = `${Math.min(padRef.current.scrollHeight, maxH)}px`;
         padRef.current.focus({ preventScroll: true });
       }
     });
@@ -160,12 +161,18 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     setPadText(e.target.value);
     const ta = e.target;
     ta.style.height = "auto";
-    ta.style.height = `${ta.scrollHeight}px`;
+    const maxH = 128; // 8rem = 128px
+    ta.style.height = `${Math.min(ta.scrollHeight, maxH)}px`;
   }, []);
 
-  // Ctrl button: short tap toggles menu, long press toggles sticky modifier
-  const handleCtrlTouchStart = useCallback(() => {
+  // Ctrl button: short tap toggles menu, long press toggles sticky modifier.
+  // Track touch start position so horizontal scrolls cancel the long-press.
+  const ctrlTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleCtrlTouchStart = useCallback((e: React.TouchEvent) => {
     ctrlDidLongPressRef.current = false;
+    const t = e.touches[0];
+    ctrlTouchStartRef.current = { x: t.clientX, y: t.clientY };
     ctrlLongPressRef.current = setTimeout(() => {
       ctrlDidLongPressRef.current = true;
       onCtrlToggle();
@@ -173,7 +180,19 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     }, LONG_PRESS_MS);
   }, [onCtrlToggle]);
 
+  const handleCtrlTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!ctrlTouchStartRef.current || !ctrlLongPressRef.current) return;
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - ctrlTouchStartRef.current.x);
+    const dy = Math.abs(t.clientY - ctrlTouchStartRef.current.y);
+    if (dx > SCROLL_TAP_THRESHOLD || dy > SCROLL_TAP_THRESHOLD) {
+      clearTimeout(ctrlLongPressRef.current);
+      ctrlLongPressRef.current = null;
+    }
+  }, []);
+
   const handleCtrlTouchEnd = useCallback(() => {
+    ctrlTouchStartRef.current = null;
     if (ctrlLongPressRef.current) {
       clearTimeout(ctrlLongPressRef.current);
       ctrlLongPressRef.current = null;
@@ -293,10 +312,10 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
               className="toolbar-input resize-none w-full"
               rows={1}
               wrap="soft"
-              style={{ paddingTop: "0.3em", paddingBottom: "0.3em", paddingRight: padText ? "2rem" : undefined, overflowY: "auto" }}
+              style={{ paddingTop: "0.3em", paddingBottom: "0.3em", paddingRight: padText ? "2rem" : undefined, overflowY: "auto", maxHeight: "8rem" }}
               value={padText}
               onChange={handlePadChange}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && padText.trim()) { e.preventDefault(); sendPad(); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && padText.trim()) { e.preventDefault(); sendPad(); } }}
               placeholder="Type a command..."
               autoComplete="one-time-code"
               autoCorrect="off"
@@ -306,7 +325,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
               data-lpignore="true"
               data-1p-ignore="true"
               data-gramm="false"
-              enterKeyHint="send"
+              enterKeyHint="enter"
             />
             {/* Clear button inset inside textarea */}
             {padText && (
@@ -354,6 +373,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
               className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
               onTouchStart={handleCtrlTouchStart}
+              onTouchMove={handleCtrlTouchMove}
               onTouchEnd={tapGuard(handleCtrlTouchEnd)}
               onClick={handleCtrlClick}
             >Ctrl</button>
