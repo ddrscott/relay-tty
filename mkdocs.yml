@@ -48,7 +48,7 @@ nav:
       - how-to/index.md
       - Session Management: how-to/session-management.md
       - Web UI Views: how-to/web-ui-views.md
-      - Scratchpad & Search: how-to/scratchpad-search.md
+      - Scratchpad & Search: how-to/input-tools.md
       - Public Tunnel Access: how-to/tunnel-access.md
       - Sharing & QR Codes: how-to/sharing-qr.md
       - Install as Service: how-to/install-service.md
@@ -81,7 +81,7 @@ plugins:
         How-To Guides:
           - how-to/session-management.md
           - how-to/web-ui-views.md
-          - how-to/scratchpad-search.md
+          - how-to/input-tools.md
           - how-to/tunnel-access.md
           - how-to/sharing-qr.md
           - how-to/install-service.md

@@ -6,7 +6,7 @@ Practical guides for specific tasks. Each guide assumes you have relay-tty insta
 |-------|---------------|
 | [Session Management](session-management.md) | Create, stop, attach, and detach sessions |
 | [Web UI Views](web-ui-views.md) | Home list, grid gallery, lanes view, layout switching |
-| [Scratchpad & Search](scratchpad-search.md) | Mobile text input and terminal search |
+| [Scratchpad & Search](input-tools.md) | Mobile text input and terminal search |
 | [Public Tunnel Access](tunnel-access.md) | Expose your server via relaytty.com |
 | [Sharing & QR Codes](sharing-qr.md) | Password-protected sharing with QR codes |
 | [Install as Service](install-service.md) | Auto-start with launchd or systemd |
