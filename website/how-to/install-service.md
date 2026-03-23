@@ -1,0 +1,30 @@
+# Install as Service
+
+Run relay-tty automatically on boot so your sessions are always accessible.
+
+## Install
+
+```bash
+relay server install
+```
+
+This creates a user-level service:
+
+| Platform | Service file |
+|----------|-------------|
+| macOS | `~/Library/LaunchAgents/com.relay-tty.plist` |
+| Linux | `~/.config/systemd/user/relay-tty.service` |
+
+The service starts the relay-tty server in the background.
+
+## Uninstall
+
+```bash
+relay server uninstall
+```
+
+Removes and stops the service.
+
+## Tunnel mode
+
+To install the service with tunnel enabled, set your environment variables before installing. The service inherits the environment from the install command.

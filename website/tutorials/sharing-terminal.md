@@ -1,0 +1,75 @@
+# Sharing a Terminal
+
+Share a live terminal session with anyone — no accounts, no setup on their end. They get a read-only view of your terminal in real-time.
+
+## What you'll need
+
+- A running relay-tty session
+- The web server running (with `--tunnel` for remote sharing)
+
+## Step 1: Start a session
+
+```bash
+relay bash
+relay server start --tunnel
+```
+
+## Step 2: Generate a share link
+
+=== "CLI"
+
+    ```bash
+    relay share <session-id>
+    # https://abc123.relaytty.com/s/eyJ...
+    # Read-only link (expires in 60m)
+    ```
+
+    The URL goes to stdout, metadata to stderr (POSIX convention). Pipe it directly:
+
+    ```bash
+    relay share abc12345 | pbcopy  # macOS
+    ```
+
+=== "Web UI"
+
+    1. Open a session in the web UI
+    2. Tap the **share** icon in the toolbar
+    3. Choose expiration time and optional password
+    4. Copy the link or scan the QR code
+
+## Step 3: Send the link
+
+Send the URL to anyone. They open it in a browser and see your terminal output in real-time. No login required.
+
+!!! info "Read-only"
+    Share links are read-only. Viewers can see your terminal but cannot type or interact.
+
+## Options
+
+### Password protection
+
+Add a password to the share link:
+
+```bash
+relay share <session-id> --password mysecret
+```
+
+Viewers must enter the password before seeing the terminal.
+
+### Custom TTL
+
+Default expiration is 1 hour. Maximum is 24 hours:
+
+```bash
+relay share <session-id> --ttl 86400   # 24 hours
+relay share <session-id> --ttl 300     # 5 minutes
+```
+
+### QR codes
+
+The web UI share dialog generates a QR code automatically — useful for sharing with someone in the same room.
+
+## Next steps
+
+- [Session management](../how-to/session-management.md) — manage multiple sessions
+- [Security model](../explanation/security-model.md) — how share tokens work

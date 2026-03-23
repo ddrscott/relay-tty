@@ -1,0 +1,54 @@
+# relay-tty vs tmux & SSH
+
+relay-tty fills a different niche than tmux or SSH. Here's when each makes sense.
+
+## The problem
+
+You start a long-running command on your computer. You want to check on it from your phone. Or share it with a colleague. Or just not lose it when you close your laptop.
+
+Traditional solutions require:
+
+- **tmux/screen**: Terminal knowledge, key bindings to learn, no mobile access
+- **SSH**: Network configuration, port forwarding, firewall rules, key management
+- **VS Code Remote**: Heavy IDE, not great on mobile, requires SSH
+
+## What relay-tty does differently
+
+| Feature | relay-tty | tmux + SSH | VS Code Remote |
+|---------|-----------|------------|----------------|
+| Mobile access | Browser, PWA | SSH client app | VS Code app |
+| Setup | `npm i -g relay-tty` | SSH server + tmux | SSH + VS Code |
+| Public sharing | One command | SSH tunneling | Not built-in |
+| Learning curve | Minimal | Moderate | Low-moderate |
+| Multiple viewers | Built-in | tmux -t flag | Live Share |
+| Session persistence | Automatic | tmux session | Reconnect |
+| Touch input | Optimized | Poor | Decent |
+
+## When to use relay-tty
+
+- You want to **check on commands from your phone**
+- You want to **share a terminal** with someone who doesn't have SSH access
+- You want a **persistent session** without learning tmux keybindings
+- You're teaching someone and want them to **watch your terminal** via a link
+- You want a **browser-based terminal** that feels native on mobile
+
+## When to use tmux
+
+- You need **local session management** with splits and windows
+- You're already on the server via SSH and want persistence
+- You need tmux-specific features (copy mode, layouts, scripting)
+
+## When to use SSH
+
+- You need **direct shell access** to a remote machine
+- You're doing **system administration** on servers
+- You need to **transfer files** (scp, sftp)
+
+## They're complementary
+
+relay-tty doesn't replace tmux — it gives tmux sessions a browser UI. You can run tmux inside a relay-tty session and get the best of both worlds: tmux's session management with relay-tty's browser access and sharing.
+
+```bash
+relay tmux new -s work
+# Now access your tmux session from any browser
+```

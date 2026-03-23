@@ -1,0 +1,36 @@
+# Web UI Views
+
+relay-tty offers three ways to view your sessions in the browser. Switch between them using the layout switcher in the top navigation.
+
+## Home (Session List)
+
+The default view. Shows all active sessions as a list with:
+
+- Session ID and command name
+- Running status and uptime
+- Last activity timestamp
+- Throughput metrics (bytes/sec)
+
+Click any session to open it in full terminal view.
+
+## Grid Gallery
+
+A tiled overview showing live terminal thumbnails for all sessions. Each cell renders a scaled-down live terminal.
+
+- Thumbnails update in real-time
+- Click a cell to expand into full interactive mode
+- Useful for monitoring multiple long-running processes at a glance
+
+!!! info "Thumbnails are passive"
+    Grid thumbnails use the session's existing terminal width. They never resize the remote PTY — other connected devices won't be affected.
+
+## Lanes View
+
+Side-by-side terminal panels. Each lane shows a different session at readable scale.
+
+- Drag to reorder lanes
+- Useful for comparing output or watching related processes
+
+## Switching Views
+
+Use the layout switcher icon in the navigation bar to toggle between Home, Grid, and Lanes views.

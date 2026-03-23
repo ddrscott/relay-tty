@@ -1,0 +1,96 @@
+# Mobile Access
+
+Access your terminal from your phone or tablet. This tutorial covers starting a public tunnel, scanning the QR code, and installing relay-tty as a PWA for a native app experience.
+
+## What you'll need
+
+- relay-tty installed on your computer
+- A phone or tablet with a browser
+
+## Step 1: Start the server with a tunnel
+
+```bash
+relay server start --tunnel
+```
+
+This opens an outbound connection to `relaytty.com`, which reverse-proxies traffic back to your machine. No DNS, no port forwarding, no accounts.
+
+You'll see:
+
+```
+relay-tty listening on http://localhost:7680
+Tunnel active: https://abc123.relaytty.com
+[QR code]
+```
+
+The subdomain is stable — it's saved in `~/.config/relay-tty/tunnel.json` and reused on subsequent runs.
+
+## Step 2: Scan the QR code
+
+Open your phone's camera and scan the QR code. It opens your relay-tty instance directly in the browser.
+
+!!! note "Authentication"
+    If you've set `JWT_SECRET`, you'll need to authenticate. The server prints an auth token URL on startup — visit it once to set a cookie (30-day expiry).
+
+## Step 3: Create a session
+
+From the web UI on your phone, tap the **+** button to create a new session. Choose a shell (bash, zsh) or a specific command.
+
+Or create one from your computer first:
+
+```bash
+relay bash
+```
+
+It will appear in the web UI automatically.
+
+## Step 4: Use the terminal on mobile
+
+The web UI is built for mobile:
+
+- **Touch scrolling** — pixel-smooth momentum scrolling through terminal output
+- **Scratchpad** — tap the keyboard icon for a text input area. Compose longer commands, then send them to the terminal
+- **Voice input** — tap the microphone icon to dictate commands via Web Speech API
+
+!!! tip "Scratchpad for complex input"
+    Mobile keyboards and terminal input don't always mix well. The scratchpad lets you compose commands with autocomplete and autocorrect, then send the finished text.
+
+## Step 5: Install as a PWA
+
+For a native app experience without browser chrome:
+
+=== "iOS (Safari)"
+
+    1. Tap the **Share** button (box with arrow)
+    2. Tap **Add to Home Screen**
+    3. Tap **Add**
+
+=== "Android (Chrome)"
+
+    1. Tap the **three-dot menu**
+    2. Tap **Add to Home Screen** or **Install app**
+    3. Tap **Install**
+
+The PWA runs in standalone mode — no address bar, no tabs. It looks and feels like a native terminal app.
+
+## Step 6: Discord notifications (optional)
+
+Get a clickable auth link posted to Discord on server startup:
+
+```bash
+export APP_URL='https://abc123.relaytty.com'
+export DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
+relay server start --tunnel
+```
+
+Tap the link on your phone to authenticate instantly.
+
+## What just happened?
+
+The `--tunnel` flag opened a multiplexed WebSocket connection to `relaytty.com`. All HTTP requests and WebSocket connections to your subdomain are proxied through that single outbound connection back to your local server. Your machine is never directly exposed.
+
+## Next steps
+
+- [Share a session](sharing-terminal.md) — let someone else watch your terminal
+- [Web UI views](../how-to/web-ui-views.md) — grid gallery and lanes view
+- [Install as a system service](../how-to/install-service.md) — auto-start on boot
