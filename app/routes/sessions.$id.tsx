@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
-import { useNavigate, useRevalidator } from "react-router";
+import { useNavigate, useRevalidator, redirect } from "react-router";
 import type { Route } from "./+types/sessions.$id";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
@@ -96,7 +96,7 @@ export function meta({ data }: Route.MetaArgs) {
 export async function loader({ params, context }: Route.LoaderArgs) {
   const session = context.sessionStore.get(params.id!);
   if (!session) {
-    throw new Response("Session not found", { status: 404 });
+    throw redirect("/");
   }
   const allSessions = context.sessionStore.list();
   return { session, allSessions, hostname: context.hostname };
