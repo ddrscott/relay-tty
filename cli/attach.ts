@@ -1,4 +1,3 @@
-import { WebSocket } from "ws";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
@@ -7,16 +6,12 @@ import { gunzipSync } from "node:zlib";
 import { WS_MSG } from "../shared/types.js";
 import { parseFrames } from "../shared/framing.js";
 
-const SOCKETS_DIR = path.join(os.homedir(), ".relay-tty", "sockets");
-
 /**
- * Core attach logic: connects to a PTY session and enters raw TTY mode.
- * Supports both WebSocket (via server) and Unix socket (direct to pty-host).
- * Ctrl+] (0x1D) detaches cleanly.
+ * Core attach logic: connects to a PTY session via Unix socket and enters
+ * raw TTY mode. Ctrl+] (0x1D) detaches cleanly.
  *
- * Auto-reconnect: if the connection drops unexpectedly (server crash, network
- * blip), the CLI automatically reconnects — first via WS, then falling back
- * to the direct Unix socket — as long as the pty-host process is still alive.
+ * Auto-reconnect: if the socket drops unexpectedly, the CLI automatically
+ * reconnects as long as the pty-host process is still alive.
  */
 
 interface AttachOpts {
@@ -41,8 +36,8 @@ interface RawSession {
 
 const MAX_RETRY_DELAY = 5000;
 
-function createRawSession(opts: AttachOpts, resolve: () => void): RawSession {
-  const session: RawSession = {
+function createRawSession(): RawSession {
+  return {
     rawMode: false,
     stdinAttached: false,
     cleanExit: false,
@@ -52,7 +47,6 @@ function createRawSession(opts: AttachOpts, resolve: () => void): RawSession {
     reconnecting: false,
     sendMessage: () => {},
   };
-  return session;
 }
 
 function enterRaw(s: RawSession, onStdinData: (data: Buffer) => void, onResize: () => void) {
@@ -133,176 +127,7 @@ function writeFrame(sock: net.Socket, payload: Buffer) {
 // ── Public API ──────────────────────────────────────────────────────────
 
 /**
- * Attach via WebSocket (through the server), with auto-reconnect.
- */
-export function attach(wsUrl: string, opts: AttachOpts = {}): Promise<void> {
-  return new Promise((resolve) => {
-    let ws: WebSocket | null = null;
-    let socket: net.Socket | null = null;
-    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-
-    const s = createRawSession(opts, resolve);
-
-    function finish() {
-      exitRaw(s, onStdinData, onResize);
-      if (s.reconnectTimer) { clearTimeout(s.reconnectTimer); s.reconnectTimer = null; }
-      ws?.close();
-      socket?.destroy();
-      resolve();
-    }
-
-    function detach() {
-      s.userDetached = true;
-      s.cleanExit = true;
-      // Send DETACH message so pty-host can SIGHUP the foreground process group
-      // (e.g., kill a TUI like Claude Code that's holding the alt screen)
-      const detachMsg = Buffer.from([WS_MSG.DETACH]);
-      s.sendMessage(detachMsg);
-      finish();
-      process.stderr.write("\r\nDetached.\r\n");
-      opts.onDetach?.();
-    }
-
-    // Wire up transport-agnostic send
-    s.sendMessage = (msg: Buffer) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(msg);
-      } else if (socket && socket.writable) {
-        writeFrame(socket, msg);
-      }
-    };
-
-    function onStdinData(data: Buffer) {
-      for (let i = 0; i < data.length; i++) {
-        if (data[i] === 0x1d) { detach(); return; }
-      }
-      sendData(s, data);
-    }
-
-    function onResize() { sendResize(s); }
-
-    function sessionStillRunning(): boolean {
-      if (!opts.sessionId) return false;
-      // Check socket file exists
-      if (!fs.existsSync(path.join(SOCKETS_DIR, `${opts.sessionId}.sock`))) return false;
-      // Check session metadata — pty-host writes status to disk on exit
-      const metaPath = path.join(os.homedir(), ".relay-tty", "sessions", `${opts.sessionId}.json`);
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-        if (meta.status === "exited") return false;
-      } catch {
-        // Can't read metadata — assume still running if socket exists
-      }
-      return true;
-    }
-
-    function scheduleReconnect() {
-      if (s.cleanExit || s.userDetached) return;
-      if (s.reconnectTimer) return;
-
-      if (!sessionStillRunning()) {
-        process.stderr.write("\r\nSession ended.\r\n");
-        finish();
-        return;
-      }
-
-      if (!s.reconnecting) {
-        s.reconnecting = true;
-        process.stderr.write("\r\nConnection lost. Reconnecting...\r\n");
-      }
-
-      s.reconnectTimer = setTimeout(() => {
-        s.reconnectTimer = null;
-        if (s.cleanExit || s.userDetached) return;
-        connectWs();
-      }, s.retryDelay);
-      s.retryDelay = Math.min(s.retryDelay * 1.5, MAX_RETRY_DELAY);
-    }
-
-    // --- WebSocket transport ---
-
-    function connectWs() {
-      if (s.cleanExit || s.userDetached) return;
-
-      const newWs = new WebSocket(wsUrl);
-      ws = newWs;
-      socket = null;
-
-      newWs.on("open", () => {
-        if (s.cleanExit || s.userDetached) { newWs.close(); return; }
-        s.retryDelay = 500;
-        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
-        sendResize(s);
-      });
-
-      newWs.on("message", (data: Buffer) => {
-        if (data.length < 1) return;
-        handleMessage(data[0], data.subarray(1), s, opts, finish);
-      });
-
-      newWs.on("error", () => {
-        ws = null;
-        if (s.cleanExit || s.userDetached) return;
-        connectSocket();
-      });
-
-      newWs.on("close", () => {
-        if (ws === newWs) ws = null;
-        if (!s.cleanExit && !s.userDetached && !socket) {
-          scheduleReconnect();
-        }
-      });
-    }
-
-    // --- Unix socket transport (fallback when server is down) ---
-
-    function connectSocket() {
-      if (s.cleanExit || s.userDetached) return;
-      if (!opts.sessionId) { scheduleReconnect(); return; }
-
-      const socketPath = path.join(SOCKETS_DIR, `${opts.sessionId}.sock`);
-      if (!fs.existsSync(socketPath)) {
-        process.stderr.write("\r\nSession ended.\r\n");
-        finish();
-        return;
-      }
-
-      const newSocket = net.createConnection(socketPath);
-      socket = newSocket;
-      ws = null;
-      pending = Buffer.alloc(0);
-
-      newSocket.on("connect", () => {
-        if (s.cleanExit || s.userDetached) { newSocket.destroy(); return; }
-        s.retryDelay = 500;
-        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
-        sendResize(s);
-      });
-
-      newSocket.on("data", (chunk) => {
-        pending = Buffer.concat([pending, chunk]);
-        pending = parseFrames(pending, (type, payload) => {
-          handleMessage(type, payload, s, opts, finish);
-        });
-      });
-
-      newSocket.on("error", () => {
-        socket = null;
-        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
-      });
-
-      newSocket.on("close", () => {
-        if (socket === newSocket) socket = null;
-        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
-      });
-    }
-
-    connectWs();
-  });
-}
-
-/**
- * Attach directly to a pty-host Unix socket (no server needed).
+ * Attach directly to a pty-host Unix socket.
  * Uses length-prefixed framing: [4B uint32 BE length][payload]
  * Auto-reconnects if the socket drops unexpectedly.
  */
@@ -311,7 +136,7 @@ export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise
     let sock: net.Socket | null = null;
     let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
-    const s = createRawSession(opts, resolve);
+    const s = createRawSession();
 
     function finish() {
       exitRaw(s, onStdinData, onResize);

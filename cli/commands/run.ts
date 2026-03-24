@@ -1,6 +1,5 @@
 import type { Command } from "commander";
-import { attach, attachSocket } from "../attach.js";
-import { resolveHost } from "../config.js";
+import { attachSocket } from "../attach.js";
 import { spawnDirect, waitForSocket } from "../spawn.js";
 
 export function registerRunCommand(program: Command) {
@@ -9,7 +8,7 @@ export function registerRunCommand(program: Command) {
     .option("-d, --detach", "start session without attaching")
     .option("-s, --share", "generate a share link immediately after session creation")
     .option("--ttl <seconds>", "share link lifetime in seconds (default: 3600)", "3600")
-    .option("-H, --host <url>", "server URL")
+    .option("-H, --host <url>", "server URL (for --share)")
     .action(async (commandParts: string[], opts) => {
       const command = commandParts[0];
       const args = commandParts.slice(1);
@@ -24,32 +23,37 @@ export function registerRunCommand(program: Command) {
         opts.detach = true;
       }
 
-      const host = resolveHost(opts.host);
       const cwd = process.cwd();
-      const result = await createSession(host, command, args, cols, rows, cwd);
+      const { id, socketPath, pid } = spawnDirect(command, args, cols, rows, cwd);
 
-      process.stderr.write(`Session ${result.id} created\n`);
+      let ready: boolean;
+      try {
+        ready = await waitForSocket(socketPath, 3000, pid);
+      } catch (err: any) {
+        process.stderr.write(`Failed to start session: ${err.message}\n`);
+        process.exit(1);
+      }
+      if (!ready) {
+        process.stderr.write(`Failed to start session — timed out waiting for pty-host\n`);
+        process.exit(1);
+      }
 
-      // Generate share link if requested
+      process.stderr.write(`Session ${id} created\n`);
+
+      // Generate share link if requested (needs server)
       if (opts.share) {
-        if (result.mode === "server") {
-          await generateShareLink(host, result.id, parseInt(opts.ttl, 10) || 3600);
-        } else {
-          process.stderr.write("Warning: --share requires a running server\n");
-        }
+        const { resolveHost } = await import("../config.js");
+        const host = resolveHost(opts.host);
+        await generateShareLink(host, id, parseInt(opts.ttl, 10) || 3600);
       }
 
       if (opts.detach) {
         // If --share already wrote the share URL to stdout, skip the session URL
         if (!opts.share) {
-          if (result.mode === "server") {
-            process.stdout.write(`${host}/sessions/${result.id}\n`);
-          } else {
-            process.stdout.write(`${result.id}\n`);
-          }
+          process.stdout.write(`${id}\n`);
         }
         if (outerSessionId) {
-          process.stderr.write(`Reattach: relay attach ${result.id}\n`);
+          process.stderr.write(`Reattach: relay attach ${id}\n`);
           process.stderr.write(`Tip: Ctrl+] to detach from current session first\n`);
         }
         return;
@@ -57,76 +61,18 @@ export function registerRunCommand(program: Command) {
 
       process.stderr.write(`Attached. Ctrl+] to detach.\n`);
 
-      const exitHandler = (code: number) => {
-        process.stderr.write(`Process exited with code ${code}\n`);
-        process.exit(code);
-      };
-
-      const detachHandler = () => {
-        process.stderr.write(`Session: ${result.id}\n`);
-        if (result.mode === "server") {
-          process.stderr.write(`URL: ${host}/sessions/${result.id}\n`);
-        }
-        process.stderr.write(`Reattach: relay attach ${result.id}\n`);
-      };
-
-      if (result.mode === "server") {
-        const wsProto = host.startsWith("https") ? "wss" : "ws";
-        const wsHost = host.replace(/^https?/, wsProto);
-        await attach(`${wsHost}/ws/sessions/${result.id}`, {
-          sessionId: result.id,
-          onExit: exitHandler,
-          onDetach: detachHandler,
-        });
-      } else {
-        await attachSocket(result.socketPath, {
-          sessionId: result.id,
-          onExit: exitHandler,
-          onDetach: detachHandler,
-        });
-      }
+      await attachSocket(socketPath, {
+        sessionId: id,
+        onExit: (code) => {
+          process.stderr.write(`Process exited with code ${code}\n`);
+          process.exit(code);
+        },
+        onDetach: () => {
+          process.stderr.write(`Session: ${id}\n`);
+          process.stderr.write(`Reattach: relay attach ${id}\n`);
+        },
+      });
     });
-}
-
-type CreateResult =
-  | { mode: "server"; id: string; socketPath: string }
-  | { mode: "direct"; id: string; socketPath: string };
-
-async function createSession(
-  host: string,
-  command: string,
-  args: string[],
-  cols: number,
-  rows: number,
-  cwd: string
-): Promise<CreateResult> {
-  // Always spawn pty-host directly from the CLI so sessions inherit
-  // the user's environment, not the server's.
-  const { id, socketPath, pid } = spawnDirect(command, args, cols, rows, cwd);
-
-  let ready: boolean;
-  try {
-    ready = await waitForSocket(socketPath, 3000, pid);
-  } catch (err: any) {
-    process.stderr.write(`Failed to start session: ${err.message}\n`);
-    process.exit(1);
-  }
-  if (!ready) {
-    process.stderr.write(`Failed to start session — timed out waiting for pty-host\n`);
-    process.exit(1);
-  }
-
-  // Check if server is reachable for WS bridging
-  try {
-    const res = await fetch(`${host}/api/sessions/${id}`, { signal: AbortSignal.timeout(1000) });
-    if (res.ok) {
-      return { mode: "server", id, socketPath };
-    }
-  } catch {
-    // Server unreachable — direct socket mode
-  }
-
-  return { mode: "direct", id, socketPath };
 }
 
 async function generateShareLink(host: string, id: string, ttl: number): Promise<void> {

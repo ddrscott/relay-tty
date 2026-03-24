@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import type { Session } from "../shared/types.js";
-import { attach, attachSocket } from "./attach.js";
+import { attachSocket } from "./attach.js";
 import { resolveHost } from "./config.js";
 import { getSocketPath } from "./spawn.js";
 import { PreviewConnection } from "./preview.js";
@@ -405,12 +405,11 @@ async function doAttach(session: Session, state: TuiState) {
 
   process.stderr.write(`Attaching to ${session.id}. Ctrl+] to detach.\n`);
 
-  // Try server first, fall back to direct socket
-  let useServer = false;
-  try {
-    const res = await fetch(`${state.host}/api/sessions/${session.id}`);
-    if (res.ok) useServer = true;
-  } catch { /* server unreachable */ }
+  const socketPath = getSocketPath(session.id);
+  if (!fs.existsSync(socketPath)) {
+    process.stderr.write(`Session ${session.id} socket not found\n`);
+    return;
+  }
 
   const onDetach = async () => {
     // Re-enter TUI
@@ -435,34 +434,14 @@ async function doAttach(session: Session, state: TuiState) {
     schedulePreview(state);
   };
 
-  if (useServer) {
-    const wsProto = state.host.startsWith("https") ? "wss" : "ws";
-    const wsHost = state.host.replace(/^https?/, wsProto);
-    const wsUrl = `${wsHost}/ws/sessions/${session.id}`;
-    await attach(wsUrl, {
-      sessionId: session.id,
-      onDetach,
-      onExit: (code) => {
-        process.stderr.write(`Process exited with code ${code}\n`);
-        onDetach();
-      },
-    });
-  } else {
-    const socketPath = getSocketPath(session.id);
-    if (!fs.existsSync(socketPath)) {
-      process.stderr.write(`Session ${session.id} socket not found\n`);
-      await onDetach();
-      return;
-    }
-    await attachSocket(socketPath, {
-      sessionId: session.id,
-      onDetach,
-      onExit: (code) => {
-        process.stderr.write(`Process exited with code ${code}\n`);
-        onDetach();
-      },
-    });
-  }
+  await attachSocket(socketPath, {
+    sessionId: session.id,
+    onDetach,
+    onExit: (code) => {
+      process.stderr.write(`Process exited with code ${code}\n`);
+      onDetach();
+    },
+  });
 }
 
 async function doStop(session: Session, state: TuiState) {
