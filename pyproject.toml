@@ -7,6 +7,13 @@ dependencies = [
     "mkdocs-material>=9.6",
     "mkdocs-llmstxt-md>=0.2",
     "mkdocs-minify-plugin>=0.8",
+    "mkdocs-glightbox>=0.4",
+]
+
+[project.optional-dependencies]
+screenshots = [
+    "playwright>=1.40",
+    "Pillow>=10.0",
 ]
 
 [tool.hatch.build.targets.wheel]

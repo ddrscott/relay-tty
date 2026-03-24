@@ -19,5 +19,8 @@ site/
 __pycache__/
 *.pyc
 
+# Screenshot intermediates
+scripts/screenshots/_raw/
+
 # Claude Code local settings
 .claude/settings.local.json

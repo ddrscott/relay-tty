@@ -17,6 +17,14 @@ Click any session to open it in full terminal view.
 
 A tiled overview showing live terminal thumbnails for all sessions. Each cell renders a scaled-down live terminal.
 
+<figure markdown="span">
+  ![Grid gallery with live terminals](../assets/images/mobile/grid-gallery.png){ width="300" }
+  <figcaption>Grid gallery showing 14 live terminal sessions</figcaption>
+</figure>
+
+1. **Grid toolbar** — sort sessions, toggle inactive, adjust font size, create new sessions
+2. **Live terminal cells** — each cell renders real terminal output, scaled to fit
+
 - Thumbnails update in real-time
 - Click a cell to expand into full interactive mode
 - Useful for monitoring multiple long-running processes at a glance

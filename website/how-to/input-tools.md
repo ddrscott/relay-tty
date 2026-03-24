@@ -4,6 +4,18 @@
 
 The scratchpad is a text input area for composing commands before sending them to the terminal. It's especially useful on mobile where typing directly into the terminal can be awkward.
 
+<figure markdown="span">
+  ![Mobile toolbar with scratchpad](../assets/images/mobile/mobile-toolbar.png){ width="300" }
+  <figcaption>Scratchpad open with command history</figcaption>
+</figure>
+
+1. **Scratchpad** — compose commands with autocomplete and autocorrect
+2. **Send** — sends the scratchpad text to the terminal
+3. **Arrow keys** — navigate shell history and cursor
+4. **Ctrl / Alt** — modifier keys for terminal shortcuts
+
+How to use it:
+
 1. Tap the **keyboard** icon in the mobile toolbar
 2. Type your command in the text area (autocomplete and autocorrect work here)
 3. Press **Send** or hit Enter to send the text to the terminal
@@ -12,9 +24,19 @@ The scratchpad supports multi-line input and maintains a history of recently sen
 
 ## Terminal Search
 
-Search through terminal output with the built-in search bar:
+Search through terminal output with the built-in search bar.
 
-1. Tap the **search** icon in the toolbar
+<figure markdown="span">
+  ![Search bar active](../assets/images/mobile/search-bar.png){ width="300" }
+  <figcaption>Terminal search with navigation controls</figcaption>
+</figure>
+
+1. **Search input** — type your query to find text in the terminal buffer
+2. **Navigation & case toggle** — prev/next match arrows, case-sensitive toggle (Aa), and close button
+
+How to use it:
+
+1. Tap the **search** icon in the header toolbar
 2. Type your search query
 3. Use the up/down arrows to navigate between matches
 4. Press **Escape** or the close button to dismiss

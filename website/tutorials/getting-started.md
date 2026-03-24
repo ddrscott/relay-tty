@@ -58,6 +58,16 @@ Navigate to [http://localhost:7680](http://localhost:7680). You'll see a session
 
 Everything you typed in Step 2 is already there — relay-tty replays the output buffer on connect.
 
+<figure markdown="span">
+  ![Terminal session in the browser](../assets/images/mobile/terminal-view.png){ width="300" }
+  <figcaption>The terminal view on mobile</figcaption>
+</figure>
+
+1. **Menu** — opens the sidebar drawer with session list
+2. **Session picker** — switch between active sessions
+3. **Terminal** — full interactive terminal (touch scrolling, pixel-smooth momentum)
+4. **Toolbar** — arrow keys, Tab, Esc, Ctrl, Alt modifiers
+
 ## Step 5: Interact from the browser
 
 Type in the browser terminal. You're interacting with the same PTY session. If you still have the CLI attached, both see the same output in real time.

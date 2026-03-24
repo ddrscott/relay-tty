@@ -1,0 +1,163 @@
+[
+  {
+    "id": "terminal-view",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 2500,
+    "setup": [],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 15, "y": 22, "label": "1", "text": "Menu" },
+      { "x": 195, "y": 22, "label": "2", "text": "Session title" },
+      { "x": 350, "y": 22, "label": "3", "text": "Search / Files" },
+      { "x": 195, "y": 810, "label": "4", "text": "Toolbar" }
+    ]
+  },
+  {
+    "id": "mobile-toolbar",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 2000,
+    "setup": [
+      ["click", "[aria-label='Open scratchpad']"]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 195, "y": 700, "label": "1", "text": "History" },
+      { "x": 195, "y": 760, "label": "2", "text": "Scratchpad" },
+      { "x": 360, "y": 760, "label": "3", "text": "Send" },
+      { "x": 100, "y": 820, "label": "4", "text": "Arrow keys" },
+      { "x": 310, "y": 820, "label": "5", "text": "Ctrl / Alt" }
+    ]
+  },
+  {
+    "id": "sidebar-drawer",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 1500,
+    "setup": [
+      ["eval", "document.getElementById('sidebar-drawer').checked = true"],
+      ["sleep", 800]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 50, "y": 48, "label": "1", "text": "New session" },
+      { "x": 180, "y": 120, "label": "2", "text": "Project groups" },
+      { "x": 180, "y": 300, "label": "3", "text": "Session list" },
+      { "x": 30, "y": 800, "label": "4", "text": "Settings" }
+    ]
+  },
+  {
+    "id": "quick-launch",
+    "url": "/?new",
+    "waitFor": "body",
+    "delay": 1500,
+    "setup": [],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 195, "y": 300, "label": "1", "text": "AI assistants" },
+      { "x": 195, "y": 600, "label": "2", "text": "Shell options" }
+    ]
+  },
+  {
+    "id": "grid-gallery",
+    "url": "/grid",
+    "waitFor": ".xterm-screen",
+    "delay": 3000,
+    "setup": [],
+    "viewport": { "width": 1280, "height": 800 },
+    "scale": 2,
+    "margin": "right",
+    "annotations": [
+      { "x": 640, "y": 30, "label": "1", "text": "Grid toolbar" },
+      { "x": 200, "y": 300, "label": "2", "text": "Terminal cells" },
+      { "x": 900, "y": 500, "label": "3", "text": "Click to expand" }
+    ]
+  },
+  {
+    "id": "share-dialog",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 1500,
+    "setup": [
+      ["click", "[aria-label='Session settings']"],
+      ["sleep", 300],
+      ["click_text", "Share"]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 150, "y": 290, "label": "1", "text": "Expiration" },
+      { "x": 150, "y": 340, "label": "2", "text": "Password" },
+      { "x": 220, "y": 385, "label": "3", "text": "Generate" }
+    ]
+  },
+  {
+    "id": "search-bar",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 1500,
+    "setup": [
+      ["click", "[aria-label='Search terminal']"],
+      ["sleep", 300]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 130, "y": 18, "label": "1", "text": "Search input" },
+      { "x": 320, "y": 18, "label": "2", "text": "Nav / case" }
+    ]
+  },
+  {
+    "id": "file-browser",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 1500,
+    "setup": [
+      ["click", "[aria-label='File manager']"],
+      ["sleep", 1000]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 195, "y": 18, "label": "1", "text": "Breadcrumbs" },
+      { "x": 30, "y": 48, "label": "2", "text": "Sort / Filter" },
+      { "x": 195, "y": 300, "label": "3", "text": "File listing" }
+    ]
+  },
+  {
+    "id": "session-info",
+    "url": "/sessions/{session_id}",
+    "waitFor": ".xterm-screen",
+    "delay": 1500,
+    "setup": [
+      ["click", "[aria-label='Session settings']"],
+      ["sleep", 500]
+    ],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 195, "y": 80, "label": "1", "text": "Font size" },
+      { "x": 195, "y": 180, "label": "2", "text": "Metadata" },
+      { "x": 195, "y": 320, "label": "3", "text": "Notifications" }
+    ]
+  },
+  {
+    "id": "settings",
+    "url": "/settings",
+    "waitFor": "body",
+    "delay": 1500,
+    "setup": [],
+    "viewport": { "width": 390, "height": 844 },
+    "margin": "right",
+    "annotations": [
+      { "x": 195, "y": 150, "label": "1", "text": "Custom commands" },
+      { "x": 195, "y": 450, "label": "2", "text": "Project roots" },
+      { "x": 195, "y": 700, "label": "3", "text": "Ctrl shortcuts" }
+    ]
+  }
+]

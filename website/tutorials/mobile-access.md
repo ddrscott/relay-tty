@@ -44,18 +44,49 @@ relay bash
 
 It will appear in the web UI automatically.
 
-## Step 4: Use the terminal on mobile
+## Step 4: The terminal view
 
-The web UI is built for mobile:
+<figure markdown="span">
+  ![Terminal session on mobile](../assets/images/mobile/terminal-view.png){ width="300" }
+  <figcaption>Full terminal view on your phone</figcaption>
+</figure>
 
-- **Touch scrolling** — pixel-smooth momentum scrolling through terminal output
-- **Scratchpad** — tap the keyboard icon for a text input area. Compose longer commands, then send them to the terminal
-- **Voice input** — tap the microphone icon to dictate commands via Web Speech API
+1. **Menu** — opens the sidebar drawer with session list and navigation
+2. **Session picker** — tap the title to switch between active sessions
+3. **Terminal** — full interactive terminal with pixel-smooth touch scrolling
+4. **Toolbar** — arrow keys, Tab, Esc, Ctrl, Alt modifiers
+
+## Step 5: The mobile toolbar
+
+The toolbar at the bottom gives you everything a physical keyboard provides.
+
+<figure markdown="span">
+  ![Mobile toolbar with scratchpad](../assets/images/mobile/mobile-toolbar.png){ width="300" }
+  <figcaption>Scratchpad open with command history</figcaption>
+</figure>
+
+1. **Scratchpad** — compose commands with autocomplete and autocorrect, then send to the terminal
+2. **Send** — sends scratchpad text to the terminal
+3. **Arrow keys** — navigate shell history and move the cursor
+4. **Ctrl / Alt** — modifier keys for terminal shortcuts (Ctrl+C, Ctrl+Z, etc.)
 
 !!! tip "Scratchpad for complex input"
     Mobile keyboards and terminal input don't always mix well. The scratchpad lets you compose commands with autocomplete and autocorrect, then send the finished text.
 
-## Step 5: Install as a PWA
+## Step 6: The sidebar
+
+Tap the menu button to open the sidebar drawer — your session manager.
+
+<figure markdown="span">
+  ![Sidebar drawer with sessions](../assets/images/mobile/sidebar-drawer.png){ width="300" }
+  <figcaption>Session list grouped by project directory</figcaption>
+</figure>
+
+1. **New session** — create a new session with a shell or AI assistant
+2. **Session list** — all running sessions, grouped by working directory, with status and throughput
+3. **Settings** — configure custom commands, project roots, and Ctrl shortcuts
+
+## Step 7: Install as a PWA
 
 For a native app experience without browser chrome:
 
@@ -73,7 +104,7 @@ For a native app experience without browser chrome:
 
 The PWA runs in standalone mode — no address bar, no tabs. It looks and feels like a native terminal app.
 
-## Step 6: Discord notifications (optional)
+## Step 8: Discord notifications (optional)
 
 Get a clickable auth link posted to Discord on server startup:
 

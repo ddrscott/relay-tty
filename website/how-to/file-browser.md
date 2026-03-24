@@ -2,9 +2,18 @@
 
 Browse and view files from the web UI without needing terminal commands.
 
+<figure markdown="span">
+  ![File browser panel](../assets/images/mobile/file-browser.png){ width="300" }
+  <figcaption>File browser showing project directory</figcaption>
+</figure>
+
+1. **Path breadcrumbs** — navigate up through the directory tree
+2. **File listing** — directories and files with sizes and types
+3. **Filter & sort** — toggle filters (files/dirs/hidden), sort by name/size/date, search
+
 ## Opening the file browser
 
-Tap the **folder** icon in the session toolbar to open the file browser panel.
+Tap the **folder** icon in the session header to open the file browser panel.
 
 ## Navigating
 

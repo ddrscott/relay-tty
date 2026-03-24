@@ -33,9 +33,18 @@ relay server start --tunnel
 === "Web UI"
 
     1. Open a session in the web UI
-    2. Tap the **share** icon in the toolbar
+    2. Tap the **settings** icon, then **Share**
     3. Choose expiration time and optional password
     4. Copy the link or scan the QR code
+
+    <figure markdown="span">
+      ![Share dialog](../assets/images/mobile/share-dialog.png){ width="300" }
+      <figcaption>Share dialog with expiration and password options</figcaption>
+    </figure>
+
+    1. **Expiration** — how long the link stays active (5 min to 24 hours)
+    2. **Password toggle** — optionally require a password to view
+    3. **Generate link** — creates the share URL and QR code
 
 ## Step 3: Send the link
 
