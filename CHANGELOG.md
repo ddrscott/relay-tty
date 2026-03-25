@@ -7,16 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- CLI session freeze after days of uptime — switched from WS bridge to direct Unix socket for all CLI attach paths, eliminating TCP half-open connection failures
-
 ### Added
-- Documentation site (MkDocs Material) hosted on Cloudflare Pages
+- Documentation site at docs.relaytty.com — Fumadocs with annotated screenshot pipeline
 - Full-width overlay panels for New Session and Project Picker (replacing expander/modal)
+- Uploads directory shortcut in file browser toolbar
+- `relay info` CLI command
 
 ### Changed
 - Session store is now disk-authoritative — eliminated dual source of truth between memory and disk
 - Scratchpad uses Enter for newlines, textarea height is capped
+- Exited sessions hidden from all session lists
+- Removed session ID from sidebar to save space
+
+### Fixed
+- CLI session freeze after days of uptime — switched from WS bridge to direct Unix socket, eliminating TCP half-open connection failures
+- Tunnel reconnect loop dying permanently after a failed WS upgrade — browsers stuck on "tunnel not found" until service restart
+- Tunnel disconnect now shows "Waiting for server connection" banner so users know recovery is in progress
+- NeoVim resize detection — explicitly send SIGWINCH to foreground process group
+- Web-spawned sessions missing RELAY_SESSION_ID env var
+- OSC parser now stateful across PTY read boundaries — fixes split escape sequences
+- Cache replay timeout asymmetry — added safety net for replayingRef
+- Sidebar folder sort instability — use alphabetical order instead of activity-based
+- Redirect to home when bookmarked session no longer exists
 
 ## [1.15.0] - 2026-03-21
 
