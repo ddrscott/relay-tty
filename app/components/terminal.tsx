@@ -244,6 +244,7 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
             className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10 cursor-pointer hover:bg-base-300 transition-colors"
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
+            onTouchStart={(e) => e.preventDefault()}
             onTouchEnd={(e) => { e.preventDefault(); handleResizeToLocal(); }}
             onClick={handleResizeToLocal}
             aria-label="Fix text sizing"

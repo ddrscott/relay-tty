@@ -1196,8 +1196,14 @@ fn spawn_pty(
 
     if pid == 0 {
         // Child process
-        // Set TERM
+        // Set TERM and TERM_PROGRAM so child processes (e.g. NeoVim) detect
+        // the correct terminal capabilities.  We use xterm.js in the browser,
+        // which doesn't support colon-separated SGR RGB (e.g. `38:2:R:G:B`).
+        // Leaving TERM_PROGRAM inherited from the parent (e.g. "iTerm.app")
+        // would cause NeoVim to emit colon-format colors that xterm.js v5
+        // misparses, zeroing the blue channel.
         env::set_var("TERM", "xterm-256color");
+        env::set_var("TERM_PROGRAM", "relay-tty");
         // Change directory
         if let Err(_) = env::set_current_dir(cwd) {
             eprintln!("pty-host: failed to chdir to {}", cwd);

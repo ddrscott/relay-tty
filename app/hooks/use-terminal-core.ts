@@ -12,6 +12,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
+import { normalizeSgrColors } from "../lib/sgr-normalize";
 
 // ── Narrow interfaces for xterm.js internals ────────────────────────
 // xterm v5 _core access is required for scroll hacks (momentum scrolling,
@@ -25,21 +26,28 @@ interface XtermViewport {
   _handleScroll(): void;
 }
 
-/** Subset of xterm's internal render service for measuring row height */
+/** Subset of xterm's internal render service for measuring cell dimensions */
 interface XtermRenderService {
   dimensions: {
     css: {
       cell: {
+        width: number;
         height: number;
       };
     };
   };
 }
 
+/** Subset of xterm's core mouse service for encoding detection */
+interface XtermCoreMouseService {
+  activeEncoding: string;
+}
+
 /** Subset of xterm's _core internals accessed by this module */
 interface XtermCore {
   viewport?: XtermViewport;
   _renderService?: XtermRenderService;
+  coreMouseService?: XtermCoreMouseService;
 }
 
 /** Terminal instance with typed access to _core internals */
@@ -304,6 +312,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         // Search addon unavailable — search will be a no-op
       }
 
+      // Wrap term.write to normalize colon-separated SGR RGB sequences.
+      // NeoVim 0.10+ sends `38:2:R:G:B` (no colorspace) which xterm.js v5
+      // misparses — shifting RGB values and zeroing the blue channel.
+      const _origWrite = term.write.bind(term);
+      term.write = ((data: string | Uint8Array, callback?: () => void) => {
+        if (data instanceof Uint8Array) data = normalizeSgrColors(data);
+        _origWrite(data, callback);
+      }) as typeof term.write;
+
       termRef.current = term;
       fitAddonRef.current = fitAddon;
       setTermReady(true);
@@ -323,7 +340,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (!opts.readOnly) {
         setupMobileInput(term, xtermWrapper!);
       }
-      setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState);
+      setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState, (msg: Uint8Array) => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+      });
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
       const iosStyle = document.createElement("style");
@@ -602,10 +622,75 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── Pixel-smooth touch scrolling with momentum ──────────────────
 
-    function setupTouchScrolling(term: Terminal, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }) {
+    function setupTouchScrolling(term: Terminal, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }, sendWs: (msg: Uint8Array) => void) {
       const screen = container.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
+
+      // ── Mouse mode helpers ──────────────────────────────────────────
+      // When the running program enables mouse tracking (e.g. htop, vim,
+      // less), touch events should be forwarded as mouse escape sequences
+      // instead of driving the custom scrollback scroller.
+
+      const isMouseMode = (): boolean => {
+        try {
+          return (term as any).modes?.mouseTrackingMode !== "none";
+        } catch { return false; }
+      };
+
+      const getMouseEncoding = (): "sgr" | "default" => {
+        try {
+          const enc = (term as TerminalWithCore)._core?.coreMouseService?.activeEncoding;
+          return enc === "SGR" || enc === "SGR_PIXELS" ? "sgr" : "default";
+        } catch { return "sgr"; }
+      };
+
+      /** Calculate terminal cell position from touch/mouse coordinates.
+       *  Mirrors xterm.js getCoords(): accounts for padding, uses render
+       *  service dimensions for exact cell size, and returns 1-based coords. */
+      const getCellFromPoint = (clientX: number, clientY: number): { col: number; row: number } => {
+        const rect = screen.getBoundingClientRect();
+        const style = window.getComputedStyle(screen);
+        const padLeft = parseInt(style.paddingLeft) || 0;
+        const padTop = parseInt(style.paddingTop) || 0;
+        const x = clientX - rect.left - padLeft;
+        const y = clientY - rect.top - padTop;
+        const core = (term as TerminalWithCore)._core;
+        const cellWidth = core?._renderService?.dimensions?.css?.cell?.width || (rect.width / term.cols);
+        const cellHeight = core?._renderService?.dimensions?.css?.cell?.height || (rect.height / term.rows);
+        // Math.ceil matches xterm.js getCoords; clamped to 1..cols/rows
+        const col = Math.min(Math.max(Math.ceil(x / cellWidth), 1), term.cols);
+        const row = Math.min(Math.max(Math.ceil(y / cellHeight), 1), term.rows);
+        return { col, row };
+      };
+
+      /** Encode a mouse event as an escape sequence and send to PTY */
+      const sendMouseEvent = (button: number, col: number, row: number, press: boolean) => {
+        if (getMouseEncoding() === "sgr") {
+          // SGR: \e[<button;col;rowM (press) or \e[<button;col;rowm (release)
+          // All ASCII — safe to use TextEncoder
+          const seq = `\x1b[<${button};${col};${row}${press ? "M" : "m"}`;
+          const encoded = new TextEncoder().encode(seq);
+          const msg = new Uint8Array(1 + encoded.length);
+          msg[0] = 0x00; // WS_MSG.DATA
+          msg.set(encoded, 1);
+          sendWs(msg);
+        } else {
+          // DEFAULT: \e[M + raw byte(32+button) + raw byte(32+col) + raw byte(32+row)
+          // Raw bytes — must NOT use TextEncoder (would corrupt values > 127)
+          const msg = new Uint8Array(1 + 6); // DATA header + \e[M + 3 bytes
+          msg[0] = 0x00; // WS_MSG.DATA
+          msg[1] = 0x1b; msg[2] = 0x5b; msg[3] = 0x4d; // \e[M
+          msg[4] = 32 + button;
+          msg[5] = 32 + Math.min(col, 223);
+          msg[6] = 32 + Math.min(row, 223);
+          sendWs(msg);
+        }
+      };
+
+      // Mouse scroll accumulator: accumulates sub-line scroll delta,
+      // fires discrete wheel events when a full line is crossed.
+      let mouseScrollAccum = 0;
 
       // ── Prevent iOS Safari native pinch-to-zoom ──────────────────
       // iOS has a separate gesture event system (gesturestart/gesturechange)
@@ -732,16 +817,30 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         }
         if (e.touches.length !== 1) return;
         e.stopPropagation();
+
+        // Record for tap detection (used in both scroll and mouse modes)
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = performance.now();
+
+        if (isMouseMode()) {
+          // Mouse mode: record position, reset scroll accumulator.
+          // Actual mousedown is dispatched on touchend (tap) to avoid sending
+          // press events for scroll gestures.
+          e.preventDefault(); // prevent native scroll during mouse mode
+          touching = true;
+          lastTouchY = e.touches[0].clientY;
+          mouseScrollAccum = 0;
+          return;
+        }
+
+        // Scrollback mode
         cancelMomentum();
         touching = true;
         lastTouchY = e.touches[0].clientY;
         lastTouchTime = performance.now();
         lineVelocity = 0;
         scrollLine = term.buffer.active.viewportY;
-        // Record for tap detection
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        touchStartTime = performance.now();
       }, { capture: true, passive: false });
 
       xtermEl.addEventListener("touchmove", (e) => {
@@ -767,6 +866,24 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         e.stopPropagation();
         e.preventDefault();
 
+        if (isMouseMode()) {
+          // Mouse mode: accumulate delta and send discrete wheel events
+          const touchY = e.touches[0].clientY;
+          const deltaY = lastTouchY - touchY; // positive = scroll down
+          const rh = measureRowHeight();
+          mouseScrollAccum += deltaY;
+          const cell = getCellFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+          while (Math.abs(mouseScrollAccum) >= rh) {
+            const direction = mouseScrollAccum > 0 ? 1 : 0; // 1=down, 0=up
+            // Wheel up = button 64, wheel down = button 65
+            sendMouseEvent(64 + direction, cell.col, cell.row, true);
+            mouseScrollAccum -= (direction ? 1 : -1) * rh;
+          }
+          lastTouchY = touchY;
+          return;
+        }
+
+        // Scrollback mode
         const touchY = e.touches[0].clientY;
         const deltaY = lastTouchY - touchY;
         const now = performance.now();
@@ -802,21 +919,51 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         touching = false;
 
         // Tap detection: short duration, minimal movement
-        if (e.changedTouches.length === 1) {
+        const isTap = e.changedTouches.length === 1 && (() => {
           const endX = e.changedTouches[0].clientX;
           const endY = e.changedTouches[0].clientY;
           const dx = endX - touchStartX;
           const dy = endY - touchStartY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           const duration = performance.now() - touchStartTime;
-          if (dist < TAP_MAX_DISTANCE && duration < TAP_MAX_DURATION) {
-            // Focus xterm's hidden textarea so iOS shows the virtual keyboard.
-            // Our capture-phase stopPropagation prevents xterm's own touchstart
-            // handler from running, so the textarea never gets focused natively.
+          return dist < TAP_MAX_DISTANCE && duration < TAP_MAX_DURATION;
+        })();
+
+        if (isMouseMode()) {
+          if (isTap && e.changedTouches.length === 1) {
+            // Dispatch synthetic mouse events on .xterm-screen so xterm.js's
+            // own mouse handler converts them to the correct escape sequences.
+            // This reuses xterm.js's proven coordinate→cell calculation and
+            // encoding logic rather than reimplementing it.
+            const touch = e.changedTouches[0];
+            const mouseOpts: MouseEventInit = {
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+              button: 0,
+              buttons: 1,
+              bubbles: true,
+              cancelable: true,
+            };
+            xtermEl.dispatchEvent(new MouseEvent("mousedown", mouseOpts));
+            xtermEl.dispatchEvent(new MouseEvent("mouseup", { ...mouseOpts, buttons: 0 }));
+          }
+          // Focus textarea for keyboard input on tap
+          if (isTap) {
             const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
             if (textarea) textarea.focus({ preventScroll: true });
             opts.onTap?.();
           }
+          return;
+        }
+
+        // Scrollback mode: handle tap focus
+        if (isTap) {
+          // Focus xterm's hidden textarea so iOS shows the virtual keyboard.
+          // Our capture-phase stopPropagation prevents xterm's own touchstart
+          // handler from running, so the textarea never gets focused natively.
+          const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+          if (textarea) textarea.focus({ preventScroll: true });
+          opts.onTap?.();
         }
 
         // Momentum scrolling. Two oscillation sources are suppressed:

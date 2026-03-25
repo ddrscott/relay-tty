@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
+import { WS_MSG } from "../../shared/types";
 
 /**
  * Match terminal query responses that xterm.js auto-generates.
@@ -60,7 +61,7 @@ export function useTerminalInput({
     const term = termRef.current;
     if (!term || !enabled) return;
 
-    const disposable = term.onData((data: string) => {
+    const dataDisposable = term.onData((data: string) => {
       if (replayingRef.current) return;
       // Drop terminal query responses (DA1, DA2, CPR, etc.) — these are
       // xterm.js auto-responses that arrive too late in a relay architecture.
@@ -71,7 +72,18 @@ export function useTerminalInput({
       sendBinary(encodeDataMessage(out));
     });
 
-    return () => disposable.dispose();
+    // Forward binary events (mouse events in DEFAULT encoding use onBinary,
+    // not onData, because the escape sequences contain raw bytes > 127).
+    const binaryDisposable = term.onBinary((data: string) => {
+      if (replayingRef.current) return;
+      // Convert binary string (charCodeAt = byte value) to Uint8Array DATA message
+      const bytes = new Uint8Array(1 + data.length);
+      bytes[0] = WS_MSG.DATA;
+      for (let i = 0; i < data.length; i++) bytes[i + 1] = data.charCodeAt(i);
+      sendBinary(bytes);
+    });
+
+    return () => { dataDisposable.dispose(); binaryDisposable.dispose(); };
   }, [termReady, sendBinary, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up resize → WS (dedup to avoid redundant SIGWINCH → full TUI redraws)
