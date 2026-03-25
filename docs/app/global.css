@@ -1,3 +1,41 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+
+/* relay-tty brand theme — dark terminal aesthetic with green accent */
+@theme {
+  /* Light mode (keep reasonable defaults) */
+  --color-fd-primary: hsl(142, 71%, 45%);
+  --color-fd-primary-foreground: hsl(0, 0%, 2%);
+  --color-fd-ring: hsl(142, 71%, 45%);
+}
+
+.dark {
+  --color-fd-background: hsl(240, 20%, 3%);
+  --color-fd-foreground: hsl(214, 32%, 91%);
+  --color-fd-primary: hsl(142, 71%, 45%);
+  --color-fd-primary-foreground: hsl(240, 20%, 3%);
+  --color-fd-border: hsla(240, 20%, 30%, 0.35);
+  --color-fd-ring: hsl(142, 71%, 45%);
+  --color-fd-accent: hsl(240, 20%, 10%);
+  --color-fd-accent-foreground: hsl(214, 32%, 91%);
+  --color-fd-muted: hsl(240, 20%, 7%);
+  --color-fd-muted-foreground: hsl(214, 20%, 55%);
+  --color-fd-secondary: hsl(240, 20%, 10%);
+  --color-fd-secondary-foreground: hsl(214, 32%, 91%);
+  --color-fd-card: hsl(240, 20%, 5%);
+  --color-fd-card-foreground: hsl(214, 32%, 91%);
+  --color-fd-popover: hsl(240, 20%, 4%);
+  --color-fd-popover-foreground: hsl(214, 32%, 91%);
+}
+
+/* Monospace body font to match the terminal app */
+body {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* Green glow on primary links/buttons for terminal feel */
+.dark a[data-active="true"],
+.dark [data-active="true"] {
+  text-shadow: 0 0 8px hsla(142, 71%, 45%, 0.3);
+}

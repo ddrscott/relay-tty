@@ -10,8 +10,21 @@ export const gitConfig = {
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: 'relay-tty',
+      title: (
+        <span className="font-mono font-bold">
+          <span className="text-green-500">relay</span>
+          <span className="text-fd-muted-foreground">-tty</span>
+          <span className="text-fd-muted-foreground text-xs ml-2 font-normal">docs</span>
+        </span>
+      ),
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
+    links: [
+      {
+        text: 'relaytty.com',
+        url: 'https://relaytty.com',
+        external: true,
+      },
+    ],
   };
 }
