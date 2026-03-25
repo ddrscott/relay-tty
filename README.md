@@ -4,6 +4,26 @@ Run terminal commands on your computer, access them from any browser — phone, 
 
 You don't need to know SSH. You don't need tmux. If you're getting into AI and someone told you to "run this in a terminal," relay-tty lets you do that and check on it from your phone. Sessions survive disconnects, and multiple people can watch the same session at once.
 
+```
+                      ┌────────────────────┐
+                      │   📱 Mobile Phone  │
+                      │    (any browser)   │
+                      └──┬──────┬───────┬──┘
+                         │      │       │
+                         │      │       │
+            ┌────────────┘      │       └────────────┐
+            │                   │                    │
+            │                   │                    │
+   ┌────────▼─────────┐ ┌───────▼────────┐ ┌─────────▼────────┐
+   │   Machine A      │ │   Machine B    │ │   Machine C      │
+   │                  │ │                │ │                  │
+   │ $ relay opencode │ │ $ relay codex  │ │ $ relay train.py │
+   │                  │ │                │ │                  │
+   │  (AI coding)     │ │  (AI coding)   │ │  (ML pipeline)   │
+   └──────────────────┘ └────────────────┘ └──────────────────┘
+    abc1.relaytty.com    efg2.relaytty.com   hij3.relaytty.com
+```
+
 ## Install
 
 ```bash
