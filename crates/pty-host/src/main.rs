@@ -11,6 +11,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixListener as StdUnixListener;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1570,6 +1571,9 @@ async fn main() {
     // Broadcast channel for sending frames to all connected clients
     let (broadcast_tx, _) = broadcast::channel::<Vec<u8>>(256);
 
+    // Monotonic client ID counter for log messages
+    static CLIENT_COUNTER: AtomicU64 = AtomicU64::new(1);
+
     // Channel for input data from clients -> PTY
     let (input_tx, mut input_rx) = mpsc::channel::<Vec<u8>>(256);
 
@@ -1994,13 +1998,33 @@ async fn main() {
                         let resize_tx = resize_tx.clone();
                         let mut broadcast_rx = broadcast_tx_accept.subscribe();
                         let writer_broadcast = Arc::clone(&writer);
+                        let client_num = CLIENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
                         // Spawn broadcast forwarder for this client
                         let broadcast_handle = tokio::spawn(async move {
-                            while let Ok(frame) = broadcast_rx.recv().await {
-                                let mut w = writer_broadcast.lock().await;
-                                if w.write_all(&frame).await.is_err() {
-                                    break;
+                            let mut last_lag_log = tokio::time::Instant::now() - Duration::from_secs(10);
+                            let mut total_lagged: u64 = 0;
+                            loop {
+                                match broadcast_rx.recv().await {
+                                    Ok(frame) => {
+                                        let mut w = writer_broadcast.lock().await;
+                                        if w.write_all(&frame).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                                        total_lagged += n;
+                                        let now = tokio::time::Instant::now();
+                                        if now.duration_since(last_lag_log) >= Duration::from_secs(5) {
+                                            eprintln!(
+                                                "pty-host: client {} dropped {} broadcast frame(s) (total: {})",
+                                                client_num, n, total_lagged
+                                            );
+                                            last_lag_log = now;
+                                        }
+                                        // Continue — client recovers on next frame
+                                    }
+                                    Err(broadcast::error::RecvError::Closed) => break,
                                 }
                             }
                         });
