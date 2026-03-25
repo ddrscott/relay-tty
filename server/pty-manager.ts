@@ -125,6 +125,7 @@ export class PtyManager extends EventEmitter {
     // env vars so pty-host can record the correct metadata for display.
     const spawnEnv = {
       ...process.env,
+      RELAY_SESSION_ID: id,
       RELAY_ORIG_COMMAND: command,
       RELAY_ORIG_ARGS: JSON.stringify(args),
     };

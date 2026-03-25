@@ -82,5 +82,7 @@
 
 - [x] Fix NeoVim not detecting resize in web sessions — investigate why SIGWINCH works for claude but not nvim ([detail](work-queue/nvim-resize-detection.md))
 
+- [x] Fix web-spawned sessions missing `RELAY_SESSION_ID` — `relay info` reports "Not a relay session" ([detail](work-queue/web-session-relay-id.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

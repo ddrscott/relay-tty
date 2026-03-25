@@ -1355,6 +1355,11 @@ async fn main() {
     env::remove_var("RELAY_ORIG_COMMAND");
     env::remove_var("RELAY_ORIG_ARGS");
 
+    // Ensure RELAY_SESSION_ID is set so the child shell can identify its
+    // session (e.g. `relay info`). For CLI spawns the parent already sets
+    // this, but web-spawned sessions don't — so we set it unconditionally.
+    env::set_var("RELAY_SESSION_ID", id);
+
     let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
     let data_dir = PathBuf::from(&home).join(".relay-tty");
     let sockets_dir = data_dir.join("sockets");
