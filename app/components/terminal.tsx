@@ -234,6 +234,9 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   const pillLabel = !showPill ? null
     : retryCount > 0 ? `Reconnecting${retryCount > 2 ? ` (${retryCount})` : ""}`
     : "Connecting";
+  // After several failed retries, escalate from a subtle pill to a centered
+  // banner so the user knows recovery is in progress (not stuck).
+  const showBanner = showPill && retryCount >= 5;
 
   return (
     <div className="relative w-full h-full">
@@ -258,8 +261,17 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
           )}
         </>
       )}
-      {/* Reconnecting pill — lower-right corner */}
-      {pillLabel && (
+      {/* Extended disconnect — centered banner */}
+      {showBanner ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2 px-6 py-4 rounded-xl bg-base-300/95 shadow-xl backdrop-blur-sm border border-base-content/10">
+            <span className="loading loading-spinner loading-sm text-warning" />
+            <span className="text-warning text-sm font-medium">Waiting for server connection</span>
+            <span className="text-base-content/50 text-xs">Will reconnect automatically</span>
+          </div>
+        </div>
+      ) : pillLabel && (
+        /* Brief disconnect — subtle pill in lower-right corner */
         <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-base-300/90 shadow-lg backdrop-blur-sm border border-base-content/10">
           <span className="loading loading-spinner loading-xs text-warning" />
           <span className="text-warning text-xs font-medium">{pillLabel}</span>

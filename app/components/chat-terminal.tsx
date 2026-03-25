@@ -358,11 +358,16 @@ export const ChatTerminal = forwardRef<ChatTerminalHandle, ChatTerminalProps>(
 
           {/* Connection status */}
           {status !== "connected" && (
-            <div className="flex items-center gap-2 text-[#94a3b8] text-sm font-mono py-2">
-              <span className="loading loading-spinner loading-xs text-warning" />
-              {retryCount > 0
-                ? `Reconnecting${retryCount > 2 ? ` (${retryCount})` : ""}`
-                : "Connecting"}
+            <div className="flex flex-col items-start gap-1 text-sm font-mono py-2">
+              <div className="flex items-center gap-2 text-warning">
+                <span className="loading loading-spinner loading-xs" />
+                {retryCount > 0
+                  ? `Reconnecting${retryCount > 2 ? ` (${retryCount})` : ""}`
+                  : "Connecting"}
+              </div>
+              {retryCount >= 5 && (
+                <span className="text-base-content/40 text-xs">Waiting for server connection — will reconnect automatically</span>
+              )}
             </div>
           )}
 

@@ -90,20 +90,32 @@ export class TunnelClient {
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
-      // Only handle close if this is still the active connection.
-      // Stale close events from replaced connections must not clobber
-      // the current WS or schedule duplicate reconnects.
       if (this.ws !== ws) return;
       this.ws = null;
+      // Clean up local WS connections — they can't send through a dead tunnel
+      for (const [id, local] of this.localWs) {
+        local.close(1000, "Tunnel disconnected");
+        this.localWs.delete(id);
+      }
       this.opts.onDisconnected?.(code, reason.toString("utf-8"));
       this.scheduleReconnect();
     });
 
     ws.on("error", (err: Error) => {
       this.opts.onError?.(err);
-      // 'close' will fire after 'error', triggering reconnect
+      // 'close' fires after 'error'. If this WS successfully opened
+      // (this.ws === ws), the close handler above will schedule reconnect.
+      // If it never opened, close is suppressed by the stale guard —
+      // schedule reconnect here so the retry loop doesn't die.
+      if (this.ws !== ws) {
+        this.scheduleReconnect();
+      }
     });
 
+    // 'unexpected-response' fires INSTEAD of 'open' when the server
+    // rejects the WS upgrade (e.g. HTTP 404). It is mutually exclusive
+    // with 'error' — handling it prevents 'error' from firing, and
+    // 'close' never fires either. We must schedule reconnect directly.
     ws.on("unexpected-response", (_req, res) => {
       const status = res.statusCode;
       const chunks: Buffer[] = [];
@@ -113,7 +125,7 @@ export class TunnelClient {
         this.opts.onError?.(
           new Error(`WS upgrade rejected: HTTP ${status} — ${body}`),
         );
-        ws.close();
+        this.scheduleReconnect();
       });
     });
 
