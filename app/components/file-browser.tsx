@@ -21,6 +21,7 @@ import {
   Loader2,
   AlertCircle,
   Home,
+  FolderUp,
 } from "lucide-react";
 import { PlainInput } from "./plain-input";
 import { getExt, getFileIcon, FileViewerPanel } from "./file-viewer-panel";
@@ -118,6 +119,7 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [viewingFile, setViewingFile] = useState<string | null>(null); // absolute path
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: DirEntry } | null>(null);
+  const [uploadDir, setUploadDir] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +160,14 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   useEffect(() => {
     fetchDir(initialPath, filterToggles.recursive);
   }, [fetchDir, initialPath, filterToggles.recursive]);
+
+  // Fetch configured upload directory
+  useEffect(() => {
+    fetch("/api/upload-dir")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.uploadDir) setUploadDir(data.uploadDir); })
+      .catch(() => {});
+  }, []);
 
   // Navigate to a directory
   const navigateTo = useCallback((dirPath: string) => {
@@ -399,6 +409,21 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
           >
             <Home className="w-3.5 h-3.5" />
           </button>
+          {uploadDir && (
+            <>
+              <span className="text-[#3d3d54] shrink-0">|</span>
+              <button
+                className="text-[#64748b] hover:text-[#e2e8f0] shrink-0 px-1"
+                onClick={() => navigateTo(uploadDir)}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                title={`Uploads: ${uploadDir}`}
+                aria-label="Go to uploads directory"
+              >
+                <FolderUp className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
           {segments.map((seg, i) => {
             const segPath = "/" + segments.slice(0, i + 1).join("/");
             const isLast = i === segments.length - 1;

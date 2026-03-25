@@ -91,5 +91,7 @@
 - [x] Fix sidebar folder sort instability — folders always alphabetical, user sort applies within folders only ([detail](work-queue/sidebar-sort-stability.md))
 - [x] Hide closed/exited sessions from all session lists — sidebar, grid, lanes, `relay tui`, `relay list` ([detail](work-queue/hide-closed-sessions.md))
 
+- [x] Add uploads directory shortcut button to file browser toolbar — next to the home button, jump to configured upload dir via `GET /api/upload-dir`
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
