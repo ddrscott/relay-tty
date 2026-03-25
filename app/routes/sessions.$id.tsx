@@ -18,6 +18,7 @@ import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
 import { SearchBar } from "../components/search-bar";
+import { NoKbButton } from "../components/no-kb-button";
 import { NotificationPanel } from "../components/notification-panel";
 import type { NotificationEntry } from "../components/notification-panel";
 import {
@@ -1155,17 +1156,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
         {/* Jump to bottom */}
         {!atBottom && (
-          <button
+          <NoKbButton
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#7dcea0] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#a8e6c3] transition-all shadow-lg"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); (terminalRef.current ?? chatRef.current)?.scrollToBottom(); }}
-            onClick={() => (terminalRef.current ?? chatRef.current)?.scrollToBottom()}
+            onPress={() => (terminalRef.current ?? chatRef.current)?.scrollToBottom()}
             aria-label="Jump to bottom"
           >
             <ChevronsDown className="w-4 h-4" />
             Bottom
-          </button>
+          </NoKbButton>
         )}
 
         {/* "Copied!" toast — brief confirmation for auto-copy on selection */}

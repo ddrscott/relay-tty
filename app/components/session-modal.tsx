@@ -16,6 +16,7 @@ import {
   Zap,
   Power,
 } from "lucide-react";
+import { NoKbButton } from "./no-kb-button";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import { syncPushTriggers } from "../hooks/use-push-subscription";
 import {
@@ -325,23 +326,23 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
 
           {/* Font size dropdown */}
           <div className="dropdown dropdown-end shrink-0">
-            <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" aria-label="Font size">
+            <button tabIndex={0} className="btn btn-ghost btn-xs font-mono text-[#64748b] hover:text-[#e2e8f0]" onMouseDown={(e) => e.preventDefault()} aria-label="Font size">
               <Type className="w-4 h-4" />
             </button>
-            <div tabIndex={0} className="dropdown-content z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-2 flex items-center gap-1">
-              <button
+            <div tabIndex={0} className="dropdown-content z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl p-2 flex items-center gap-1" onMouseDown={(e) => e.preventDefault()}>
+              <NoKbButton
                 className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-                onClick={() => setFontSize((s) => Math.max(8, s - 2))}
+                onPress={() => setFontSize((s) => Math.max(8, s - 2))}
               >
                 A-
-              </button>
+              </NoKbButton>
               <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{fontSize}</span>
-              <button
+              <NoKbButton
                 className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-                onClick={() => setFontSize((s) => Math.min(28, s + 2))}
+                onPress={() => setFontSize((s) => Math.min(28, s + 2))}
               >
                 A+
-              </button>
+              </NoKbButton>
             </div>
           </div>
 
@@ -467,11 +468,9 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
                   {session.status === "running" && (
                     <>
                       <div className="border-t border-[#2d2d44] my-1.5" />
-                      <button
+                      <NoKbButton
                         className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
-                        onMouseDown={(e) => e.preventDefault()}
-                        tabIndex={-1}
-                        onClick={async () => {
+                        onPress={async () => {
                           if (!confirm("Kill this session?")) return;
                           await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
                           onClose();
@@ -479,7 +478,7 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
                       >
                         <Power className="w-3 h-3" />
                         <span>Close session</span>
-                      </button>
+                      </NoKbButton>
                     </>
                   )}
                 </div>
@@ -509,16 +508,14 @@ export function SessionModal({ session, allSessions, version, hostname, onClose,
 
           {/* Jump to bottom */}
           {!atBottom && (
-            <button
+            <NoKbButton
               className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[#1a1a2e] border border-[#2d2d44] text-[#7dcea0] rounded-lg px-3 py-1.5 text-sm font-mono flex items-center gap-1 opacity-80 hover:opacity-100 hover:text-[#a8e6c3] transition-all shadow-lg"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => terminalRef.current?.scrollToBottom()}
+              onPress={() => terminalRef.current?.scrollToBottom()}
               aria-label="Jump to bottom"
             >
               <ChevronsDown className="w-4 h-4" />
               Bottom
-            </button>
+            </NoKbButton>
           )}
 
           {/* "Copied!" toast */}

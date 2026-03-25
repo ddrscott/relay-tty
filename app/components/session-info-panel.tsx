@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { CopyableId } from "./copyable-id";
+import { NoKbButton } from "./no-kb-button";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -75,21 +76,19 @@ export function SessionInfoPanel({
         <div className="flex items-center justify-between gap-4">
           <span className="text-[#64748b]">Font size</span>
           <div className="flex items-center gap-1">
-            <button
+            <NoKbButton
               className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => onSetFontSize(activeFontSize - 2)}
-              onMouseDown={(e) => e.preventDefault()}
+              onPress={() => onSetFontSize(activeFontSize - 2)}
             >
               A-
-            </button>
+            </NoKbButton>
             <span className="text-xs w-6 text-center font-mono text-[#e2e8f0]">{activeFontSize}</span>
-            <button
+            <NoKbButton
               className="btn btn-ghost btn-xs font-mono text-[#94a3b8]"
-              onClick={() => onSetFontSize(activeFontSize + 2)}
-              onMouseDown={(e) => e.preventDefault()}
+              onPress={() => onSetFontSize(activeFontSize + 2)}
             >
               A+
-            </button>
+            </NoKbButton>
           </div>
         </div>
 
@@ -97,32 +96,28 @@ export function SessionInfoPanel({
         <div className="flex items-center justify-between gap-4">
           <span className="text-[#64748b]">View</span>
           <div className="flex rounded-lg overflow-hidden border border-[#2d2d44]">
-            <button
+            <NoKbButton
               className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
                 viewMode === "terminal"
                   ? "bg-primary text-primary-content"
                   : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
               }`}
-              onClick={() => viewMode !== "terminal" && onToggleViewMode()}
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
+              onPress={() => viewMode !== "terminal" && onToggleViewMode()}
             >
               <TerminalSquare className="w-3 h-3" />
               <span>xterm</span>
-            </button>
-            <button
+            </NoKbButton>
+            <NoKbButton
               className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
                 viewMode === "chat"
                   ? "bg-primary text-primary-content"
                   : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
               }`}
-              onClick={() => viewMode !== "chat" && onToggleViewMode()}
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
+              onPress={() => viewMode !== "chat" && onToggleViewMode()}
             >
               <MessageSquare className="w-3 h-3" />
               <span>chat</span>
-            </button>
+            </NoKbButton>
           </div>
         </div>
 
@@ -199,13 +194,12 @@ export function SessionInfoPanel({
           <Bell className="w-3 h-3 text-[#64748b]" />
           Smart Notifications
           {sessionNotifOverride && (
-            <button
+            <NoKbButton
               className="text-[10px] text-[#64748b] hover:text-[#94a3b8] ml-auto"
-              onClick={onClearNotifOverride}
-              onMouseDown={e => e.preventDefault()}
+              onPress={onClearNotifOverride}
             >
               reset
-            </button>
+            </NoKbButton>
           )}
         </div>
         <div className="flex items-center justify-between gap-3 py-1">
@@ -248,15 +242,13 @@ export function SessionInfoPanel({
         {/* Share link */}
         <div className="border-t border-[#2d2d44] my-1.5" />
         {onShare && (
-          <button
+          <NoKbButton
             className="flex items-center gap-1.5 text-[#3b82f6] hover:text-[#60a5fa] transition-colors w-full"
-            onMouseDown={(e) => e.preventDefault()}
-            tabIndex={-1}
-            onClick={() => { onClose(); onShare(); }}
+            onPress={() => { onClose(); onShare(); }}
           >
             <Share2 className="w-3 h-3" />
             <span>Share session</span>
-          </button>
+          </NoKbButton>
         )}
 
         {/* Link to global settings */}
@@ -274,15 +266,13 @@ export function SessionInfoPanel({
         {session.status === "running" && (
           <>
             <div className="border-t border-[#2d2d44] my-1.5" />
-            <button
+            <NoKbButton
               className="flex items-center gap-1.5 text-[#ef4444] hover:text-[#f87171] transition-colors w-full"
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
-              onClick={onKillSession}
+              onPress={onKillSession}
             >
               <Power className="w-3 h-3" />
               <span>Close session</span>
-            </button>
+            </NoKbButton>
           </>
         )}
       </div>
