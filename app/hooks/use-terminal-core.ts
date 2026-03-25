@@ -56,6 +56,20 @@ type TerminalWithCore = Terminal & { _core?: XtermCore };
 /** Size of chunks fed to xterm.js during buffer replay (bytes) */
 const REPLAY_CHUNK_SIZE = 64 * 1024;
 
+/**
+ * After replay finishes (term.write callback fires), xterm.js may still emit
+ * DA/DSR query responses asynchronously. This delay suppresses forwarding
+ * those responses to the PTY so they don't appear as phantom keypresses.
+ */
+const REPLAY_SUPPRESS_DELAY_MS = 200;
+
+/**
+ * Safety net: if term.write()'s callback never fires (xterm busy with complex
+ * alt-screen state from NeoVim/TUI apps), force-clear replayingRef after this
+ * timeout so keyboard input isn't permanently suppressed.
+ */
+const REPLAY_SAFETY_TIMEOUT_MS = 5000;
+
 // ── Terminal instance pool ──────────────────────────────────────────
 // Preserves xterm instances (with rendered buffers) across React component
 // unmounts. When a Terminal remounts for the same session, the pooled
@@ -402,14 +416,27 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             // This gives near-instant display; the WS RESUME will
             // fetch only the delta since the cached offset.
             replayingRef.current = true;
+
+            // Safety net: if term.write() callback never fires (xterm busy
+            // with complex alt-screen state), force-clear so keyboard input
+            // isn't permanently suppressed.
+            const cacheReplayTimeout = setTimeout(() => {
+              if (replayingRef.current) {
+                console.warn("relay-tty: cache replay callback timed out, force-clearing replayingRef");
+                replayingRef.current = false;
+                markContentReady();
+              }
+            }, REPLAY_SAFETY_TIMEOUT_MS);
+
             await new Promise<void>((resolve) => {
               const syncAndScroll = () => {
+                clearTimeout(cacheReplayTimeout);
                 const core = (term as TerminalWithCore)._core;
                 if (core?.viewport) core.viewport.syncScrollArea(true);
                 term.scrollToBottom();
                 // Delay clearing replayingRef — xterm.js emits DA/DSR
                 // responses asynchronously after processing replayed data.
-                setTimeout(() => { replayingRef.current = false; }, 200);
+                setTimeout(() => { replayingRef.current = false; }, REPLAY_SUPPRESS_DELAY_MS);
                 markContentReady();
                 resolve();
               };
@@ -1333,14 +1360,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       // Safety net: if term.write() callback never fires (xterm busy with
       // complex alt-screen state from NeoVim/TUI apps), force-clear after
-      // 5s so keyboard input isn't permanently suppressed.
+      // timeout so keyboard input isn't permanently suppressed.
       const replayTimeout = setTimeout(() => {
         if (replayingRef.current) {
           console.warn("relay-tty: replay callback timed out, force-clearing replayingRef");
           replayingRef.current = false;
           markContentReady();
         }
-      }, 5000);
+      }, REPLAY_SAFETY_TIMEOUT_MS);
 
       const syncAndScroll = () => {
         const core = (term as TerminalWithCore)._core;
@@ -1352,10 +1379,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         clearTimeout(replayTimeout);
         // Don't clear replayingRef immediately — xterm.js processes DA/DSR
         // queries from replayed data asynchronously and emits responses via
-        // onData AFTER the write callback fires. A 200ms delay lets xterm
-        // flush all queued responses (which get silently dropped) before we
-        // start forwarding real keyboard input to the PTY.
-        setTimeout(() => { replayingRef.current = false; }, 200);
+        // onData AFTER the write callback fires. The delay lets xterm flush
+        // all queued responses (which get silently dropped) before we start
+        // forwarding real keyboard input to the PTY.
+        setTimeout(() => { replayingRef.current = false; }, REPLAY_SUPPRESS_DELAY_MS);
         markContentReady();
       };
 
