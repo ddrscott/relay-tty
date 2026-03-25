@@ -32,6 +32,23 @@ Reattach to an existing session in raw TTY mode.
 
 List all active sessions with their IDs, commands, and status.
 
+### `relay info`
+
+Show information about the current relay session. Must be run from inside a relay session (where `RELAY_SESSION_ID` is set).
+
+```bash
+relay info          # pretty-printed session details
+relay info --json   # machine-readable JSON output
+```
+
+Displays: session ID, command, CWD, status, PID, terminal size, title, throughput, timestamps, and the pty-host binary path with its build date.
+
+If run outside a relay session, prints "Not a relay session" to stderr.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output session metadata as JSON (includes binary path and mtime) |
+
 ### `relay stop <id>`
 
 Kill a session and its underlying process.
@@ -46,6 +63,21 @@ Generate a read-only share link.
 | `--password <pw>` | Require password to view |
 
 Output: share URL to stdout, metadata to stderr.
+
+### `relay tui`
+
+Interactive session picker with a split-pane terminal UI. Shows running sessions in a navigable list with a live terminal preview. Exited sessions are hidden from the list.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` or `j`/`k` | Navigate sessions |
+| `Enter` | Attach to selected session |
+| `x` | Stop selected session (confirms first) |
+| `r` | Refresh session list |
+| `g` / `G` | Jump to top / bottom |
+| `q` or `Esc` | Quit |
+
+Mouse support: click to select, scroll wheel to navigate, click selected session to attach.
 
 ## Server commands
 

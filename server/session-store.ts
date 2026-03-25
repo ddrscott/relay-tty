@@ -77,9 +77,10 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
-   * List all sessions — scans disk, merges with overlay and pending.
+   * List sessions — scans disk, merges with overlay and pending.
+   * By default, excludes exited sessions. Pass `includeExited: true` to get all.
    */
-  list(): Session[] {
+  list(opts?: { includeExited?: boolean }): Session[] {
     const sessions = new Map<string, Session>();
 
     // Read all session files from disk
@@ -105,7 +106,14 @@ export class SessionStore extends EventEmitter {
       }
     }
 
-    return Array.from(sessions.values()).sort((a, b) => {
+    let result = Array.from(sessions.values());
+
+    // Filter out exited sessions unless explicitly requested
+    if (!opts?.includeExited) {
+      result = result.filter(s => s.status !== "exited");
+    }
+
+    return result.sort((a, b) => {
       // Active sessions first, exited sessions last
       if (a.status !== b.status) {
         return a.status === "running" ? -1 : 1;

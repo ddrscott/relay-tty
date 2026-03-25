@@ -124,7 +124,8 @@ export function listFromDisk(): Session[] {
     }
   } catch {}
 
-  return sessions.sort((a, b) => b.createdAt - a.createdAt);
+  // Filter out exited sessions — they clutter listings with no practical value
+  return sessions.filter(s => s.status !== "exited").sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function loadSessions(host?: string): Promise<Session[]> {
