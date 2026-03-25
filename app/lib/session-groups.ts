@@ -41,7 +41,7 @@ export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir = "
   }
 }
 
-/** Group sessions by cwd, sorted: groups with running sessions first, then by most recent activity */
+/** Group sessions by cwd, folders sorted alphabetically, sessions sorted by user preference within each folder */
 export function groupByCwd(sessions: Session[], sortKey?: SortKey, sortDir?: SortDir): SessionGroup[] {
   const sorted = sortKey ? sortSessions(sessions, sortKey, sortDir) : sessions;
   const groups = new Map<string, Session[]>();
@@ -57,12 +57,5 @@ export function groupByCwd(sessions: Session[], sortKey?: SortKey, sortDir?: Sor
       label: displayPath(cwd),
       sessions: sess,
     }))
-    .sort((a, b) => {
-      const aRunning = a.sessions.some((s) => s.status === "running");
-      const bRunning = b.sessions.some((s) => s.status === "running");
-      if (aRunning !== bRunning) return aRunning ? -1 : 1;
-      const aLatest = Math.max(...a.sessions.map((s) => s.lastActivity));
-      const bLatest = Math.max(...b.sessions.map((s) => s.lastActivity));
-      return bLatest - aLatest;
-    });
+    .sort((a, b) => a.label.localeCompare(b.label));
 }

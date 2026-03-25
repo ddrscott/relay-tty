@@ -88,5 +88,8 @@
 - [x] Fix cache replay replayingRef timeout asymmetry — 200ms vs 5s risks phantom keypresses after reconnect ([detail](work-queue/replay-ref-timeout.md))
 - [x] Add broadcast channel lag logging — zero visibility when frames drop under high throughput ([detail](work-queue/broadcast-lag-logging.md))
 
+- [x] Fix sidebar folder sort instability — folders always alphabetical, user sort applies within folders only ([detail](work-queue/sidebar-sort-stability.md))
+- [ ] Hide closed/exited sessions from all session lists — sidebar, grid, lanes, `relay tui`, `relay list` ([detail](work-queue/hide-closed-sessions.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
