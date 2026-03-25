@@ -54,22 +54,5 @@ Gallery views (grid, lanes) are **passive observers**. Thumbnails MUST:
 
 SIGWINCH is ONLY permitted when a cell enters **expanded/interactive mode** (zoom, modal, fit-to-cell) where the user is actively engaging with that terminal. Other devices will naturally get SIGWINCH when they next open their session view.
 
-## Documentation Site
-User-facing docs live at `docs/` (Fumadocs, Next.js static export) → published to **docs.relaytty.com**.
-
-- **Content**: `docs/content/docs/` — MDX files organized by Diataxis (tutorials, how-to, reference, explanation)
-- **Navigation**: `meta.json` in each directory defines page order
-- **Config**: `docs/source.config.ts` (content source), `docs/next.config.mjs` (static export), `docs/lib/layout.shared.tsx` (nav/branding)
-- **LLM integration**: Built-in `llms.txt`, `llms-full.txt`, "Open in Claude" / "Copy Markdown" buttons on every page
-- **Screenshots**: `scripts/screenshots/` pipeline (Playwright capture + Pillow annotation), output to `docs/public/images/mobile/`
-- **Build**: `npm run docs:dev` (preview), `npm run docs:build` (static output to `docs/out/`)
-- **Deploy**: Push to main triggers `.github/workflows/docs.yml` → Cloudflare Pages
-
-**When adding or changing user-facing features**, update the corresponding doc page. All docs are user-facing — there are no "internal only" docs. Use Diataxis to decide where content belongs:
-- **Tutorials** (learning): step-by-step walkthroughs for beginners
-- **How-to** (tasks): goal-oriented guides for specific tasks
-- **Reference** (info): factual lookup (CLI flags, env vars, protocol spec)
-- **Explanation** (understanding): architecture, design decisions, context
-
-## Protocol Documentation
-See `docs/content/docs/reference/protocol.mdx` for the WS binary protocol (pty-host ↔ browser message types, framing) and the tunnel relay protocol (multiplexed WS/HTTP proxying over a single tunnel connection to relaytty.com).
+## Documentation
+Docs site at **docs.relaytty.com** — Fumadocs (Next.js static export) in `docs/`. When adding or changing features, update the corresponding doc page. Use the `docs-site` skill for full details on structure, build, and conventions.
