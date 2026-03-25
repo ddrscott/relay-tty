@@ -1,0 +1,35 @@
+---
+title: Environment Variables
+---
+
+
+Configure relay-tty via environment variables or a `.env` file in the project root.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes (for remote) | Secret for signing auth JWTs. Generate with `openssl rand -base64 32` |
+| `PORT` | No | Server port (default: `7680`) |
+| `APP_URL` | No | Public URL for remote access (e.g., `https://relay.example.com`). Shown on startup and used for Discord notifications |
+| `DISCORD_WEBHOOK` | No | Discord webhook URL. Posts a clickable auth link on startup |
+| `RELAY_SKIP_BINARY_DOWNLOAD` | No | Set to `1` to skip downloading the pre-built Rust binary during `npm install` |
+
+## Example `.env`
+
+```bash
+JWT_SECRET='your-secret-here'
+PORT=18701
+APP_URL='https://abc123.relaytty.com'
+DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
+```
+
+## Auth token
+
+When `JWT_SECRET` is set, the server prints an auth token URL on startup:
+
+```
+Auth token URL: http://localhost:18701/api/auth/callback?token=eyJ...
+```
+
+Visit this URL in a browser to set a session cookie (30-day expiry). The token itself does not expire — rotate `JWT_SECRET` to revoke all tokens.
+
+Localhost connections always bypass authentication.

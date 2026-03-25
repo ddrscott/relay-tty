@@ -1,0 +1,36 @@
+---
+title: Configuration Files
+---
+
+
+## `.env`
+
+Environment variables for server configuration. See [Environment Variables](environment.md) for all options.
+
+**Location**: project root or working directory
+
+## `~/.config/relay-tty/tunnel.json`
+
+Tunnel configuration, auto-created on first `--tunnel` use.
+
+Contains the stable subdomain assigned by `relaytty.com`. Reused on subsequent runs so your URL stays the same.
+
+## `~/.relay-tty/`
+
+Runtime data directory:
+
+| Path | Description |
+|------|-------------|
+| `sessions/<id>.json` | Session metadata (command, created time, status) |
+| `sockets/<id>.sock` | Unix socket for pty-host communication |
+
+Session metadata is created by the pty-host process and persists across server restarts. Socket files are cleaned up when the pty-host process exits.
+
+## Service files
+
+Created by `relay server install`:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/LaunchAgents/com.relay-tty.plist` |
+| Linux | `~/.config/systemd/user/relay-tty.service` |

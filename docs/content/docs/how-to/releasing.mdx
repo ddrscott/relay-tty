@@ -1,0 +1,55 @@
+---
+title: Release Process
+---
+
+
+## Prerequisites
+
+- All changes committed to `main`
+- `gh` CLI authenticated (`gh auth status`)
+
+## Steps
+
+### 1. Bump version
+
+```sh
+npm version minor --no-git-tag-version   # or patch/major
+```
+
+### 2. Commit and tag
+
+```sh
+git add package.json package-lock.json
+git commit -m "Bump version to $(node -p 'require("./package.json").version')"
+git tag "v$(node -p 'require("./package.json").version')"
+```
+
+### 3. Push
+
+```sh
+git push && git push origin "v$(node -p 'require("./package.json").version')"
+```
+
+### 4. Create GitHub release
+
+```sh
+gh release create v<VERSION> --title "v<VERSION>" --notes "<release notes>"
+```
+
+Release notes should include:
+
+- **Highlights** section grouped by theme (e.g. "iOS Fixes", "UI Polish", "Internals")
+- Brief bullet points describing user-visible changes
+- **Full Changelog** link: `https://github.com/ddrscott/relay-tty/compare/v<PREV>...v<VERSION>`
+
+To review what changed since the last release:
+
+```sh
+git log $(git tag --sort=-v:refname | head -1)..HEAD --oneline
+```
+
+## Versioning
+
+- **patch** — bug fixes, no behavior changes
+- **minor** — new features, UI changes, non-breaking improvements
+- **major** — breaking changes (protocol, CLI flags, config format)

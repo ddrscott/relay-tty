@@ -1,0 +1,65 @@
+---
+title: Session Management
+---
+
+
+How to create, list, attach, detach, and stop terminal sessions.
+
+## Create a session
+
+<Tabs items={["CLI", "Web UI"]}>
+<Tab value="CLI">
+```bash
+relay bash                    # interactive shell
+relay htop                    # run a specific command
+relay --detach bash           # create without attaching (print URL)
+```
+</Tab>
+<Tab value="Web UI">
+Click the **+** button on the home page. Choose a shell or enter a custom command.
+</Tab>
+</Tabs>
+## List sessions
+
+<Tabs items={["CLI", "Web UI"]}>
+<Tab value="CLI">
+```bash
+relay list
+```
+</Tab>
+<Tab value="Web UI">
+The home page (`/`) shows all active sessions with their status and last activity.
+</Tab>
+</Tabs>
+## Attach to a session
+
+<Tabs items={["CLI", "Web UI"]}>
+<Tab value="CLI">
+```bash
+relay attach <session-id>
+```
+
+Press Ctrl+] to detach without killing the session.
+</Tab>
+<Tab value="Web UI">
+Click any session in the list to open it in the terminal view.
+</Tab>
+</Tabs>
+## Stop a session
+
+<Tabs items={["CLI", "Web UI"]}>
+<Tab value="CLI">
+```bash
+relay stop <session-id>
+```
+</Tab>
+<Tab value="Web UI">
+Open the session info panel and tap **Stop**.
+</Tab>
+</Tabs>
+<Callout type="warn">
+Stopping a session kills the underlying process. This is not reversible.
+</Callout>
+## Multiple viewers
+
+Multiple clients (CLI and browser) can connect to the same session simultaneously. Everyone sees the same output in real-time, and any connected client can type.

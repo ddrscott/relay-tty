@@ -1,14 +1,9 @@
 [project]
-name = "relay-tty-docs"
+name = "relay-tty-tools"
 version = "0.1.0"
-description = "Documentation for relay-tty"
+description = "Development tools for relay-tty"
 requires-python = ">=3.11"
-dependencies = [
-    "mkdocs-material>=9.6",
-    "mkdocs-llmstxt-md>=0.2",
-    "mkdocs-minify-plugin>=0.8",
-    "mkdocs-glightbox>=0.4",
-]
+dependencies = []
 
 [project.optional-dependencies]
 screenshots = [

@@ -40,8 +40,8 @@ uv run --project "$PROJECT_ROOT" --extra screenshots \
   python annotate.py \
   --raw _raw/ \
   --manifest manifest.json \
-  --output "$PROJECT_ROOT/website/assets/images/mobile/"
+  --output "$PROJECT_ROOT/docs/public/images/mobile/"
 
 echo "" >&2
-echo "Screenshots saved to website/assets/images/mobile/" >&2
-ls -la "$PROJECT_ROOT/website/assets/images/mobile/"*.png 2>/dev/null | awk '{print "  " $NF}' >&2
+echo "Screenshots saved to docs/public/images/mobile/" >&2
+ls -la "$PROJECT_ROOT/docs/public/images/mobile/"*.png 2>/dev/null | awk '{print "  " $NF}' >&2

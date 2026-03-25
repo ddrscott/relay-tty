@@ -11,9 +11,6 @@ crates/pty-host/target/
 # Pre-built binary (downloaded by postinstall or CI)
 bin/relay-pty-host
 
-# MkDocs build output
-site/
-
 # Python / uv
 .venv/
 __pycache__/
