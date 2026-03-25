@@ -18,7 +18,7 @@ Fumadocs (Next.js) with static export → Cloudflare Pages.
 |-------|------|
 | Framework | Fumadocs (`fumadocs-core`, `fumadocs-mdx`, `fumadocs-ui`) |
 | Build | Next.js static export (`output: 'export'` in `next.config.mjs`) |
-| Content | MDX files in `docs/content/docs/` |
+| Content | MDX files in `docs/content/` |
 | Hosting | Cloudflare Pages (`relay-tty-docs` project) |
 | Domain | `docs.relaytty.com` (CNAME → `relay-tty-docs.pages.dev`, DNS-only) |
 | CI/CD | `.github/workflows/docs.yml` — build + deploy on push to `docs/**` |
@@ -39,14 +39,14 @@ Fumadocs (Next.js) with static export → Cloudflare Pages.
 | `docs/app/(docs)/[[...slug]]/page.tsx` | Doc page renderer with LLM buttons |
 | `docs/app/llms.txt/route.ts` | Auto-generated llms.txt |
 | `docs/app/llms-full.txt/route.ts` | Auto-generated llms-full.txt |
-| `docs/content/docs/**/meta.json` | Navigation order per directory |
+| `docs/content/**/meta.json` | Navigation order per directory |
 
 ## Content Structure (Diataxis)
 
 All docs are user-facing. There are no "internal only" docs. Use Diataxis to decide where content belongs:
 
 ```
-docs/content/docs/
+docs/content/
   index.mdx                    # Landing page
   tutorials/                   # LEARNING — step-by-step for beginners
     meta.json
@@ -93,7 +93,7 @@ docs/content/docs/
 
 ## Adding a New Doc Page
 
-1. Create `docs/content/docs/<section>/<slug>.mdx` with frontmatter:
+1. Create `docs/content/<section>/<slug>.mdx` with frontmatter:
    ```mdx
    ---
    title: Page Title

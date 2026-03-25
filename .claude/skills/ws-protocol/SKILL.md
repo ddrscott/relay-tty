@@ -21,7 +21,7 @@ description: >
 | `app/lib/ws-messages.ts` | `encodeDataMessage`, `encodeResizeMessage` helpers |
 | `server/ws-handler.ts` | Node.js WS-to-Unix-socket bridge, backpressure, clipboard broadcast |
 | `app/lib/buffer-cache.ts` | IndexedDB cache for instant local replay before WS connects |
-| `docs/content/docs/reference/protocol.mdx` | Canonical protocol documentation |
+| `docs/content/reference/protocol.mdx` | Canonical protocol documentation |
 
 See `references/message-types.md` for a complete message type table.
 
@@ -44,7 +44,7 @@ Keep these three locations in sync:
 
 1. `shared/types.ts` -- `WS_MSG` object (JS/TS source of truth)
 2. `crates/pty-host/src/main.rs` -- `WS_MSG_*` constants (Rust, must match exactly)
-3. `docs/content/docs/reference/protocol.mdx` -- protocol documentation table
+3. `docs/content/reference/protocol.mdx` -- protocol documentation table
 
 When adding a new message type, assign the next available byte value and document direction (client->server, server->client, or bidirectional) in all three locations.
 
@@ -157,7 +157,7 @@ The server (`ws-handler.ts`) is a transparent bridge -- it does not interpret mo
 
 ## Invariants -- Do Not Break
 
-1. **Message type bytes must match** across `shared/types.ts`, Rust constants, and `docs/content/docs/reference/protocol.mdx`.
+1. **Message type bytes must match** across `shared/types.ts`, Rust constants, and `docs/content/reference/protocol.mdx`.
 2. **RESUME must be the first message** sent by the browser after WS open, before RESIZE.
 3. **`byteOffset` is monotonic** -- never decrease it except on cache reset (`SYNC(0.0)`).
 4. **Delta replay must not call `syncAndScroll()`** -- it yanks scrolled-up users to the bottom.
