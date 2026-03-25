@@ -1259,6 +1259,13 @@ fn spawn_pty(
 }
 
 /// Resize a PTY.
+///
+/// Sets the winsize via `TIOCSWINSZ` on the master fd, then explicitly sends
+/// `SIGWINCH` to the foreground process group on the slave side. The kernel
+/// *should* deliver SIGWINCH automatically from the ioctl, but some programs
+/// (notably NeoVim via libuv) don't always receive it reliably. Explicitly
+/// signaling the foreground pgrp — the same belt-and-suspenders approach used
+/// by tmux — ensures all well-behaved terminal applications redraw correctly.
 fn resize_pty(master_fd: RawFd, cols: u16, rows: u16) {
     let ws = libc::winsize {
         ws_row: rows,
@@ -1267,7 +1274,23 @@ fn resize_pty(master_fd: RawFd, cols: u16, rows: u16) {
         ws_ypixel: 0,
     };
     unsafe {
-        libc::ioctl(master_fd, libc::TIOCSWINSZ, &ws);
+        let ret = libc::ioctl(master_fd, libc::TIOCSWINSZ, &ws);
+        if ret < 0 {
+            eprintln!(
+                "pty-host: TIOCSWINSZ failed: {}",
+                io::Error::last_os_error()
+            );
+            return;
+        }
+
+        // Explicitly send SIGWINCH to the foreground process group.
+        // TIOCSWINSZ should trigger this automatically via the kernel, but
+        // some programs (NeoVim/libuv) don't always catch the implicit signal.
+        // tcgetpgrp on the master fd returns the slave's foreground pgrp.
+        let fg_pgrp = libc::tcgetpgrp(master_fd);
+        if fg_pgrp > 0 {
+            libc::kill(-fg_pgrp, libc::SIGWINCH);
+        }
     }
 }
 

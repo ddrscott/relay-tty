@@ -80,5 +80,7 @@
 
 - [x] Make session store disk-authoritative — remove in-memory-only session store, read/write disk directly ([detail](work-queue/disk-authoritative-sessions.md))
 
+- [x] Fix NeoVim not detecting resize in web sessions — investigate why SIGWINCH works for claude but not nvim ([detail](work-queue/nvim-resize-detection.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
