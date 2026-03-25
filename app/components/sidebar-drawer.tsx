@@ -6,7 +6,6 @@ import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { LayoutSwitcher } from "./layout-switcher";
-import { CopyableId } from "./copyable-id";
 import { QuickLaunch } from "./quick-launch";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -87,8 +86,7 @@ function SidebarSessionItem({
         <span className="truncate flex-1 min-w-0">
           {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
         </span>
-        <CopyableId value={session.id} className="shrink-0" />
-        <span className="shrink-0 ml-1">
+        <span className="shrink-0">
           {activityAgo}
         </span>
       </div>
