@@ -84,5 +84,9 @@
 
 - [x] Fix web-spawned sessions missing `RELAY_SESSION_ID` — `relay info` reports "Not a relay session" ([detail](work-queue/web-session-relay-id.md))
 
+- [x] Make OSC parser stateful across PTY read() boundaries — large clipboard/image payloads leak through when split across reads ([detail](work-queue/osc-parser-stateful.md))
+- [ ] Fix cache replay replayingRef timeout asymmetry — 200ms vs 5s risks phantom keypresses after reconnect ([detail](work-queue/replay-ref-timeout.md))
+- [ ] Add broadcast channel lag logging — zero visibility when frames drop under high throughput ([detail](work-queue/broadcast-lag-logging.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

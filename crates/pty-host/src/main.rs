@@ -973,6 +973,109 @@ fn extract_osc1337_images(data: &[u8]) -> (Vec<u8>, Vec<InlineImage>) {
     (cleaned, images)
 }
 
+/// Results from a single OscExtractor::feed() call.
+struct OscExtractResult {
+    /// Cleaned data with all recognized OSC sequences stripped.
+    cleaned: Vec<u8>,
+    /// Extracted clipboard texts (OSC 52).
+    clipboard_texts: Vec<String>,
+    /// Extracted notification messages (OSC 9).
+    notifications: Vec<String>,
+    /// Extracted inline images (OSC 1337).
+    inline_images: Vec<InlineImage>,
+}
+
+/// Stateful OSC sequence extractor that handles sequences split across
+/// PTY read() boundaries. Buffers partial (unterminated) OSC sequences
+/// and prepends them to the next read's data.
+struct OscExtractor {
+    /// Bytes from a partial OSC sequence at the end of the previous read.
+    pending: Vec<u8>,
+}
+
+impl OscExtractor {
+    fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+        }
+    }
+
+    /// Feed a chunk of PTY output. Returns cleaned data and any extracted
+    /// OSC payloads. Partial OSC sequences at the end of `data` are buffered
+    /// internally and will be completed on the next call.
+    fn feed(&mut self, data: &[u8]) -> OscExtractResult {
+        // If we have pending bytes from a previous partial sequence,
+        // prepend them to form a combined buffer.
+        let combined: Vec<u8>;
+        let input = if self.pending.is_empty() {
+            data
+        } else {
+            combined = [self.pending.as_slice(), data].concat();
+            self.pending.clear();
+            &combined
+        };
+
+        // Run the three extraction passes.
+        let (after_osc9, notifications) = extract_osc9_notifications(input);
+        let (after_osc52, clipboard_texts) = extract_osc52_clipboard(&after_osc9);
+        let (mut cleaned, inline_images) = extract_osc1337_images(&after_osc52);
+
+        // Check if `cleaned` ends with a partial (unterminated) OSC sequence.
+        // The extract functions pass incomplete sequences through to cleaned,
+        // so we need to find and stash any trailing partial for the next call.
+        if let Some(partial_start) = find_trailing_partial_osc(&cleaned) {
+            self.pending = cleaned.split_off(partial_start);
+        }
+
+        OscExtractResult {
+            cleaned,
+            clipboard_texts,
+            notifications,
+            inline_images,
+        }
+    }
+}
+
+/// Scan data for a trailing partial OSC sequence (ESC ] ... without terminator).
+/// Returns the byte offset where the partial sequence starts, or None.
+///
+/// We look for the last ESC ] (0x1b 0x5d) and check whether it's followed
+/// by a BEL (0x07) or ST (ESC \) terminator. If not, it's a partial sequence
+/// that was passed through by the extract functions.
+fn find_trailing_partial_osc(data: &[u8]) -> Option<usize> {
+    // Search backward for the last ESC (0x1b)
+    let mut i = data.len();
+    while i > 0 {
+        i -= 1;
+        if data[i] == 0x1b {
+            // Check if this could be the start of an OSC: ESC ]
+            if i + 1 < data.len() && data[i + 1] == 0x5d {
+                // Found ESC ]. Check if there's a terminator after it.
+                // Scan forward from here looking for BEL or ESC\.
+                let mut j = i + 2;
+                while j < data.len() {
+                    if data[j] == 0x07 {
+                        // Found BEL terminator — this OSC is complete, not partial.
+                        return None;
+                    }
+                    if data[j] == 0x1b && j + 1 < data.len() && data[j + 1] == 0x5c {
+                        // Found ESC\ terminator — this OSC is complete.
+                        return None;
+                    }
+                    j += 1;
+                }
+                // No terminator found — this is a partial OSC sequence.
+                return Some(i);
+            }
+            // Lone ESC at the very end of data (might be start of ESC ])
+            if i + 1 == data.len() {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
 // ── Foreground process name resolution ──────────────────────────────
 
 /// Resolve a PID to its process name.
@@ -1530,6 +1633,7 @@ async fn main() {
                 .expect("Failed to create AsyncFd for PTY master");
 
         let mut buf = vec![0u8; 65536];
+        let mut osc_extractor = OscExtractor::new();
 
         loop {
             let ready = async_fd.readable().await;
@@ -1587,25 +1691,20 @@ async fn main() {
                         }
                     }
 
-                    // Extract OSC 9 notifications, strip from data
-                    let (after_osc9, notifications) = extract_osc9_notifications(data);
-                    for notif in &notifications {
+                    // Extract OSC sequences (stateful across read boundaries)
+                    let osc_result = osc_extractor.feed(data);
+                    for notif in &osc_result.notifications {
                         let mut notif_msg = vec![WS_MSG_NOTIFICATION];
                         notif_msg.extend_from_slice(notif.as_bytes());
                         let _ = broadcast_tx_pty.send(encode_frame(&notif_msg));
                     }
-
-                    // Extract OSC 52 clipboard sequences, strip from data
-                    let (after_osc52, clipboard_texts) = extract_osc52_clipboard(&after_osc9);
-                    for clip_text in &clipboard_texts {
+                    for clip_text in &osc_result.clipboard_texts {
                         let mut clip_msg = vec![WS_MSG_CLIPBOARD];
                         clip_msg.extend_from_slice(clip_text.as_bytes());
                         let _ = broadcast_tx_pty.send(encode_frame(&clip_msg));
                     }
-
-                    // Extract iTerm2 OSC 1337 inline images, strip from data
-                    let (cleaned, inline_images) = extract_osc1337_images(&after_osc52);
-                    for img in &inline_images {
+                    let cleaned = osc_result.cleaned;
+                    for img in &osc_result.inline_images {
                         // IMAGE message format:
                         // [0x17][4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
                         let id_bytes = img.id.as_bytes();
@@ -2739,6 +2838,148 @@ mod tests {
 
         // GIF magic bytes
         assert_eq!(infer_mime(b"GIF89a"), "image/gif");
+    }
+
+    // ── OscExtractor stateful tests ─────────────────────────────────
+
+    #[test]
+    fn osc_extractor_single_chunk() {
+        // Complete OSC 9 in one chunk works the same as before
+        let mut ext = OscExtractor::new();
+        let result = ext.feed(b"before\x1b]9;hello\x07after");
+        assert_eq!(result.notifications.len(), 1);
+        assert_eq!(result.notifications[0], "hello");
+        assert_eq!(result.cleaned, b"beforeafter");
+    }
+
+    #[test]
+    fn osc_extractor_split_osc9() {
+        // OSC 9 notification split across two reads
+        let mut ext = OscExtractor::new();
+
+        // First read: starts the OSC but no terminator
+        let r1 = ext.feed(b"before\x1b]9;hel");
+        assert!(r1.notifications.is_empty());
+        assert_eq!(r1.cleaned, b"before"); // partial OSC buffered
+
+        // Second read: completes the OSC
+        let r2 = ext.feed(b"lo\x07after");
+        assert_eq!(r2.notifications.len(), 1);
+        assert_eq!(r2.notifications[0], "hello");
+        assert_eq!(r2.cleaned, b"after");
+    }
+
+    #[test]
+    fn osc_extractor_split_osc52() {
+        // OSC 52 clipboard split across two reads
+        let mut ext = OscExtractor::new();
+
+        // "hello" base64 = "aGVsbG8="
+        let r1 = ext.feed(b"data\x1b]52;c;aGVs");
+        assert!(r1.clipboard_texts.is_empty());
+        assert_eq!(r1.cleaned, b"data");
+
+        let r2 = ext.feed(b"bG8=\x07more");
+        assert_eq!(r2.clipboard_texts.len(), 1);
+        assert_eq!(r2.clipboard_texts[0], "hello");
+        assert_eq!(r2.cleaned, b"more");
+    }
+
+    #[test]
+    fn osc_extractor_split_osc1337() {
+        // OSC 1337 image split across two reads
+        let mut ext = OscExtractor::new();
+
+        // "PNG" base64 = "UE5H"
+        let r1 = ext.feed(b"text\x1b]1337;File=inline=1:UE");
+        assert!(r1.inline_images.is_empty());
+        assert_eq!(r1.cleaned, b"text");
+
+        let r2 = ext.feed(b"5H\x07rest");
+        assert_eq!(r2.inline_images.len(), 1);
+        assert_eq!(r2.inline_images[0].data, b"PNG");
+        let cleaned_str = String::from_utf8_lossy(&r2.cleaned);
+        assert!(cleaned_str.contains("[image:"));
+        assert!(cleaned_str.ends_with("rest"));
+    }
+
+    #[test]
+    fn osc_extractor_no_partial() {
+        // Plain data with no OSC sequences
+        let mut ext = OscExtractor::new();
+        let r = ext.feed(b"just plain text");
+        assert!(r.notifications.is_empty());
+        assert!(r.clipboard_texts.is_empty());
+        assert!(r.inline_images.is_empty());
+        assert_eq!(r.cleaned, b"just plain text");
+    }
+
+    #[test]
+    fn osc_extractor_esc_at_end() {
+        // Lone ESC at end of data — should be buffered
+        let mut ext = OscExtractor::new();
+        let r1 = ext.feed(b"data\x1b");
+        assert_eq!(r1.cleaned, b"data");
+
+        // Next read completes a non-OSC sequence — flushes
+        let r2 = ext.feed(b"[32mgreen");
+        assert_eq!(r2.cleaned, b"\x1b[32mgreen");
+    }
+
+    #[test]
+    fn osc_extractor_complete_then_partial() {
+        // One complete OSC followed by a partial in the same chunk
+        let mut ext = OscExtractor::new();
+        let r1 = ext.feed(b"\x1b]9;first\x07mid\x1b]9;sec");
+        assert_eq!(r1.notifications.len(), 1);
+        assert_eq!(r1.notifications[0], "first");
+        assert_eq!(r1.cleaned, b"mid");
+
+        let r2 = ext.feed(b"ond\x07end");
+        assert_eq!(r2.notifications.len(), 1);
+        assert_eq!(r2.notifications[0], "second");
+        assert_eq!(r2.cleaned, b"end");
+    }
+
+    #[test]
+    fn osc_extractor_three_way_split() {
+        // OSC split across three reads
+        let mut ext = OscExtractor::new();
+        let r1 = ext.feed(b"a\x1b");
+        assert_eq!(r1.cleaned, b"a");
+
+        let r2 = ext.feed(b"]9;hel");
+        assert!(r2.notifications.is_empty());
+        assert!(r2.cleaned.is_empty());
+
+        let r3 = ext.feed(b"lo\x07b");
+        assert_eq!(r3.notifications.len(), 1);
+        assert_eq!(r3.notifications[0], "hello");
+        assert_eq!(r3.cleaned, b"b");
+    }
+
+    #[test]
+    fn find_trailing_partial_osc_complete() {
+        // Complete OSC — no partial
+        assert!(find_trailing_partial_osc(b"before\x1b]9;msg\x07after").is_none());
+    }
+
+    #[test]
+    fn find_trailing_partial_osc_incomplete() {
+        // Partial OSC at end
+        assert_eq!(find_trailing_partial_osc(b"before\x1b]9;msg"), Some(6));
+    }
+
+    #[test]
+    fn find_trailing_partial_osc_lone_esc() {
+        // Lone ESC at end
+        assert_eq!(find_trailing_partial_osc(b"data\x1b"), Some(4));
+    }
+
+    #[test]
+    fn find_trailing_partial_osc_none() {
+        // No ESC at all
+        assert!(find_trailing_partial_osc(b"plain text").is_none());
     }
 
     // ── Frame encoding/decoding tests ───────────────────────────────
