@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
 import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, LayoutGrid, Filter } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
@@ -205,6 +205,54 @@ export function SidebarDrawer({
     return () => window.removeEventListener("storage", handler);
   }, []);
 
+  // Resizable sidebar width (desktop only, persisted to localStorage)
+  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MAX = 600;
+  const SIDEBAR_DEFAULT = 288; // w-72
+  const SIDEBAR_WIDTH_KEY = "relay-tty-sidebar-width";
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") return SIDEBAR_DEFAULT;
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (stored) {
+      const n = parseInt(stored, 10);
+      if (n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return n;
+    }
+    return SIDEBAR_DEFAULT;
+  });
+
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startW: sidebarWidth };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = ev.clientX - dragRef.current.startX;
+      const newW = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragRef.current.startW + delta));
+      setSidebarWidth(newW);
+    };
+
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      // Persist final width
+      setSidebarWidth((w) => {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+        return w;
+      });
+      dragRef.current = null;
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [sidebarWidth]);
+
   // Determine which session is currently active from the URL
   const activeSessionId = useMemo(() => {
     const match = location.pathname.match(/^\/sessions\/([^/]+)/);
@@ -352,7 +400,15 @@ export function SidebarDrawer({
       {/* Sidebar */}
       <div className="drawer-side z-50">
         <label htmlFor="sidebar-drawer" aria-label="close sidebar" className="drawer-overlay" />
-        <div className="w-72 bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full relative">
+        <div
+          className="bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full relative w-72 lg:w-auto"
+          style={{ ['--sidebar-w' as string]: `${sidebarWidth}px` } as React.CSSProperties}
+        >
+          {/* Drag handle — desktop only */}
+          <div
+            className="hidden lg:block absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-40 hover:bg-[#3b82f6]/30 active:bg-[#3b82f6]/50 transition-colors"
+            onMouseDown={onDragStart}
+          />
           {/* Header */}
           <div className="px-3 py-3 border-b border-[#1e1e2e] flex items-center justify-between">
             <h1 className="font-mono text-[#64748b]">

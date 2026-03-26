@@ -100,6 +100,13 @@ body {
   }
 }
 
+/* Resizable sidebar — use CSS custom property on desktop, fixed w-72 on mobile */
+@media (min-width: 1024px) {
+  .drawer-side > [style*="--sidebar-w"] {
+    width: var(--sidebar-w, 288px);
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
