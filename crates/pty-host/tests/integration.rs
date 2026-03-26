@@ -677,6 +677,47 @@ fn session_state_active_on_output() {
     );
 }
 
+// ── Sparkline tests ─────────────────────────────────────────────────
+
+#[test]
+fn sparkline_request_returns_history() {
+    // Use a long-lived session so the process doesn't exit before we can send requests
+    let handle = spawn_pty_host("/bin/sh", &["-c", "echo hello && sleep 30"])
+        .expect("failed to spawn pty-host");
+
+    let mut client = connect(&handle.socket_path).expect("failed to connect");
+    // Trigger replay so session is fully initialized
+    client.send_resume(0.0).expect("send_resume failed");
+    // Wait for SYNC to confirm the handshake is complete (avoids blocking collect_frames)
+    client
+        .wait_for_message(WS_MSG_SYNC, Duration::from_secs(5))
+        .expect("Expected SYNC frame during handshake");
+
+    // Wait for at least one sparkline tick (1s interval + margin)
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // Request sparkline
+    client.send_sparkline_request().expect("send_sparkline_request failed");
+
+    // Wait for SPARKLINE_HISTORY response
+    let frame = client
+        .wait_for_message(WS_MSG_SPARKLINE_HISTORY, Duration::from_secs(3))
+        .expect("Expected SPARKLINE_HISTORY frame");
+
+    // Verify format: [u16 count][f64 values...]
+    assert!(frame.data.len() >= 2, "Response too short: {} bytes", frame.data.len());
+    let count = u16::from_be_bytes([frame.data[0], frame.data[1]]) as usize;
+    assert!(count >= 1, "Expected at least 1 sparkline sample, got {}", count);
+    assert_eq!(
+        frame.data.len(),
+        2 + count * 8,
+        "Payload size mismatch: expected {} bytes for {} samples, got {}",
+        2 + count * 8,
+        count,
+        frame.data.len()
+    );
+}
+
 // ── SYNC offset tests ───────────────────────────────────────────────
 
 #[test]
