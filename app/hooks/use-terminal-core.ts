@@ -217,7 +217,21 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let byteOffset = 0;
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
-    const scrollState = { momentumActive: false };
+    const scrollState = { momentumActive: false, lastAtBottom: true };
+
+    // Centralized atBottom check — only fires callback when value changes.
+    // Called from onScroll, stopMomentum, DATA writes, and activation.
+    const checkAtBottom = () => {
+      if (!opts.onScrollChange) return;
+      const term = termRef.current;
+      if (!term) return;
+      const buf = term.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      if (atBottom !== scrollState.lastAtBottom) {
+        scrollState.lastAtBottom = atBottom;
+        opts.onScrollChange(atBottom);
+      }
+    };
 
     // Wrapper div for xterm's DOM — persists in pool across unmounts
     let xtermWrapper: HTMLDivElement | null = null;
@@ -368,8 +382,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (opts.onScrollChange) {
         term.onScroll(() => {
           if (scrollState.momentumActive) return;
-          const buf = term.buffer.active;
-          opts.onScrollChange!(buf.viewportY >= buf.baseY);
+          checkAtBottom();
         });
       }
 
@@ -814,12 +827,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         scrollState.momentumActive = false;
         setViewportActive(true);
         // Fire the scroll change callback that was suppressed during momentum.
-        // Without this, atBottom stays stale and the "Jump to bottom" button
-        // never appears after a momentum scroll away from the bottom.
-        if (opts.onScrollChange) {
-          const buf = term.buffer.active;
-          opts.onScrollChange(buf.viewportY >= buf.baseY);
-        }
+        checkAtBottom();
       };
 
       const cancelMomentum = () => {
@@ -1215,7 +1223,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
               term.write(payload, () => term.scrollToBottom());
             } else {
-              term.write(payload);
+              term.write(payload, () => {
+                // After write, baseY may have changed while viewportY stayed
+                // put (user scrolled up). The onScroll event only fires when
+                // viewportY changes, so this catches the inverse case where
+                // the user was wrongly marked as "at bottom" and new data
+                // pushed baseY ahead.
+                if (!scrollState.momentumActive) checkAtBottom();
+              });
             }
           }
 
@@ -1605,9 +1620,22 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   // Re-fit terminal when it becomes the active/visible instance.
   // Hidden terminals skip ResizeObserver callbacks, so they need
   // an explicit fit when shown again to match the container size.
+  // Also report the current scroll position so the parent's atBottom
+  // state is correct immediately (not stale from the previous tab).
   useEffect(() => {
     if ((opts.active ?? true) && fitAddonRef.current && termRef.current) {
       fitAddonRef.current.fit();
+      // Report actual scroll position on activation — the parent may have
+      // reset atBottom=true on tab switch, but this terminal could be
+      // scrolled up. Fire after a frame so fit() has taken effect.
+      if (opts.onScrollChange) {
+        requestAnimationFrame(() => {
+          const term = termRef.current;
+          if (!term) return;
+          const buf = term.buffer.active;
+          opts.onScrollChange!(buf.viewportY >= buf.baseY);
+        });
+      }
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
