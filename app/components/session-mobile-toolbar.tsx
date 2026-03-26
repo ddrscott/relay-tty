@@ -11,7 +11,6 @@ import {
 import { getCtrlShortcuts, ctrlChar, type CtrlShortcut } from "../lib/ctrl-shortcuts";
 
 const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
-const LONG_PRESS_MS = 300; // ms — hold Ctrl longer than this to toggle sticky modifier
 const RECENT_HISTORY_COUNT = 3; // number of recent entries shown inline
 
 interface SessionMobileToolbarProps {
@@ -56,8 +55,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   const historyLoaded = useRef(false);
   const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
-  const ctrlLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ctrlDidLongPressRef = useRef(false);
   const toolbarRootRef = useRef<HTMLDivElement>(null);
   const ctrlWrapRef = useRef<HTMLDivElement>(null);
   const [menuLeft, setMenuLeft] = useState(0);
@@ -92,6 +89,11 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
       }
     }
   }, [ctrlMenuOpen]);
+
+  // Close the shortcut menu when ctrlOn is consumed (virtual keyboard keypress)
+  useEffect(() => {
+    if (!ctrlOn) setCtrlMenuOpen(false);
+  }, [ctrlOn]);
 
   // Track touch start position so we can distinguish taps from scroll gestures
   const onScrollAreaTouchStart = useCallback((e: TouchEvent) => {
@@ -165,48 +167,18 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     ta.style.height = `${Math.min(ta.scrollHeight, maxH)}px`;
   }, []);
 
-  // Ctrl button: short tap toggles menu, long press toggles sticky modifier.
-  // Track touch start position so horizontal scrolls cancel the long-press.
-  const ctrlTouchStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const handleCtrlTouchStart = useCallback((e: React.TouchEvent) => {
-    ctrlDidLongPressRef.current = false;
-    const t = e.touches[0];
-    ctrlTouchStartRef.current = { x: t.clientX, y: t.clientY };
-    ctrlLongPressRef.current = setTimeout(() => {
-      ctrlDidLongPressRef.current = true;
+  // Ctrl button: tap toggles ctrlOn + opens shortcut menu.
+  // User can then either pick a shortcut from the menu or type on the virtual keyboard.
+  // Menu auto-closes when ctrlOn is consumed (via useEffect above).
+  const handleCtrlTap = useCallback(() => {
+    if (ctrlOn) {
       onCtrlToggle();
       setCtrlMenuOpen(false);
-    }, LONG_PRESS_MS);
-  }, [onCtrlToggle]);
-
-  const handleCtrlTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!ctrlTouchStartRef.current || !ctrlLongPressRef.current) return;
-    const t = e.touches[0];
-    const dx = Math.abs(t.clientX - ctrlTouchStartRef.current.x);
-    const dy = Math.abs(t.clientY - ctrlTouchStartRef.current.y);
-    if (dx > SCROLL_TAP_THRESHOLD || dy > SCROLL_TAP_THRESHOLD) {
-      clearTimeout(ctrlLongPressRef.current);
-      ctrlLongPressRef.current = null;
+    } else {
+      onCtrlToggle();
+      setCtrlMenuOpen(true);
     }
-  }, []);
-
-  const handleCtrlTouchEnd = useCallback(() => {
-    ctrlTouchStartRef.current = null;
-    if (ctrlLongPressRef.current) {
-      clearTimeout(ctrlLongPressRef.current);
-      ctrlLongPressRef.current = null;
-    }
-    if (!ctrlDidLongPressRef.current) {
-      // Short tap — toggle shortcut menu
-      setCtrlMenuOpen((v) => !v);
-    }
-  }, []);
-
-  const handleCtrlClick = useCallback(() => {
-    // Desktop fallback (no touch events) — toggle menu
-    setCtrlMenuOpen((v) => !v);
-  }, []);
+  }, [ctrlOn, onCtrlToggle]);
 
   const sendCtrlShortcut = useCallback((key: string) => {
     onSendKey(ctrlChar(key));
@@ -370,12 +342,10 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
           <div className="w-px h-6 bg-[#2d2d44] shrink-0" />
           <div ref={ctrlWrapRef} className="shrink-0">
             <button
-              className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 text-sm rounded-none ${ctrlMenuOpen || ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
+              className={`btn h-11 min-h-0 font-mono px-2.5 min-w-0 text-sm rounded-none ${ctrlOn ? "btn-primary" : "btn-ghost text-[#94a3b8] hover:text-[#e2e8f0]"}`}
               tabIndex={-1}
-              onTouchStart={handleCtrlTouchStart}
-              onTouchMove={handleCtrlTouchMove}
-              onTouchEnd={tapGuard(handleCtrlTouchEnd)}
-              onClick={handleCtrlClick}
+              onTouchEnd={tapGuard(handleCtrlTap)}
+              onClick={handleCtrlTap}
             >Ctrl</button>
           </div>
           <button
