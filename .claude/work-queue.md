@@ -95,5 +95,7 @@
 
 - [x] Agent dashboard view — mission control for AI coding sessions with sparklines, throughput, and last output preview ([detail](work-queue/agent-dashboard.md))
 
+- [x] Add dashboard cards toggle to session sidebar — switch between list and cards views with sparklines and throughput ([detail](work-queue/sidebar-dashboard-toggle.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

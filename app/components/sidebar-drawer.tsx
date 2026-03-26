@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2 } from "lucide-react";
+import { useNavigate, useLocation, useRevalidator } from "react-router";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, LayoutGrid } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
+import { useSessionMetrics } from "../hooks/use-session-metrics";
+import { SidebarAgentCard } from "./agent-card";
 import { LayoutSwitcher } from "./layout-switcher";
 import { QuickLaunch } from "./quick-launch";
 
@@ -23,6 +25,13 @@ function getStoredSort(): SortKey {
 function getStoredSortDir(): SortDir {
   if (typeof window === "undefined") return "desc";
   return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
+}
+
+type SidebarView = "list" | "cards";
+
+function getStoredSidebarView(): SidebarView {
+  if (typeof window === "undefined") return "list";
+  return (localStorage.getItem("relay-tty-sidebar-view") as SidebarView) || "list";
 }
 
 function formatRate(bps: number): string {
@@ -116,6 +125,20 @@ export function SidebarDrawer({
   const [showNewPanel, setShowNewPanel] = useState(false);
   const [availableCommands, setAvailableCommands] = useState<{ tools: { name: string; label: string }[]; shells: { name: string; label: string }[] } | null>(null);
   const [pendingCommand, setPendingCommand] = useState<{ name: string; label: string; isAiTool: boolean; isCustom?: boolean } | null>(null);
+  const [sidebarView, setSidebarView] = useState<SidebarView>(getStoredSidebarView);
+
+  const toggleSidebarView = useCallback(() => {
+    setSidebarView((prev) => {
+      const next = prev === "list" ? "cards" : "list";
+      localStorage.setItem("relay-tty-sidebar-view", next);
+      return next;
+    });
+  }, []);
+
+  // Live metrics for cards view — uses the same WS event stream as the agents page.
+  // Always pass all sessions so sparkline history accumulates even before switching to cards.
+  const { revalidate } = useRevalidator();
+  const metricsMap = useSessionMetrics(sessions, revalidate);
 
   // Fetch available commands when the new-session panel opens
   useEffect(() => {
@@ -287,6 +310,22 @@ export function SidebarDrawer({
               New
             </button>
 
+            {/* List/Cards toggle */}
+            {sessions.length > 0 && (
+              <button
+                className={`flex items-center p-1 rounded-lg transition-colors ${
+                  sidebarView === "cards" ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+                }`}
+                onClick={toggleSidebarView}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                title={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
+                aria-label={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
+              >
+                {sidebarView === "list" ? <LayoutGrid className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
+              </button>
+            )}
+
             <div className="flex-1" />
 
             {/* Collapse/expand all */}
@@ -341,6 +380,53 @@ export function SidebarDrawer({
           <div className="flex-1 overflow-y-auto">
             {sessions.length === 0 ? (
               <QuickLaunch compact />
+            ) : sidebarView === "cards" ? (
+              <div className="flex flex-col gap-2 px-3 py-2">
+                {groups.map((group) => {
+                  const isCollapsed = collapsed.has(group.cwd);
+                  const runningCount = group.sessions.filter((s) => s.status === "running").length;
+
+                  return (
+                    <div key={group.cwd}>
+                      {!isSingleGroup && (
+                        <button
+                          className="w-full flex items-center gap-2 py-1.5 px-0 text-left hover:bg-[#0f0f1a] transition-colors sticky top-0 z-10 bg-[#0a0a0f] border-b border-[#1e1e2e]"
+                          onClick={() => toggleGroup(group.cwd)}
+                        >
+                          <span className={`text-xs text-[#64748b] transition-transform ${isCollapsed ? "" : "rotate-90"}`}>
+                            &#9654;
+                          </span>
+                          <code className="text-xs text-[#94a3b8] font-mono truncate flex-1">
+                            {group.label}
+                          </code>
+                          <span className="text-xs text-[#64748b]">
+                            {runningCount > 0 && (
+                              <span className="text-[#94a3b8] mr-1">{runningCount} running</span>
+                            )}
+                          </span>
+                        </button>
+                      )}
+
+                      {!isCollapsed && (
+                        <div className="flex flex-col gap-2">
+                          {group.sessions.map((session) => {
+                            const m = metricsMap.get(session.id);
+                            if (!m) return null;
+                            return (
+                              <SidebarAgentCard
+                                key={session.id}
+                                metrics={m}
+                                selected={activeSessionId === session.id}
+                                onSelect={() => selectSession(session.id)}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div className="flex flex-col">
                 {groups.map((group) => {
