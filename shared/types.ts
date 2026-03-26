@@ -58,6 +58,10 @@ export const WS_MSG = {
   PING: 0x20,
   /** Server→client: 1-byte heartbeat response. */
   PONG: 0x21,
+  /** Client→server: request sparkline ring buffer history (no payload). */
+  SPARKLINE_REQUEST: 0x18,
+  /** Server→client: sparkline history [u16 count BE][f64 bps1 values oldest-first...]. */
+  SPARKLINE_HISTORY: 0x19,
   /** Client→server: CLI detaching — pty-host should SIGHUP the foreground process group if it differs from the shell. */
   DETACH: 0x22,
 } as const;

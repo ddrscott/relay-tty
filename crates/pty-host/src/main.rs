@@ -39,6 +39,8 @@ const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 const WS_MSG_SESSION_METRICS: u8 = 0x14;
 const WS_MSG_CLIPBOARD: u8 = 0x16;
 const WS_MSG_IMAGE: u8 = 0x17;
+const WS_MSG_SPARKLINE_REQUEST: u8 = 0x18;
+const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
 const WS_MSG_DETACH: u8 = 0x22;
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -2211,7 +2213,18 @@ async fn handle_client(
 
             let msg_type = payload[0];
             let data = &payload[1..];
-            process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx).await;
+
+            if msg_type == WS_MSG_SPARKLINE_REQUEST {
+                let s = state.read().await;
+                let mut resp = Vec::with_capacity(1 + 2 + s.sparkline.len() * 8);
+                resp.push(WS_MSG_SPARKLINE_HISTORY);
+                resp.extend_from_slice(&s.sparkline.encode());
+                let frame = encode_frame(&resp);
+                let mut w = writer.lock().await;
+                let _ = w.write_all(&frame).await;
+            } else {
+                process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx).await;
+            }
         }
     }
 }

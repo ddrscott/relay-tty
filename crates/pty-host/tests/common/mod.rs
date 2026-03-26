@@ -25,6 +25,8 @@ pub const WS_MSG_SYNC: u8 = 0x11;
 pub const WS_MSG_SESSION_STATE: u8 = 0x12;
 pub const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 pub const WS_MSG_SESSION_METRICS: u8 = 0x14;
+pub const WS_MSG_SPARKLINE_REQUEST: u8 = 0x18;
+pub const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
 
 // ── Frame encoding/decoding ─────────────────────────────────────────
 
@@ -113,6 +115,11 @@ impl SocketClient {
     /// Send DATA frame (input to PTY).
     pub fn send_data(&mut self, data: &[u8]) -> io::Result<()> {
         self.send_frame(WS_MSG_DATA, data)
+    }
+
+    /// Send a SPARKLINE_REQUEST frame (no payload).
+    pub fn send_sparkline_request(&mut self) -> io::Result<()> {
+        self.send_frame(WS_MSG_SPARKLINE_REQUEST, &[])
     }
 
     /// Read the next frame. Returns None on timeout or disconnect.
