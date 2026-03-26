@@ -97,5 +97,8 @@
 
 - [x] Add dashboard cards toggle to session sidebar — switch between list and cards views with sparklines and throughput ([detail](work-queue/sidebar-dashboard-toggle.md))
 
+- [x] Unify session sidebar sort/filter controls — compact toggles for running/closed + inline sort cycling, matching file browser pattern ([detail](work-queue/sidebar-sort-filter-controls.md))
+- [ ] Resizable sidebar on web desktop — drag handle to adjust width, persist to localStorage
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

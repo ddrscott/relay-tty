@@ -28,7 +28,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   // Don't expose session list to unauthenticated share viewers
   const isShare = url.pathname.startsWith("/share/");
-  const sessions = isShare ? [] : context.sessionStore.list();
+  const sessions = isShare ? [] : context.sessionStore.list({ includeExited: true });
   const customCommands: string[] = !isShare && context.readCustomCommands ? context.readCustomCommands() : [];
   return { sessions, version: context.version, hostname: context.hostname, customCommands };
 }

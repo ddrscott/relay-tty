@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, LayoutGrid } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, LayoutGrid, Filter } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
@@ -25,6 +25,33 @@ function getStoredSort(): SortKey {
 function getStoredSortDir(): SortDir {
   if (typeof window === "undefined") return "desc";
   return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
+}
+
+interface SessionFilterToggles {
+  showRunning: boolean;
+  showClosed: boolean;
+}
+
+const SESSION_FILTER_KEY = "relay-tty:session-filters";
+
+function loadSessionFilters(): SessionFilterToggles {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(SESSION_FILTER_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        showRunning: parsed.showRunning !== false,
+        showClosed: parsed.showClosed === true,
+      };
+    }
+  } catch {}
+  return { showRunning: true, showClosed: false };
+}
+
+function saveSessionFilters(toggles: SessionFilterToggles) {
+  try {
+    localStorage.setItem(SESSION_FILTER_KEY, JSON.stringify(toggles));
+  } catch {}
 }
 
 type SidebarView = "list" | "cards";
@@ -126,6 +153,8 @@ export function SidebarDrawer({
   const [availableCommands, setAvailableCommands] = useState<{ tools: { name: string; label: string }[]; shells: { name: string; label: string }[] } | null>(null);
   const [pendingCommand, setPendingCommand] = useState<{ name: string; label: string; isAiTool: boolean; isCustom?: boolean } | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>(getStoredSidebarView);
+  const [filterToggles, setFilterToggles] = useState<SessionFilterToggles>(loadSessionFilters);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
   const toggleSidebarView = useCallback(() => {
     setSidebarView((prev) => {
@@ -182,7 +211,26 @@ export function SidebarDrawer({
     return match ? match[1] : null;
   }, [location.pathname]);
 
-  const groups = useMemo(() => groupByCwd(sessions, sortKey, sortDir), [sessions, sortKey, sortDir]);
+  // Filter sessions by running/closed toggles
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      if (s.status === "running" && !filterToggles.showRunning) return false;
+      if (s.status === "exited" && !filterToggles.showClosed) return false;
+      return true;
+    });
+  }, [sessions, filterToggles]);
+
+  // Count totals for filter toggle labels
+  const sessionCounts = useMemo(() => {
+    let running = 0, closed = 0;
+    for (const s of sessions) {
+      if (s.status === "running") running++;
+      else if (s.status === "exited") closed++;
+    }
+    return { running, closed };
+  }, [sessions]);
+
+  const groups = useMemo(() => groupByCwd(filteredSessions, sortKey, sortDir), [filteredSessions, sortKey, sortDir]);
   const isSingleGroup = groups.length === 1;
 
   const createSession = useCallback(
@@ -248,6 +296,37 @@ export function SidebarDrawer({
       localStorage.setItem("relay-tty-sort-dir", "desc");
     }
   }, [sortKey, sortDir]);
+
+  // Cycle through sort keys on click; same key toggles direction
+  const cycleSort = useCallback(() => {
+    const keys = SORT_OPTIONS.map(o => o.key);
+    const idx = keys.indexOf(sortKey);
+    if (sortDir === "desc") {
+      // First click on same key: flip to asc
+      setSortDir("asc");
+      localStorage.setItem("relay-tty-sort-dir", "asc");
+    } else {
+      // Second click (already asc): advance to next sort key, reset to desc
+      const next = keys[(idx + 1) % keys.length];
+      setSortKey(next);
+      setSortDir("desc");
+      localStorage.setItem("relay-tty-sort", next);
+      localStorage.setItem("relay-tty-sort-dir", "desc");
+    }
+  }, [sortKey, sortDir]);
+
+  // Close filter dropdown on click outside
+  useEffect(() => {
+    if (!filterMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      setFilterMenuOpen(false);
+    };
+    const timer = setTimeout(() => document.addEventListener("click", handler), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", handler);
+    };
+  }, [filterMenuOpen]);
 
   const selectSession = useCallback((id: string) => {
     const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
@@ -333,6 +412,8 @@ export function SidebarDrawer({
               <button
                 className="flex items-center text-[#64748b] hover:text-[#e2e8f0] transition-colors p-1 rounded-lg"
                 onClick={toggleAll}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
                 title={allCollapsed ? "Expand all" : "Collapse all"}
               >
                 {allCollapsed
@@ -341,38 +422,73 @@ export function SidebarDrawer({
               </button>
             )}
 
-            {/* Sort dropdown */}
-            {sessions.length > 1 && (
-              <div className="dropdown dropdown-end dropdown-bottom">
+            {/* Filter dropdown */}
+            {sessions.length > 0 && (
+              <div className="relative">
                 <button
-                  tabIndex={0}
-                  className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-2 py-1 rounded-lg border border-[#2d2d44] hover:border-[#3d3d5c]"
+                  className={`flex items-center p-1 rounded-lg transition-colors ${
+                    filterMenuOpen ? "text-[#e2e8f0]"
+                    : (!filterToggles.showRunning || filterToggles.showClosed) ? "text-[#22c55e]"
+                    : "text-[#64748b] hover:text-[#e2e8f0]"
+                  }`}
+                  onClick={(e) => { e.stopPropagation(); setFilterMenuOpen(!filterMenuOpen); }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                  title="Filter sessions"
+                  aria-label="Filter sessions"
                 >
-                  {sortDir === "desc" ? <ArrowDown className="w-3.5 h-3.5" /> : <ArrowUp className="w-3.5 h-3.5" />}
-                  {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
+                  <Filter className="w-3.5 h-3.5" />
                 </button>
-                <ul
-                  tabIndex={0}
-                  className="dropdown-content menu bg-[#1a1a2e] border border-[#2d2d44] rounded-lg z-[60] w-32 p-1 shadow-lg"
-                >
-                  {SORT_OPTIONS.map((opt) => (
-                    <li key={opt.key}>
-                      <button
-                        className={`flex items-center justify-between font-mono text-xs ${sortKey === opt.key ? "text-[#e2e8f0] bg-[#0f0f1a]" : "text-[#94a3b8] hover:bg-[#0f0f1a]"}`}
-                        onClick={() => {
-                          setSort(opt.key);
-                          if (opt.key !== sortKey) (document.activeElement as HTMLElement)?.blur();
+                {filterMenuOpen && (
+                  <div
+                    className="absolute top-full right-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-[60] py-1.5 min-w-36"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <label className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#94a3b8] hover:bg-[#2d2d44] cursor-pointer select-none">
+                      <span className="flex-1">Running <span className="text-[#64748b]">({sessionCounts.running})</span></span>
+                      <input
+                        type="checkbox"
+                        className="toggle toggle-xs toggle-success"
+                        checked={filterToggles.showRunning}
+                        onChange={() => {
+                          const next = { ...filterToggles, showRunning: !filterToggles.showRunning };
+                          setFilterToggles(next);
+                          saveSessionFilters(next);
                         }}
-                      >
-                        {opt.label}
-                        {sortKey === opt.key && (
-                          sortDir === "desc" ? <ArrowDown className="w-3 h-3 opacity-50" /> : <ArrowUp className="w-3 h-3 opacity-50" />
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                        tabIndex={-1}
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#94a3b8] hover:bg-[#2d2d44] cursor-pointer select-none">
+                      <span className="flex-1">Closed <span className="text-[#64748b]">({sessionCounts.closed})</span></span>
+                      <input
+                        type="checkbox"
+                        className="toggle toggle-xs toggle-success"
+                        checked={filterToggles.showClosed}
+                        onChange={() => {
+                          const next = { ...filterToggles, showClosed: !filterToggles.showClosed };
+                          setFilterToggles(next);
+                          saveSessionFilters(next);
+                        }}
+                        tabIndex={-1}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
+            )}
+
+            {/* Sort — compact click-to-cycle button */}
+            {sessions.length > 1 && (
+              <button
+                className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-1.5 py-1 rounded-lg"
+                onClick={cycleSort}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                title={`Sort: ${SORT_OPTIONS.find(o => o.key === sortKey)?.label} ${sortDir === "desc" ? "descending" : "ascending"} — click to change`}
+              >
+                {sortDir === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />}
+                {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
+              </button>
             )}
           </div>
 
@@ -380,6 +496,11 @@ export function SidebarDrawer({
           <div className="flex-1 overflow-y-auto">
             {sessions.length === 0 ? (
               <QuickLaunch compact />
+            ) : filteredSessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 px-4">
+                <Filter className="w-6 h-6 text-[#64748b]/50" />
+                <span className="text-xs text-[#64748b]">No matching sessions</span>
+              </div>
             ) : sidebarView === "cards" ? (
               <div className="flex flex-col gap-2 px-3 py-2">
                 {groups.map((group) => {

@@ -120,8 +120,10 @@ export function createApiRouter(
   });
 
   // GET /api/sessions — list all sessions (reads directly from disk)
-  router.get("/sessions", (_req, res) => {
-    const sessions = sessionStore.list();
+  // Pass ?includeExited=1 to include recently exited sessions
+  router.get("/sessions", (req, res) => {
+    const includeExited = req.query.includeExited === "1" || req.query.includeExited === "true";
+    const sessions = sessionStore.list({ includeExited });
     const response: SessionListResponse = { sessions };
     res.json(response);
   });
