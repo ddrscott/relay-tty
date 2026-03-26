@@ -3,7 +3,7 @@ title: Web UI Views
 ---
 
 
-relay-tty offers three ways to view your sessions in the browser. Switch between them using the layout switcher in the top navigation.
+relay-tty offers four ways to view your sessions in the browser. Switch between them using the layout switcher in the top navigation.
 
 ## Home (Session List)
 
@@ -15,6 +15,19 @@ The default view. Shows all active sessions as a list with:
 - Throughput metrics (bytes/sec)
 
 Click any session to open it in full terminal view.
+
+## Agent Dashboard
+
+A mission-control view for monitoring AI coding sessions. Shows each running session as a card with:
+
+- **Agent name** — automatically detected from the foreground process (Claude Code, Codex, Aider, etc.)
+- **Live sparkline** — visual throughput indicator using rolling bps metrics
+- **Throughput stats** — current bytes/sec and total bytes written
+- **Session metadata** — working directory, uptime, last activity
+
+Cards update in real-time via WebSocket session metrics broadcasts. Click any card to open the full session view.
+
+Responsive layout: grid on desktop (up to 3 columns), stacked cards on mobile.
 
 ## Grid Gallery
 
@@ -41,4 +54,4 @@ Side-by-side terminal panels. Each lane shows a different session at readable sc
 
 ## Switching Views
 
-Use the layout switcher icon in the navigation bar to toggle between Home, Grid, and Lanes views.
+Use the layout switcher icon in the navigation bar to toggle between Home, Agents, Grid, and Lanes views.

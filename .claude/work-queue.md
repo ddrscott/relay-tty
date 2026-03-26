@@ -93,5 +93,7 @@
 
 - [x] Add uploads directory shortcut button to file browser toolbar — next to the home button, jump to configured upload dir via `GET /api/upload-dir`
 
+- [x] Agent dashboard view — mission control for AI coding sessions with sparklines, throughput, and last output preview ([detail](work-queue/agent-dashboard.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
