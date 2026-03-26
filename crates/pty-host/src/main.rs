@@ -49,6 +49,7 @@ const GZIP_THRESHOLD: usize = 4096;
 const IDLE_TIMEOUT_MS: u64 = 60_000;
 const JSON_WRITE_INTERVAL_MS: u64 = 5_000;
 const METRICS_INTERVAL_MS: u64 = 3_000;
+const SPARKLINE_INTERVAL_MS: u64 = 1_000;
 const RESUME_TIMEOUT_MS: u64 = 100;
 
 // ── Alt screen mode numbers ─────────────────────────────────────────
@@ -1479,6 +1480,7 @@ struct SharedState {
     /// Tracks whether metrics are currently broadcasting (non-zero activity).
     /// Stops broadcasting when all three bps values hit 0.
     last_metrics_nonzero: bool,
+    sparkline: SparklineRing,
 }
 
 // ── Main ────────────────────────────────────────────────────────────
@@ -1622,6 +1624,7 @@ async fn main() {
         throughput: ThroughputTracker::new(),
         title: None,
         last_metrics_nonzero: false,
+        sparkline: SparklineRing::new(),
     }));
 
     // Broadcast channel for sending frames to all connected clients
@@ -2035,6 +2038,21 @@ async fn main() {
             prev_bps5_above_threshold = bps5_above_threshold;
 
             drop(s);
+        }
+    });
+
+    // ── Sparkline 1-second sampler ──────────────────────────────────
+    let state_sparkline = Arc::clone(&state);
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_millis(SPARKLINE_INTERVAL_MS));
+        loop {
+            interval.tick().await;
+            let mut s = state_sparkline.write().await;
+            if s.exit_code.is_some() {
+                break;
+            }
+            let bps1 = s.throughput.bps1();
+            s.sparkline.push(bps1);
         }
     });
 
