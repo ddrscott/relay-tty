@@ -1259,6 +1259,62 @@ impl ThroughputTracker {
     }
 }
 
+// ── Sparkline ring buffer (1-second bps1 history) ────────────────────
+
+const SPARKLINE_RING_CAP: usize = 3600; // 1 hour at 1s intervals
+
+struct SparklineRing {
+    buf: Box<[f64; SPARKLINE_RING_CAP]>,
+    head: usize,
+    len: usize,
+}
+
+impl SparklineRing {
+    fn new() -> Self {
+        Self {
+            buf: Box::new([0.0; SPARKLINE_RING_CAP]),
+            head: 0,
+            len: 0,
+        }
+    }
+
+    fn push(&mut self, value: f64) {
+        self.buf[self.head] = value;
+        self.head = (self.head + 1) % SPARKLINE_RING_CAP;
+        if self.len < SPARKLINE_RING_CAP {
+            self.len += 1;
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn to_vec(&self) -> Vec<f64> {
+        if self.len == 0 {
+            return Vec::new();
+        }
+        if self.len < SPARKLINE_RING_CAP {
+            self.buf[..self.len].to_vec()
+        } else {
+            let mut result = Vec::with_capacity(SPARKLINE_RING_CAP);
+            result.extend_from_slice(&self.buf[self.head..]);
+            result.extend_from_slice(&self.buf[..self.head]);
+            result
+        }
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let values = self.to_vec();
+        let mut out = Vec::with_capacity(2 + values.len() * 8);
+        out.extend_from_slice(&(values.len() as u16).to_be_bytes());
+        for v in &values {
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        out
+    }
+}
+
 // ── PTY helpers (using nix/libc) ────────────────────────────────────
 
 /// Spawn a child in a new PTY. Returns (master_fd, child_pid).
@@ -3817,5 +3873,57 @@ mod tests {
         let early = 5.0;
         buf.write(b"second write that overwrites everything!!!");
         assert!(buf.read_from(early).is_none());
+    }
+
+    // ── SparklineRing tests ──────────────────────────────────────────
+
+    #[test]
+    fn sparkline_ring_empty() {
+        let ring = SparklineRing::new();
+        assert_eq!(ring.len(), 0);
+        assert!(ring.to_vec().is_empty());
+    }
+
+    #[test]
+    fn sparkline_ring_push_and_read() {
+        let mut ring = SparklineRing::new();
+        ring.push(1.0);
+        ring.push(2.0);
+        ring.push(3.0);
+        assert_eq!(ring.len(), 3);
+        assert_eq!(ring.to_vec(), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn sparkline_ring_wraps_at_capacity() {
+        let mut ring = SparklineRing::new();
+        for i in 0..SPARKLINE_RING_CAP {
+            ring.push(i as f64);
+        }
+        assert_eq!(ring.len(), SPARKLINE_RING_CAP);
+        assert_eq!(ring.to_vec()[0], 0.0);
+        assert_eq!(ring.to_vec()[SPARKLINE_RING_CAP - 1], (SPARKLINE_RING_CAP - 1) as f64);
+
+        ring.push(99999.0);
+        assert_eq!(ring.len(), SPARKLINE_RING_CAP);
+        let v = ring.to_vec();
+        assert_eq!(v[0], 1.0);
+        assert_eq!(v[SPARKLINE_RING_CAP - 1], 99999.0);
+    }
+
+    #[test]
+    fn sparkline_ring_encode_decode() {
+        let mut ring = SparklineRing::new();
+        ring.push(1.5);
+        ring.push(2.5);
+        ring.push(0.0);
+
+        let encoded = ring.encode();
+        assert_eq!(encoded.len(), 2 + 3 * 8);
+        let count = u16::from_be_bytes([encoded[0], encoded[1]]);
+        assert_eq!(count, 3);
+
+        let v0 = f64::from_be_bytes(encoded[2..10].try_into().unwrap());
+        assert_eq!(v0, 1.5);
     }
 }
