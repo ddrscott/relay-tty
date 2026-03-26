@@ -244,6 +244,73 @@ export class PtyManager extends EventEmitter {
   }
 
   /**
+   * Fetch sparkline history from a pty-host by sending SPARKLINE_REQUEST
+   * over a temporary Unix socket connection.
+   * Returns an array of bps1 values (oldest-first), or null if unavailable.
+   */
+  fetchSparkline(id: string): Promise<number[] | null> {
+    const socketPath = this.getSocketPath(id);
+    if (!fs.existsSync(socketPath)) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const socket = net.createConnection(socketPath);
+      let pending = Buffer.alloc(0);
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve(null);
+      }, 2000);
+
+      socket.on("connect", () => {
+        // Send SPARKLINE_REQUEST: [4B len=1][0x18]
+        const frame = Buffer.alloc(5);
+        frame.writeUInt32BE(1, 0);
+        frame[4] = 0x18; // WS_MSG.SPARKLINE_REQUEST
+        socket.write(frame);
+      });
+
+      socket.on("data", (chunk) => {
+        pending = Buffer.concat([pending, chunk]);
+
+        // Parse length-prefixed frames
+        while (pending.length >= 4) {
+          const msgLen = pending.readUInt32BE(0);
+          if (pending.length < 4 + msgLen) break;
+
+          const payload = pending.subarray(4, 4 + msgLen);
+          pending = pending.subarray(4 + msgLen);
+
+          if (payload.length < 1) continue;
+          if (payload[0] === 0x19) { // WS_MSG.SPARKLINE_HISTORY
+            clearTimeout(timeout);
+            const data = payload.subarray(1);
+            if (data.length < 2) {
+              socket.destroy();
+              resolve([]);
+              return;
+            }
+            const count = data.readUInt16BE(0);
+            const values: number[] = [];
+            for (let i = 0; i < count; i++) {
+              const offset = 2 + i * 8;
+              if (offset + 8 > data.length) break;
+              values.push(data.readDoubleBE(offset));
+            }
+            socket.destroy();
+            resolve(values);
+            return;
+          }
+          // Ignore other frames (BUFFER_REPLAY, etc.)
+        }
+      });
+
+      socket.on("error", () => {
+        clearTimeout(timeout);
+        resolve(null);
+      });
+    });
+  }
+
+  /**
    * Remove session artifacts from disk.
    */
   cleanup(id: string): void {

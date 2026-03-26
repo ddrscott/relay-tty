@@ -138,6 +138,21 @@ export function createApiRouter(
     res.json({ session });
   });
 
+  // GET /api/sessions/:id/sparkline — fetch sparkline ring buffer from pty-host
+  router.get("/sessions/:id/sparkline", async (req, res) => {
+    const session = sessionStore.get(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    if (session.status !== "running") {
+      res.json({ values: [] });
+      return;
+    }
+    const values = await ptyManager.fetchSparkline(req.params.id);
+    res.json({ values: values ?? [] });
+  });
+
   // POST /api/sessions/:id/share — generate a read-only share link
   router.post("/sessions/:id/share", (req, res) => {
     const session = sessionStore.get(req.params.id);
