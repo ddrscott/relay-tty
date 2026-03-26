@@ -50,8 +50,7 @@ const ALT_BUFFER_CAP: usize = 2 * 1024 * 1024; // 2MB alt screen cap
 const GZIP_THRESHOLD: usize = 4096;
 const IDLE_TIMEOUT_MS: u64 = 60_000;
 const JSON_WRITE_INTERVAL_MS: u64 = 5_000;
-const METRICS_INTERVAL_MS: u64 = 3_000;
-const SPARKLINE_INTERVAL_MS: u64 = 1_000;
+const METRICS_INTERVAL_MS: u64 = 1_000;
 const RESUME_TIMEOUT_MS: u64 = 100;
 
 // ── Alt screen mode numbers ─────────────────────────────────────────
@@ -2011,6 +2010,7 @@ async fn main() {
             s.meta.bps5 = bps5;
             s.meta.bps15 = bps15;
             s.meta.bytes_per_second = bps1;
+            s.sparkline.push(bps1);
 
             let any_nonzero = bps1 >= 0.5 || bps5 >= 0.5 || bps15 >= 0.5;
 
@@ -2040,21 +2040,6 @@ async fn main() {
             prev_bps5_above_threshold = bps5_above_threshold;
 
             drop(s);
-        }
-    });
-
-    // ── Sparkline 1-second sampler ──────────────────────────────────
-    let state_sparkline = Arc::clone(&state);
-    tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_millis(SPARKLINE_INTERVAL_MS));
-        loop {
-            interval.tick().await;
-            let mut s = state_sparkline.write().await;
-            if s.exit_code.is_some() {
-                break;
-            }
-            let bps1 = s.throughput.bps1();
-            s.sparkline.push(bps1);
         }
     });
 
