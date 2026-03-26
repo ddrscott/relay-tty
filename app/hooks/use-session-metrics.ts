@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WS_MSG, type Session } from "../../shared/types";
 
-const SPARKLINE_MAX_POINTS = 30;
+const SPARKLINE_MAX_POINTS = 120; // Show up to 2 minutes of 1s history (downsampled from 3600)
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 10_000;
 
@@ -20,6 +20,21 @@ export interface SessionMetrics {
   session: Session;
   /** Rolling history of bps1 values for sparkline (most recent last) */
   sparkline: number[];
+}
+
+/** Downsample an array to targetLen points using bucket averaging */
+function downsample(values: number[], targetLen: number): number[] {
+  if (values.length <= targetLen) return values;
+  const result: number[] = [];
+  const bucketSize = values.length / targetLen;
+  for (let i = 0; i < targetLen; i++) {
+    const start = Math.floor(i * bucketSize);
+    const end = Math.floor((i + 1) * bucketSize);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += values[j];
+    result.push(sum / (end - start));
+  }
+  return result;
 }
 
 /**
@@ -37,6 +52,9 @@ export function useSessionMetrics(
     }
     return map;
   });
+
+  const metricsRef = useRef(metrics);
+  metricsRef.current = metrics;
 
   const onSessionsChangedRef = useRef(onSessionsChanged);
   onSessionsChangedRef.current = onSessionsChanged;
@@ -128,6 +146,42 @@ export function useSessionMetrics(
     }
 
     connect();
+
+    // Backfill sparkline history from pty-host ring buffer
+    async function backfillSparklines() {
+      const entries = Array.from(metricsRef.current.entries());
+      const running = entries.filter(([, m]) => m.session.status === "running");
+
+      await Promise.all(
+        running.map(async ([id]) => {
+          try {
+            const res = await fetch(`/api/sessions/${id}/sparkline`);
+            if (!res.ok) return;
+            const { values } = (await res.json()) as { values: number[] };
+            if (!values || values.length === 0) return;
+
+            // Downsample to SPARKLINE_MAX_POINTS if needed
+            const downsampled = values.length <= SPARKLINE_MAX_POINTS
+              ? values
+              : downsample(values, SPARKLINE_MAX_POINTS);
+
+            setMetrics((prev) => {
+              const existing = prev.get(id);
+              if (!existing) return prev;
+              // Only backfill if we don't already have data
+              if (existing.sparkline.length > 5) return prev;
+              const next = new Map(prev);
+              next.set(id, { ...existing, sparkline: downsampled });
+              return next;
+            });
+          } catch {
+            // Ignore — sparkline is a nice-to-have
+          }
+        }),
+      );
+    }
+
+    backfillSparklines();
 
     return () => {
       disposed = true;
