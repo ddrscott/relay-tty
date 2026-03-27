@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef, memo } from "react";
 import { useTerminalCore } from "../hooks/use-terminal-core";
 import { useTerminalInput } from "../hooks/use-terminal-input";
-import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
+import { encodeDataMessage, encodeResizeMessage, encodeClearScrollbackMessage } from "../lib/ws-messages";
 import type { FileLink } from "../lib/file-link-provider";
 import type { Session } from "../../shared/types";
 import { WandSparkles } from "lucide-react";
@@ -27,6 +27,8 @@ export interface TerminalHandle {
   clearSearch: () => void;
   /** Register a callback for search result changes (returns unsubscribe function) */
   onSearchResults: (cb: (info: { resultIndex: number; resultCount: number }) => void) => (() => void);
+  /** Clear scrollback buffer (local xterm + server-side ring buffer) */
+  clearScrollback: () => void;
 }
 
 interface TerminalProps {
@@ -96,6 +98,11 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   const scrollToBottom = useCallback(() => {
     termRef.current?.scrollToBottom();
   }, [termRef]);
+
+  const clearScrollback = useCallback(() => {
+    termRef.current?.clear();
+    sendBinary(encodeClearScrollbackMessage());
+  }, [termRef, sendBinary]);
 
   const setInputTransform = useCallback((fn: ((data: string) => string | null) | null) => {
     inputTransformRef.current = fn;
@@ -181,7 +188,7 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
     return () => disposable.dispose();
   }, [searchAddonRef]);
 
-  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults }), [sendText, scrollToBottom, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults]);
+  useImperativeHandle(ref, () => ({ sendText, scrollToBottom, clearScrollback, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults }), [sendText, scrollToBottom, clearScrollback, setInputTransform, setSelectionMode, copySelection, getSelection, getVisibleText, findNext, findPrevious, clearSearch, onSearchResults]);
 
   // Wire up terminal input + resize → WS (shared hook handles dedup + replay suppression)
   // sendResize=false: don't auto-send RESIZE/SIGWINCH on every xterm refit

@@ -17,3 +17,8 @@ export function encodeResizeMessage(cols: number, rows: number): Uint8Array {
   new DataView(msg.buffer).setUint16(3, rows, false);
   return msg;
 }
+
+/** Encode a clear scrollback request as a WS CLEAR_SCROLLBACK frame. */
+export function encodeClearScrollbackMessage(): Uint8Array {
+  return new Uint8Array([WS_MSG.CLEAR_SCROLLBACK]);
+}
