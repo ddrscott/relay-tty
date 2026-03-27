@@ -248,6 +248,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let initialContentReady = false;
     setContentReady(false);
 
+    let blurScrollCleanup: (() => void) | null = null;
+
     function markContentReady() {
       if (initialContentReady) return;
       initialContentReady = true;
@@ -377,6 +379,38 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       const iosStyle = document.createElement("style");
       iosStyle.textContent = ".xterm-rows span { pointer-events: none; }";
       xtermWrapper!.appendChild(iosStyle);
+
+      // ── Window blur/focus scroll protection ───────────────────────
+      // When the browser window loses focus (Cmd+Tab, clicking another app),
+      // browsers can reset .xterm-viewport's scrollTop or trigger a reflow
+      // that fires `_handleScroll`, which reads scrollTop ≈ 0 and sets
+      // ydisp = 0 — jumping the terminal to the top. Fix: save viewportY
+      // on blur, restore on focus if it changed.
+      {
+        let savedViewportY: number | null = null;
+        const onBlur = () => {
+          if (scrollState.momentumActive) return;
+          savedViewportY = term.buffer.active.viewportY;
+        };
+        const onFocus = () => {
+          if (savedViewportY == null || scrollState.momentumActive) return;
+          const current = term.buffer.active.viewportY;
+          if (current !== savedViewportY) {
+            term.scrollLines(savedViewportY - current);
+            // Sync viewport DOM after correcting the position
+            const core = (term as TerminalWithCore)._core;
+            core?.viewport?._innerRefresh();
+          }
+          savedViewportY = null;
+          checkAtBottom();
+        };
+        window.addEventListener("blur", onBlur);
+        window.addEventListener("focus", onFocus);
+        blurScrollCleanup = () => {
+          window.removeEventListener("blur", onBlur);
+          window.removeEventListener("focus", onFocus);
+        };
+      }
 
       // Track scroll position (skip during momentum to prevent feedback loop)
       if (opts.onScrollChange) {
@@ -1587,6 +1621,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (heightDebounce) clearTimeout(heightDebounce);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("online", onOnline);
+      blurScrollCleanup?.();
       observer?.disconnect();
       wsRef.current?.close();
 
