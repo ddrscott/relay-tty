@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-03-27
+
 ### Added
 - Documentation site at docs.relaytty.com — Fumadocs with annotated screenshot pipeline
 - Full-width overlay panels for New Session and Project Picker (replacing expander/modal)
 - Uploads directory shortcut in file browser toolbar
 - `relay info` CLI command
+- Clear scrollback with Cmd+K shortcut and menu button — broadcasts to all connected clients
+- Sparkline throughput history backfilled from pty-host ring buffer on page load
+- Resizable sidebar on desktop — drag handle with width persisted to localStorage
+- Session filter toggles and compact sort cycling in sidebar
+- List/cards toggle in sidebar with sparkline dashboard cards
+- Agent dashboard view — mission control for AI coding sessions
 
 ### Changed
 - Session store is now disk-authoritative — eliminated dual source of truth between memory and disk
@@ -29,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cache replay timeout asymmetry — added safety net for replayingRef
 - Sidebar folder sort instability — use alphabetical order instead of activity-based
 - Redirect to home when bookmarked session no longer exists
+- Scroll-to-bottom button reliably detects when user is not at bottom
+- Ctrl button tap on mobile now toggles modifier and shows shortcut menu
+- xterm jumping to top when browser window loses focus
 
 ## [1.15.0] - 2026-03-21
 
@@ -107,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pty-host spawn failures detected immediately via PID liveness checks
 - Mobile carousel touch offset after alt-screen transitions
 
-[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/ddrscott/relay-tty/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/ddrscott/relay-tty/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/ddrscott/relay-tty/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/ddrscott/relay-tty/compare/v1.12.1...v1.13.0
