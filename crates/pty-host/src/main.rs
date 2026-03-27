@@ -220,6 +220,19 @@ impl OutputBuffer {
         }
     }
 
+    /// Clear all buffered content. Resets ring buffer and alt screen state.
+    /// Does NOT reset total_written — clients depend on monotonic offset for delta replay.
+    fn clear(&mut self) {
+        self.buffer.fill(0);
+        self.write_pos = 0;
+        self.filled = false;
+        self.alt_buf.clear();
+        self.in_alt_screen = false;
+        self.alt_content_start = self.total_written;
+        self.scanner.reset();
+        self.pending_seq.clear();
+    }
+
     /// Write data to the appropriate buffer, scanning for alt screen transitions.
     fn write(&mut self, data: &[u8]) {
         if data.is_empty() {
@@ -3943,5 +3956,40 @@ mod tests {
 
         let v0 = f64::from_be_bytes(encoded[2..10].try_into().unwrap());
         assert_eq!(v0, 1.5);
+    }
+
+    #[test]
+    fn output_buffer_clear_resets_buffer() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"hello world this is some data");
+        assert!(buf.total_written > 0.0);
+        let tw_before = buf.total_written;
+
+        buf.clear();
+
+        // Buffer contents should be empty
+        assert_eq!(buf.read(), Vec::<u8>::new());
+        assert_eq!(buf.write_pos, 0);
+        assert!(!buf.filled);
+        assert!(buf.alt_buf.is_empty());
+        assert!(!buf.in_alt_screen);
+        // total_written must NOT be reset — clients depend on monotonic offset
+        assert_eq!(buf.total_written, tw_before);
+    }
+
+    #[test]
+    fn output_buffer_clear_while_in_alt_screen() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"normal content");
+        // Manually enter alt screen state for testing
+        buf.write(b"\x1b[?1049h");
+        assert!(buf.in_alt_screen);
+        buf.write(b"alt content");
+
+        buf.clear();
+
+        assert_eq!(buf.read(), Vec::<u8>::new());
+        assert!(!buf.in_alt_screen);
+        assert!(buf.alt_buf.is_empty());
     }
 }
