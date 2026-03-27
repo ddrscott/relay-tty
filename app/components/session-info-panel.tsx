@@ -4,6 +4,7 @@ import type { NotifSettings } from "../lib/notif-settings";
 import {
   Activity,
   Bell,
+  Eraser,
   LogOut,
   MessageSquare,
   Power,
@@ -39,6 +40,7 @@ interface SessionInfoPanelProps {
   onToggleNotif: (key: keyof NotifSettings) => void;
   onClearNotifOverride: () => void;
   onClose: () => void;
+  onClearScrollback: () => void;
   onKillSession: () => void;
   onShare?: () => void;
 }
@@ -60,6 +62,7 @@ export function SessionInfoPanel({
   onToggleNotif,
   onClearNotifOverride,
   onClose,
+  onClearScrollback,
   onKillSession,
   onShare,
 }: SessionInfoPanelProps) {
@@ -250,6 +253,14 @@ export function SessionInfoPanel({
             <span>Share session</span>
           </NoKbButton>
         )}
+
+        <NoKbButton
+          className="flex items-center gap-1.5 text-[#94a3b8] hover:text-[#e2e8f0] transition-colors w-full"
+          onPress={() => { onClose(); onClearScrollback(); }}
+        >
+          <Eraser className="w-3 h-3" />
+          <span>Clear scrollback</span>
+        </NoKbButton>
 
         {/* Link to global settings */}
         <div className="border-t border-[#2d2d44] my-1.5" />

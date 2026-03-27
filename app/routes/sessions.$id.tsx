@@ -17,6 +17,7 @@ import { ShareDialog } from "../components/share-dialog";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
+import { LayoutSwitcher } from "../components/layout-switcher";
 import { SearchBar } from "../components/search-bar";
 import { NoKbButton } from "../components/no-kb-button";
 import { NotificationPanel } from "../components/notification-panel";
@@ -297,13 +298,22 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Ctrl+Shift+F toggles search bar (desktop shortcut)
+  // Desktop keyboard shortcuts
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      // Ctrl+Shift+F toggles search bar
       if (e.ctrlKey && e.shiftKey && e.key === "F") {
         e.preventDefault();
         setSearchOpen(v => !v);
+      }
+      // Cmd+K (macOS) or Ctrl+Shift+K (other) clears scrollback
+      if (
+        (e.metaKey && !e.shiftKey && e.key === "k") ||
+        (e.ctrlKey && e.shiftKey && e.key === "K" && !e.metaKey)
+      ) {
+        e.preventDefault();
+        terminalRef.current?.clearScrollback();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -950,6 +960,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
+        {/* Layout switcher — desktop only */}
+        <div className="hidden lg:block shrink-0">
+          <LayoutSwitcher />
+        </div>
+
         {/* Notification bell — request permission on tap (user gesture for iOS) */}
         {notifPermission !== "granted" && notifPermission !== "unsupported" && (
           <button
@@ -1038,6 +1053,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               onToggleNotif={toggleSessionNotif}
               onClearNotifOverride={clearSessionNotifOverride}
               onClose={() => setInfoOpen(false)}
+              onClearScrollback={() => terminalRef.current?.clearScrollback()}
               onShare={() => setShareDialogOpen(true)}
               onKillSession={async () => {
                 if (!confirm("Kill this session?")) return;
