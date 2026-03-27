@@ -42,6 +42,7 @@ const WS_MSG_IMAGE: u8 = 0x17;
 const WS_MSG_SPARKLINE_REQUEST: u8 = 0x18;
 const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
 const WS_MSG_DETACH: u8 = 0x22;
+const WS_MSG_CLEAR_SCROLLBACK: u8 = 0x23;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -3278,6 +3279,7 @@ mod tests {
         assert_eq!(WS_MSG_BUFFER_REPLAY_GZ, 0x13);
         assert_eq!(WS_MSG_SESSION_METRICS, 0x14);
         assert_eq!(WS_MSG_IMAGE, 0x17);
+        assert_eq!(WS_MSG_CLEAR_SCROLLBACK, 0x23);
     }
 
     // ── SessionMeta serialization tests ─────────────────────────────

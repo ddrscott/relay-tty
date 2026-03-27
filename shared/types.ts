@@ -64,6 +64,8 @@ export const WS_MSG = {
   SPARKLINE_HISTORY: 0x19,
   /** Client→server: CLI detaching — pty-host should SIGHUP the foreground process group if it differs from the shell. */
   DETACH: 0x22,
+  /** Client→server: clear scrollback ring buffer (no payload). */
+  CLEAR_SCROLLBACK: 0x23,
 } as const;
 
 export interface CreateSessionRequest {
