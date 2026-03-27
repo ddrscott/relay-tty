@@ -349,6 +349,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     return {
       sendText: () => {},
       scrollToBottom: () => { termRef.current?.scrollToBottom(); },
+      clearScrollback: () => {},
       setInputTransform: () => {},
       setSelectionMode: () => {},
       copySelection: async () => false,
