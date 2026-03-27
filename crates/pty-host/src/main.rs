@@ -1657,6 +1657,9 @@ async fn main() {
     // Channel for detach signals from clients (SIGHUP foreground process group)
     let (detach_tx, mut detach_rx) = mpsc::channel::<()>(4);
 
+    // Channel for clear scrollback requests from clients
+    let (clear_tx, mut clear_rx) = mpsc::channel::<()>(4);
+
     // Create Unix socket listener
     let std_listener = StdUnixListener::bind(&socket_path)
         .unwrap_or_else(|e| {
@@ -1925,6 +1928,21 @@ async fn main() {
         }
     });
 
+    // ── Clear scrollback handler ────────────────────────────────────
+    let state_clear = Arc::clone(&state);
+    let broadcast_tx_clear = broadcast_tx.clone();
+    tokio::spawn(async move {
+        while let Some(()) = clear_rx.recv().await {
+            let mut s = state_clear.write().await;
+            s.output_buffer.clear();
+            // Broadcast SYNC with current total_written so all clients update their byte offset
+            let tw = s.output_buffer.total_written;
+            let mut sync_msg = vec![WS_MSG_SYNC; 1];
+            sync_msg.extend_from_slice(&tw.to_be_bytes());
+            let _ = broadcast_tx_clear.send(encode_frame(&sync_msg));
+        }
+    });
+
     // ── Periodic JSON flush (every 5s) ──────────────────────────────
     let state_json = Arc::clone(&state);
     let session_path_json = session_path.clone();
@@ -2107,8 +2125,9 @@ async fn main() {
                         // Spawn client reader
                         let writer_client = Arc::clone(&writer);
                         let detach_tx = detach_tx.clone();
+                        let clear_tx = clear_tx.clone();
                         tokio::spawn(async move {
-                            handle_client(reader, writer_client, state_client, input_tx, resize_tx, detach_tx).await;
+                            handle_client(reader, writer_client, state_client, input_tx, resize_tx, detach_tx, clear_tx).await;
                             broadcast_handle.abort();
                         });
                     }
@@ -2135,6 +2154,7 @@ async fn handle_client(
     input_tx: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u16, u16)>,
     detach_tx: mpsc::Sender<()>,
+    clear_tx: mpsc::Sender<()>,
 ) {
     // Wait for RESUME or timeout for full replay
     let mut pending = Vec::new();
@@ -2156,7 +2176,7 @@ async fn handle_client(
                 // Not a RESUME -- send full replay first, then process this message
                 send_full_replay(&writer, &state).await;
                 resume_handled = true;
-                process_client_message(msg_type, &data, &input_tx, &resize_tx, &detach_tx).await;
+                process_client_message(msg_type, &data, &input_tx, &resize_tx, &detach_tx, &clear_tx).await;
             }
         }
         Ok(None) => {
@@ -2222,7 +2242,7 @@ async fn handle_client(
                 let mut w = writer.lock().await;
                 let _ = w.write_all(&frame).await;
             } else {
-                process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx).await;
+                process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx, &clear_tx).await;
             }
         }
     }
@@ -2390,6 +2410,7 @@ async fn process_client_message(
     input_tx: &mpsc::Sender<Vec<u8>>,
     resize_tx: &mpsc::Sender<(u16, u16)>,
     detach_tx: &mpsc::Sender<()>,
+    clear_tx: &mpsc::Sender<()>,
 ) {
     match msg_type {
         WS_MSG_DATA => {
@@ -2404,6 +2425,9 @@ async fn process_client_message(
         }
         WS_MSG_DETACH => {
             let _ = detach_tx.send(()).await;
+        }
+        WS_MSG_CLEAR_SCROLLBACK => {
+            let _ = clear_tx.send(()).await;
         }
         _ => {
             // Ignore other message types (RESUME handled separately)
