@@ -1316,6 +1316,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           if (clipText) opts.onClipboard?.(clipText);
           break;
         }
+        case WS_MSG.CLEAR_SCROLLBACK: {
+          // Server broadcast: another client cleared the scrollback buffer.
+          // Clear local xterm display to match.
+          term.clear();
+          break;
+        }
         case WS_MSG.IMAGE: {
           // IMAGE format: [4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
           if (payload.length < 5) break;

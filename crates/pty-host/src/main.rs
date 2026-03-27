@@ -1935,9 +1935,12 @@ async fn main() {
         while let Some(()) = clear_rx.recv().await {
             let mut s = state_clear.write().await;
             s.output_buffer.clear();
+            // Broadcast CLEAR_SCROLLBACK to all clients so they call term.clear()
+            let clear_msg = vec![WS_MSG_CLEAR_SCROLLBACK];
+            let _ = broadcast_tx_clear.send(encode_frame(&clear_msg));
             // Broadcast SYNC with current total_written so all clients update their byte offset
             let tw = s.output_buffer.total_written;
-            let mut sync_msg = vec![WS_MSG_SYNC; 1];
+            let mut sync_msg = vec![WS_MSG_SYNC];
             sync_msg.extend_from_slice(&tw.to_be_bytes());
             let _ = broadcast_tx_clear.send(encode_frame(&sync_msg));
         }
