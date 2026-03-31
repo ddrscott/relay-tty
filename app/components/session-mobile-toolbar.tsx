@@ -1,5 +1,7 @@
 import { useRef, useState, useCallback, useEffect, memo, type TouchEvent } from "react";
 import {
+  ChevronDown,
+  ChevronUp,
   ClipboardCopy,
   CornerDownLeft,
   FolderOpen,
@@ -53,6 +55,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   const [padHistory, setPadHistory] = useState<string[]>([]);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
   const historyLoaded = useRef(false);
+  const [recentExpanded, setRecentExpanded] = useState(false);
   const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
   const toolbarRootRef = useRef<HTMLDivElement>(null);
@@ -151,10 +154,13 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     padRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // Focus scratchpad textarea when opened
+  // Focus scratchpad textarea when opened; reset expander when closed
   useEffect(() => {
     if (scratchpadOpen && padRef.current) {
       padRef.current.focus({ preventScroll: true });
+    }
+    if (!scratchpadOpen) {
+      setRecentExpanded(false);
     }
   }, [scratchpadOpen]);
 
@@ -227,21 +233,33 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         className="absolute bottom-full left-0 right-0 flex flex-col bg-[#1a1a2e]/95 backdrop-blur-sm shadow-[0_-4px_12px_rgba(0,0,0,0.5)]"
         style={{ maxHeight: "calc(100dvh - 3rem)" }}
       >
-        {/* Header bar — always visible, with history link + close button */}
+        {/* Header bar — always visible, with recent expander, all-history link + close button */}
         <div className="flex items-center px-3 py-1.5 border-b border-[#2d2d44]">
-          {padHistory.length > 0 ? (
+          {recentHistory.length > 0 ? (
             <button
-              className="flex-1 text-left text-xs font-mono text-[#7dd3fc] hover:text-[#93e0ff] active:text-[#93e0ff]"
+              className="flex items-center gap-1 text-xs font-mono text-[#7dd3fc] hover:text-[#93e0ff] active:text-[#93e0ff] mr-auto"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); setRecentExpanded((v) => !v); }}
+              onClick={() => setRecentExpanded((v) => !v)}
+            >
+              {recentExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              Recent ({recentHistory.length})
+            </button>
+          ) : (
+            <span className="flex-1 text-xs font-mono text-[#64748b]">Scratchpad</span>
+          )}
+          {padHistory.length > 0 && (
+            <button
+              className="text-xs font-mono text-[#64748b] hover:text-[#93e0ff] active:text-[#93e0ff] mr-2"
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
               onClick={() => setHistoryPickerOpen(true)}
             >
-              <History className="w-3 h-3 inline mr-1 -mt-0.5" />
-              All history ({padHistory.length})
+              <History className="w-3 h-3 inline mr-0.5 -mt-0.5" />
+              All ({padHistory.length})
             </button>
-          ) : (
-            <span className="flex-1 text-xs font-mono text-[#64748b]">Scratchpad</span>
           )}
           <button
             className="btn btn-ghost btn-xs min-h-0 h-6 px-1 text-[#64748b] hover:text-[#e2e8f0]"
@@ -255,8 +273,8 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
           </button>
         </div>
 
-        {/* Inline recent history entries */}
-        {recentHistory.length > 0 && (
+        {/* Inline recent history entries — collapsed by default */}
+        {recentExpanded && recentHistory.length > 0 && (
           <div onTouchStart={onScrollAreaTouchStart}>
             {recentHistory.map((entry, i) => {
               const originalIdx = padHistory.length - 1 - i;

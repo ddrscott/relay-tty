@@ -100,5 +100,7 @@
 - [x] Unify session sidebar sort/filter controls — compact toggles for running/closed + inline sort cycling, matching file browser pattern ([detail](work-queue/sidebar-sort-filter-controls.md))
 - [x] Resizable sidebar on web desktop — drag handle to adjust width, persist to localStorage
 
+- [x] Hide scratchpad recent history behind expander — collapse the 3 inline history entries by default, tap to reveal ([detail](work-queue/scratchpad-history-expander.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
