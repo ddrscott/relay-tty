@@ -5,6 +5,7 @@ import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
+import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -535,6 +536,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           </h1>
         </div>
         <div className="flex items-center gap-3">
+          <div className="hidden lg:block"><LayoutSwitcher /></div>
           <span className="text-sm text-[#64748b]">
             {sessions.length} session{sessions.length !== 1 ? "s" : ""}
           </span>

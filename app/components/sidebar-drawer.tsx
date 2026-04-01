@@ -1,13 +1,12 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
-import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, LayoutGrid, Filter } from "lucide-react";
+import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { useSessionMetrics } from "../hooks/use-session-metrics";
 import { SidebarAgentCard } from "./agent-card";
-import { LayoutSwitcher } from "./layout-switcher";
 import { QuickLaunch } from "./quick-launch";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -155,6 +154,7 @@ export function SidebarDrawer({
   const [sidebarView, setSidebarView] = useState<SidebarView>(getStoredSidebarView);
   const [filterToggles, setFilterToggles] = useState<SessionFilterToggles>(loadSessionFilters);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
   const toggleSidebarView = useCallback(() => {
     setSidebarView((prev) => {
@@ -222,6 +222,7 @@ export function SidebarDrawer({
   });
 
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const sidebarElRef = useRef<HTMLDivElement>(null);
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -233,7 +234,10 @@ export function SidebarDrawer({
       if (!dragRef.current) return;
       const delta = ev.clientX - dragRef.current.startX;
       const newW = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragRef.current.startW + delta));
-      setSidebarWidth(newW);
+      // Set CSS variable directly on the DOM — avoids React re-render per pixel
+      if (sidebarElRef.current) {
+        sidebarElRef.current.style.setProperty("--sidebar-w", `${newW}px`);
+      }
     };
 
     const onUp = () => {
@@ -241,11 +245,12 @@ export function SidebarDrawer({
       document.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      // Persist final width
-      setSidebarWidth((w) => {
-        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
-        return w;
-      });
+      // Read final width from the DOM and commit to React state + localStorage
+      const finalW = sidebarElRef.current
+        ? parseInt(sidebarElRef.current.style.getPropertyValue("--sidebar-w")) || SIDEBAR_DEFAULT
+        : SIDEBAR_DEFAULT;
+      setSidebarWidth(finalW);
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(finalW));
       dragRef.current = null;
     };
 
@@ -345,36 +350,19 @@ export function SidebarDrawer({
     }
   }, [sortKey, sortDir]);
 
-  // Cycle through sort keys on click; same key toggles direction
-  const cycleSort = useCallback(() => {
-    const keys = SORT_OPTIONS.map(o => o.key);
-    const idx = keys.indexOf(sortKey);
-    if (sortDir === "desc") {
-      // First click on same key: flip to asc
-      setSortDir("asc");
-      localStorage.setItem("relay-tty-sort-dir", "asc");
-    } else {
-      // Second click (already asc): advance to next sort key, reset to desc
-      const next = keys[(idx + 1) % keys.length];
-      setSortKey(next);
-      setSortDir("desc");
-      localStorage.setItem("relay-tty-sort", next);
-      localStorage.setItem("relay-tty-sort-dir", "desc");
-    }
-  }, [sortKey, sortDir]);
-
-  // Close filter dropdown on click outside
+  // Close dropdowns on click outside
   useEffect(() => {
-    if (!filterMenuOpen) return;
-    const handler = (e: MouseEvent) => {
+    if (!filterMenuOpen && !sortMenuOpen) return;
+    const handler = () => {
       setFilterMenuOpen(false);
+      setSortMenuOpen(false);
     };
     const timer = setTimeout(() => document.addEventListener("click", handler), 0);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("click", handler);
     };
-  }, [filterMenuOpen]);
+  }, [filterMenuOpen, sortMenuOpen]);
 
   const selectSession = useCallback((id: string) => {
     const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
@@ -401,6 +389,7 @@ export function SidebarDrawer({
       <div className="drawer-side z-50">
         <label htmlFor="sidebar-drawer" aria-label="close sidebar" className="drawer-overlay" />
         <div
+          ref={sidebarElRef}
           className="bg-[#0a0a0f] border-r border-[#1e1e2e] flex flex-col h-full relative w-72 lg:w-auto"
           style={{ ['--sidebar-w' as string]: `${sidebarWidth}px` } as React.CSSProperties}
         >
@@ -417,10 +406,24 @@ export function SidebarDrawer({
                 <span className="text-sm font-normal text-[#94a3b8]">@{hostname}</span>
               )}
             </h1>
-            <div className="hidden lg:flex items-center gap-1">
-              <LayoutSwitcher />
+            <div className="flex items-center gap-1">
+              {/* List/Cards toggle */}
+              {sessions.length > 0 && (
+                <button
+                  className={`flex items-center p-1 rounded-lg transition-colors ${
+                    sidebarView === "cards" ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+                  }`}
+                  onClick={toggleSidebarView}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                  title={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
+                  aria-label={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
+                >
+                  {sidebarView === "list" ? <Activity className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
+                </button>
+              )}
               <button
-                className="p-1 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors"
+                className="hidden lg:flex p-1 text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#0f0f1a] rounded-lg transition-colors"
                 onClick={toggleSidebar}
                 onMouseDown={(e) => e.preventDefault()}
                 tabIndex={-1}
@@ -444,22 +447,6 @@ export function SidebarDrawer({
               <Plus className="w-3.5 h-3.5" />
               New
             </button>
-
-            {/* List/Cards toggle */}
-            {sessions.length > 0 && (
-              <button
-                className={`flex items-center p-1 rounded-lg transition-colors ${
-                  sidebarView === "cards" ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
-                }`}
-                onClick={toggleSidebarView}
-                onMouseDown={(e) => e.preventDefault()}
-                tabIndex={-1}
-                title={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
-                aria-label={sidebarView === "list" ? "Switch to cards view" : "Switch to list view"}
-              >
-                {sidebarView === "list" ? <LayoutGrid className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
-              </button>
-            )}
 
             <div className="flex-1" />
 
@@ -533,18 +520,41 @@ export function SidebarDrawer({
               </div>
             )}
 
-            {/* Sort — compact click-to-cycle button */}
+            {/* Sort — dropdown menu matching file browser pattern */}
             {sessions.length > 1 && (
-              <button
-                className="flex items-center gap-1 text-xs font-mono text-[#64748b] hover:text-[#e2e8f0] transition-colors px-1.5 py-1 rounded-lg"
-                onClick={cycleSort}
-                onMouseDown={(e) => e.preventDefault()}
-                tabIndex={-1}
-                title={`Sort: ${SORT_OPTIONS.find(o => o.key === sortKey)?.label} ${sortDir === "desc" ? "descending" : "ascending"} — click to change`}
-              >
-                {sortDir === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />}
-                {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
-              </button>
+              <div className={`relative ${sortMenuOpen ? "z-50" : ""}`}>
+                <button
+                  className={`flex items-center gap-1 text-xs font-mono transition-colors px-1.5 py-1 rounded-lg ${
+                    sortMenuOpen ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+                  }`}
+                  onClick={() => { setSortMenuOpen(!sortMenuOpen); setFilterMenuOpen(false); }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                >
+                  <ArrowUpDown className="w-3 h-3" />
+                  {SORT_OPTIONS.find((o) => o.key === sortKey)?.label}
+                </button>
+                {sortMenuOpen && (
+                  <div className="absolute top-full right-0 mt-1 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl z-50 py-1 min-w-28">
+                    {SORT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-[#2d2d44] ${
+                          sortKey === opt.key ? "text-[#22c55e]" : "text-[#94a3b8]"
+                        }`}
+                        onClick={() => {
+                          setSort(opt.key);
+                          setSortMenuOpen(false);
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        {opt.label}
+                        {sortKey === opt.key && (sortDir === "asc" ? " \u2191" : " \u2193")}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

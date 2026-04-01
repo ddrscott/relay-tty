@@ -103,6 +103,35 @@ function pathSegments(p: string): string[] {
   return p.split("/").filter(Boolean);
 }
 
+/** Detect home directory prefix and return { homePath, segments } with ~ abbreviation */
+function abbreviateHome(segments: string[]): { homePath: string | null; displaySegments: { label: string; path: string }[] } {
+  // Detect /Users/<name> (macOS) or /home/<name> (Linux)
+  const isHomePath =
+    (segments.length >= 2 && segments[0] === "Users") ||
+    (segments.length >= 2 && segments[0] === "home");
+
+  if (isHomePath) {
+    const homePath = "/" + segments.slice(0, 2).join("/");
+    const rest = segments.slice(2);
+    const display = [
+      { label: "~", path: homePath },
+      ...rest.map((seg, i) => ({
+        label: seg,
+        path: homePath + "/" + rest.slice(0, i + 1).join("/"),
+      })),
+    ];
+    return { homePath, displaySegments: display };
+  }
+
+  return {
+    homePath: null,
+    displaySegments: segments.map((seg, i) => ({
+      label: seg,
+      path: "/" + segments.slice(0, i + 1).join("/"),
+    })),
+  };
+}
+
 // ── Main component ──────────────────────────────────────────────────────
 
 export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUploadFile, uploading }: FileBrowserProps) {
@@ -366,8 +395,9 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
     setSortMenuOpen(false);
   }, [sortField]);
 
-  // Breadcrumb segments
+  // Breadcrumb segments with ~ abbreviation for home dirs
   const segments = pathSegments(currentPath);
+  const { displaySegments } = abbreviateHome(segments);
 
   return (
     <div
@@ -424,22 +454,21 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
               </button>
             </>
           )}
-          {segments.map((seg, i) => {
-            const segPath = "/" + segments.slice(0, i + 1).join("/");
-            const isLast = i === segments.length - 1;
+          {displaySegments.map((seg, i) => {
+            const isLast = i === displaySegments.length - 1;
             return (
               <span key={i} className="flex items-center shrink-0">
                 <ChevronRight className="w-3 h-3 text-[#3d3d54]" />
                 {isLast ? (
-                  <span className="text-[#e2e8f0] px-0.5">{seg}</span>
+                  <span className="text-[#e2e8f0] px-0.5">{seg.label}</span>
                 ) : (
                   <button
                     className="text-[#64748b] hover:text-[#e2e8f0] px-0.5"
-                    onClick={() => navigateTo(segPath)}
+                    onClick={() => navigateTo(seg.path)}
                     tabIndex={-1}
                     onMouseDown={(e) => e.preventDefault()}
                   >
-                    {seg}
+                    {seg.label}
                   </button>
                 )}
               </span>

@@ -1,7 +1,7 @@
 /**
- * Shared agent card components — used by both the /agents route and the sidebar cards view.
+ * Shared agent card components — used by both the /activity route and the sidebar cards view.
  *
- * Extracted from app/routes/agents.tsx to avoid duplication.
+ * Extracted from app/routes/activity.tsx to avoid duplication.
  */
 import { useEffect, useState } from "react";
 import { Cpu, FolderOpen, Clock } from "lucide-react";
@@ -99,7 +99,7 @@ export function detectAgentLabel(session: Session): { label: string; isAgent: bo
   return { label: name, isAgent: false };
 }
 
-/** Full-size agent card for the /agents dashboard */
+/** Full-size agent card for the /activity dashboard */
 export function AgentCard({
   metrics,
   onNavigate,
@@ -125,7 +125,7 @@ export function AgentCard({
 
   return (
     <button
-      className="w-full text-left rounded-xl border border-[#1e1e2e] bg-[#0f0f1a] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] transition-all duration-150 cursor-pointer p-4 flex flex-col gap-3"
+      className="w-full text-left rounded-xl border border-[#1e1e2e] bg-[#0f0f1a] hover:bg-[#1a1a2e] hover:border-[#3d3d5c] transition-all duration-150 cursor-pointer p-4 flex flex-col gap-3 overflow-hidden"
       onClick={() => onNavigate(session.id)}
       onMouseDown={(e) => e.preventDefault()}
     >
@@ -149,8 +149,10 @@ export function AgentCard({
       </div>
 
       {/* Sparkline + rate */}
-      <div className="flex items-center gap-3">
-        <Sparkline values={sparkline} width={140} height={28} />
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex-1 min-w-0">
+          <Sparkline values={sparkline} width={140} height={28} />
+        </div>
         <div className="flex flex-col items-end gap-0.5 shrink-0">
           <span className={`text-xs font-mono ${isActive ? "text-[#22c55e]" : "text-[#64748b]"}`}>
             {formatRate(bps)}
@@ -164,7 +166,7 @@ export function AgentCard({
       </div>
 
       {/* Metadata row */}
-      <div className="flex items-center gap-3 text-xs font-mono text-[#64748b]">
+      <div className="flex items-center gap-3 text-xs font-mono text-[#64748b] min-w-0">
         <span className="flex items-center gap-1 truncate min-w-0">
           <FolderOpen className="w-3 h-3 shrink-0" />
           <span className="truncate">{displayPath(session.cwd)}</span>
@@ -208,7 +210,7 @@ export function SidebarAgentCard({
 
   return (
     <button
-      className={`w-full text-left rounded-lg transition-all duration-100 cursor-pointer border p-2.5 flex flex-col gap-1.5 ${
+      className={`w-full text-left rounded-lg transition-all duration-100 cursor-pointer border p-2.5 flex flex-col gap-1.5 overflow-hidden ${
         selected
           ? "bg-[#1a1a2e] border-[#3d3d5c]"
           : "bg-[#0f0f1a] hover:bg-[#1a1a2e] border-[#1e1e2e] hover:border-[#2d2d44]"
@@ -218,7 +220,7 @@ export function SidebarAgentCard({
       tabIndex={-1}
     >
       {/* Header: status dot + name + agent icon */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <span
           className={`shrink-0 inline-block w-2 h-2 rounded-full ${
             isActive
@@ -237,15 +239,17 @@ export function SidebarAgentCard({
       </div>
 
       {/* Sparkline + rate */}
-      <div className="flex items-center gap-2">
-        <Sparkline values={sparkline} width={160} height={24} />
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="flex-1 min-w-0">
+          <Sparkline values={sparkline} width={160} height={24} />
+        </div>
         <span className={`shrink-0 text-xs font-mono ${isActive ? "text-[#22c55e]" : "text-[#64748b]"}`}>
           {formatRate(bps)}
         </span>
       </div>
 
       {/* Metadata: cwd + time ago */}
-      <div className="flex items-center gap-1 text-xs font-mono text-[#64748b]">
+      <div className="flex items-center gap-1 text-xs font-mono text-[#64748b] min-w-0">
         <span className="truncate flex-1 min-w-0">
           {displayPath(session.cwd)}
         </span>

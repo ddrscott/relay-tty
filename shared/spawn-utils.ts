@@ -83,11 +83,11 @@ export function resolveRustBinaryPath(callerMetaUrl: string): string {
     : path.resolve(__dirname, "..");
 
   // Check locations in order of preference:
-  // 1. Pre-built binary at bin/relay-pty-host (npm distribution)
-  // 2. Cargo build output at crates/pty-host/target/release/relay-pty-host
+  // 1. Cargo build output (always freshest when developing locally)
+  // 2. Pre-built binary at bin/relay-pty-host (npm distribution fallback)
   const candidates = [
-    path.join(projectRoot, "bin", "relay-pty-host"),
     path.join(projectRoot, "crates", "pty-host", "target", "release", "relay-pty-host"),
+    path.join(projectRoot, "bin", "relay-pty-host"),
   ];
 
   for (const candidate of candidates) {

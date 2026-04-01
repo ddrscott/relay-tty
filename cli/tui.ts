@@ -219,8 +219,8 @@ function handleInput(data: Buffer, state: TuiState) {
     return;
   }
 
-  // d = stop
-  if (s === "d") {
+  // x = stop
+  if (s === "x") {
     const session = state.sessions[state.selectedIndex];
     if (session && session.status === "running") {
       state.confirmStop = true;
@@ -590,7 +590,7 @@ function render(state: TuiState) {
     const help = [
       `${dim("\u2191\u2193/jk")} navigate`,
       `${bold("enter")} attach`,
-      `${bold("d")} stop`,
+      `${bold("x")} stop`,
       `${bold("r")} refresh`,
       `${bold("q")} quit`,
     ];

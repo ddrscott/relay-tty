@@ -1,20 +1,21 @@
 import { useMemo } from "react";
 import { useNavigate, useRevalidator } from "react-router";
-import type { Route } from "./+types/agents";
+import type { Route } from "./+types/activity";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { Menu, Activity, Zap } from "lucide-react";
+import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { useSessionMetrics, type SessionMetrics } from "../hooks/use-session-metrics";
 import { AgentCard } from "../components/agent-card";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
-  const title = hostname ? `Agents — ${hostname} — relay-tty` : "Agents — relay-tty";
+  const title = hostname ? `Activity — ${hostname} — relay-tty` : "Activity — relay-tty";
   return [
     { title },
-    { name: "description", content: "Terminal relay service — agent dashboard" },
+    { name: "description", content: "Terminal relay service — activity dashboard" },
   ];
 }
 
@@ -23,7 +24,7 @@ export async function loader({ context }: Route.LoaderArgs) {
   return { sessions, version: context.version, hostname: context.hostname };
 }
 
-export default function Agents({ loaderData }: Route.ComponentProps) {
+export default function ActivityPage({ loaderData }: Route.ComponentProps) {
   const { sessions: loaderSessions, hostname } = loaderData as { sessions: Session[]; version: string; hostname: string };
   const navigate = useNavigate();
   const { revalidate } = useRevalidator();
@@ -61,15 +62,18 @@ export default function Agents({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <Activity className="w-4 h-4 text-[#64748b] shrink-0" />
           <h1 className="text-lg font-bold font-mono text-[#64748b] sidebar-redundant">
-            Agents
+            Activity
             {hostname && (
               <span className="text-sm font-normal text-[#94a3b8] ml-2">@{hostname}</span>
             )}
           </h1>
         </div>
-        <span className="text-xs font-mono text-[#64748b] shrink-0">
-          {runningSessions.length} running
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="hidden lg:block"><LayoutSwitcher /></div>
+          <span className="text-xs font-mono text-[#64748b]">
+            {runningSessions.length} running
+          </span>
+        </div>
       </div>
 
       {/* Content */}

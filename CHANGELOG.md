@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-03-31
+
+### Added
+- Scratchpad recent history collapsed behind expander toggle — keeps toolbar compact
+- Auto-publish to npm on version tags via GitHub Actions
+- `relay info` CLI command — shows session ID, command, and args from inside a session
+- Session environment variables (`RELAY_SESSION_ID`, `RELAY_ORIG_COMMAND`, `RELAY_ORIG_ARGS`) documented
+
+### Changed
+- Agent dashboard renamed to Activity (`/agents` → `/activity`)
+- Scratchpad action buttons (close, history) float as round buttons above send — more room for text input
+- TUI stop-session key changed from `d` to `x`
+- Rust binary lookup prefers local cargo build over pre-built bin (faster dev iteration)
+- File browser breadcrumbs abbreviate home directory as `~`
+- Sidebar sort uses dropdown menu instead of inline cycling
+
+### Fixed
+- Agent card and sidebar card overflow clipping on narrow widths
+
 ## [1.16.0] - 2026-03-27
 
 ### Added
@@ -118,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pty-host spawn failures detected immediately via PID liveness checks
 - Mobile carousel touch offset after alt-screen transitions
 
-[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/ddrscott/relay-tty/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/ddrscott/relay-tty/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/ddrscott/relay-tty/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/ddrscott/relay-tty/compare/v1.13.0...v1.14.0

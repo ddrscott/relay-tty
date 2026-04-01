@@ -9,7 +9,7 @@
  *
  * It also collects a history of bps1 values per session for sparkline rendering.
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WS_MSG, type Session } from "../../shared/types";
 
 const SPARKLINE_MAX_POINTS = 120; // Show up to 2 minutes of 1s history (downsampled from 3600)

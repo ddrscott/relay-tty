@@ -1,7 +1,5 @@
 import { useRef, useState, useCallback, useEffect, memo, type TouchEvent } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   ClipboardCopy,
   CornerDownLeft,
   FolderOpen,
@@ -13,7 +11,6 @@ import {
 import { getCtrlShortcuts, ctrlChar, type CtrlShortcut } from "../lib/ctrl-shortcuts";
 
 const SCROLL_TAP_THRESHOLD = 10; // px — movement beyond this suppresses tap
-const RECENT_HISTORY_COUNT = 3; // number of recent entries shown inline
 
 interface SessionMobileToolbarProps {
   ctrlOn: boolean;
@@ -55,7 +52,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   const [padHistory, setPadHistory] = useState<string[]>([]);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
   const historyLoaded = useRef(false);
-  const [recentExpanded, setRecentExpanded] = useState(false);
   const [ctrlMenuOpen, setCtrlMenuOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<CtrlShortcut[]>([]);
   const toolbarRootRef = useRef<HTMLDivElement>(null);
@@ -159,9 +155,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     if (scratchpadOpen && padRef.current) {
       padRef.current.focus({ preventScroll: true });
     }
-    if (!scratchpadOpen) {
-      setRecentExpanded(false);
-    }
+    if (!scratchpadOpen) { /* noop — state cleanup handled by unmounting */ }
   }, [scratchpadOpen]);
 
   // Auto-grow textarea when content changes
@@ -190,9 +184,6 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     onSendKey(ctrlChar(key));
     setCtrlMenuOpen(false);
   }, [onSendKey]);
-
-  // Recent history entries (last N, reversed for newest-first)
-  const recentHistory = padHistory.slice(-RECENT_HISTORY_COUNT).reverse();
 
   return (
     <>
@@ -233,76 +224,15 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
         className="absolute bottom-full left-0 right-0 flex flex-col bg-[#1a1a2e]/95 backdrop-blur-sm shadow-[0_-4px_12px_rgba(0,0,0,0.5)]"
         style={{ maxHeight: "calc(100dvh - 3rem)" }}
       >
-        {/* Header bar — always visible, with recent expander, all-history link + close button */}
-        <div className="flex items-center px-3 py-1.5 border-b border-[#2d2d44]">
-          {recentHistory.length > 0 ? (
-            <button
-              className="flex items-center gap-1 text-xs font-mono text-[#7dd3fc] hover:text-[#93e0ff] active:text-[#93e0ff] mr-auto"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); setRecentExpanded((v) => !v); }}
-              onClick={() => setRecentExpanded((v) => !v)}
-            >
-              {recentExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              Recent ({recentHistory.length})
-            </button>
-          ) : (
-            <span className="flex-1 text-xs font-mono text-[#64748b]">Scratchpad</span>
-          )}
-          {padHistory.length > 0 && (
-            <button
-              className="text-xs font-mono text-[#64748b] hover:text-[#93e0ff] active:text-[#93e0ff] mr-2"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
-              onClick={() => setHistoryPickerOpen(true)}
-            >
-              <History className="w-3 h-3 inline mr-0.5 -mt-0.5" />
-              All ({padHistory.length})
-            </button>
-          )}
-          <button
-            className="btn btn-ghost btn-xs min-h-0 h-6 px-1 text-[#64748b] hover:text-[#e2e8f0]"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); onScratchpadClose(); }}
-            onClick={onScratchpadClose}
-            aria-label="Close scratchpad"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Inline recent history entries — collapsed by default */}
-        {recentExpanded && recentHistory.length > 0 && (
-          <div onTouchStart={onScrollAreaTouchStart}>
-            {recentHistory.map((entry, i) => {
-              const originalIdx = padHistory.length - 1 - i;
-              return (
-                <button
-                  key={originalIdx}
-                  className="w-full text-left px-3 py-2 border-b border-[#2d2d44]/50 hover:bg-[#252540] active:bg-[#252540] transition-colors"
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onTouchEnd={tapGuard(() => pickHistory(entry))}
-                  onClick={() => pickHistory(entry)}
-                >
-                  <span className="text-sm font-mono text-[#e2e8f0] block truncate">{entry}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Input row + textarea */}
-        <div className="toolbar-row border-b border-[#1e1e2e]">
+        {/* Input row — textarea full width, action column stacked right */}
+        <div className="flex items-center gap-1 px-1.5 py-2 border-b border-[#1e1e2e]">
           <div className="relative flex-1 min-w-0">
             <textarea
               ref={padRef}
               className="toolbar-input resize-none w-full"
               rows={1}
               wrap="soft"
-              style={{ paddingTop: "0.3em", paddingBottom: "0.3em", paddingRight: padText ? "2rem" : undefined, overflowY: "auto", maxHeight: "8rem" }}
+              style={{ paddingTop: "0.5rem", paddingBottom: "0.5rem", paddingRight: padText ? "2rem" : undefined, overflowY: "auto", maxHeight: "8rem" }}
               value={padText}
               onChange={handlePadChange}
               onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && padText.trim()) { e.preventDefault(); sendPad(); } }}
@@ -331,16 +261,44 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
               </button>
             )}
           </div>
-          <button
-            className="btn btn-primary toolbar-btn rounded-none"
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
-            onClick={sendPad}
-            disabled={!padText.trim()}
-          >
-            <SendHorizontal className="w-5 h-5" />
-          </button>
+          {/* Send button in flow; X and History float above it */}
+          <div className="relative flex-none">
+            {/* Floating round buttons stacked above send */}
+            <div className="absolute bottom-full right-0 flex flex-col items-center gap-2 pb-2">
+              <button
+                className="w-10 h-10 rounded-full bg-[#1e1e2e] border border-[#2d2d44] flex items-center justify-center text-[#64748b] hover:text-[#e2e8f0] active:text-[#e2e8f0] shadow-lg"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchEnd={(e) => { e.preventDefault(); onScratchpadClose(); }}
+                onClick={onScratchpadClose}
+                aria-label="Close scratchpad"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              {padHistory.length > 0 && (
+                <button
+                  className="w-10 h-10 rounded-full bg-[#1e1e2e] border border-[#2d2d44] flex items-center justify-center text-[#64748b] hover:text-[#7dd3fc] active:text-[#7dd3fc] shadow-lg"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchEnd={(e) => { e.preventDefault(); setHistoryPickerOpen(true); }}
+                  onClick={() => setHistoryPickerOpen(true)}
+                  aria-label="Command history"
+                >
+                  <History className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <button
+              className="btn btn-primary toolbar-btn rounded-none"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => { e.preventDefault(); sendPad(); }}
+              onClick={sendPad}
+              disabled={!padText.trim()}
+            >
+              <SendHorizontal className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>}
 

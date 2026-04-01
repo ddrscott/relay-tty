@@ -13,6 +13,16 @@ Configure relay-tty via environment variables or a `.env` file in the project ro
 | `DISCORD_WEBHOOK` | No | Discord webhook URL. Posts a clickable auth link on startup |
 | `RELAY_SKIP_BINARY_DOWNLOAD` | No | Set to `1` to skip downloading the pre-built Rust binary during `npm install` |
 
+## Session environment
+
+These variables are set automatically inside every relay session. They are available to the child process and can be used by scripts or tools like `relay info`.
+
+| Variable | Description |
+|----------|-------------|
+| `RELAY_SESSION_ID` | The 8-character hex session ID |
+| `RELAY_ORIG_COMMAND` | The command that was passed to `relay` |
+| `RELAY_ORIG_ARGS` | JSON array of the original command arguments |
+
 ## Example `.env`
 
 ```bash

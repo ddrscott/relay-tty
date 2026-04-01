@@ -3,7 +3,7 @@ import { List, LayoutGrid, Columns, Activity } from "lucide-react";
 
 const LAYOUTS = [
   { icon: List, title: "Home", path: "/" },
-  { icon: Activity, title: "Agents", path: "/agents" },
+  { icon: Activity, title: "Activity", path: "/activity" },
   { icon: LayoutGrid, title: "Grid", path: "/grid" },
   { icon: Columns, title: "Lanes", path: "/lanes" },
 ] as const;

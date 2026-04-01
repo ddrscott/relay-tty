@@ -12,6 +12,7 @@ import { registerServerCommand } from "./commands/server.js";
 import { registerShareCommand } from "./commands/share.js";
 import { registerSetPasswordCommand } from "./commands/set-password.js";
 import { registerTuiCommand } from "./commands/tui.js";
+import { registerInfoCommand } from "./commands/info.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -37,6 +38,7 @@ registerStopCommand(program);
 registerShareCommand(program);
 registerSetPasswordCommand(program);
 registerTuiCommand(program);
+registerInfoCommand(program);
 registerServerCommand(program);
 
 program.parse();

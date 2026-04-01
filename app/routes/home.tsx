@@ -6,6 +6,7 @@ import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { Maximize, Minimize, Menu } from "lucide-react";
+import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -166,8 +167,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   // ── Desktop layout: phone-frame preview (sidebar handles session list) ──
   return (
     <main className="h-full bg-[#0a0a0f] flex flex-col p-4">
-      {/* Minimal header for desktop — just fullscreen toggle */}
-      <div className="flex items-center justify-end mb-4 shrink-0">
+      {/* Desktop header — layout switcher + fullscreen toggle */}
+      <div className="flex items-center justify-end gap-2 mb-4 shrink-0">
+        <div className="hidden lg:block"><LayoutSwitcher /></div>
         <button
           className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
           onClick={toggleFullscreen}
