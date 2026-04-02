@@ -53,6 +53,17 @@ export function ProjectFilter({ sessions, selectedCwds, onSelectionChange }: Pro
 
   const projects = useMemo(() => getUniqueProjects(sessions), [sessions]);
 
+  /** Count of active (running) sessions per CWD */
+  const activeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sessions) {
+      if (s.cwd && s.status === "running") {
+        counts.set(s.cwd, (counts.get(s.cwd) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [sessions]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     if (!open) return;
@@ -146,6 +157,11 @@ export function ProjectFilter({ sessions, selectedCwds, onSelectionChange }: Pro
                 <span className="truncate" title={cwd}>
                   {shortenPath(cwd)}
                 </span>
+                {(activeCounts.get(cwd) || 0) > 0 && (
+                  <span className="ml-auto shrink-0 text-[10px] text-[#64748b]">
+                    {activeCounts.get(cwd)}
+                  </span>
+                )}
               </button>
             );
           })}

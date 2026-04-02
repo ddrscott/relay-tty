@@ -104,5 +104,7 @@
 
 - [x] Gallery project folder filter — dropdown to filter grid/lanes views by project CWD, defaults to all, multi-select ([detail](work-queue/gallery-project-filter.md))
 
+- [x] Show active session count per project in the project filter dropdown
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
