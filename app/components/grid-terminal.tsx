@@ -5,16 +5,14 @@ import { encodeResizeMessage } from "../lib/ws-messages";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "./terminal";
 import type { FileLink } from "../lib/file-link-provider";
-import { Maximize2, Minimize2, Search, FolderOpen, Info, Power } from "lucide-react";
+import { Maximize2, Minimize2, Search, FolderOpen, Info, Power, WandSparkles } from "lucide-react";
 import { CopyableId } from "./copyable-id";
 
 interface GridTerminalProps {
   session: Session;
   selected: boolean;
   zoomed?: boolean;
-  /** Font size used by the parent for cell-size layout calculations.
-   *  xterm always renders at 14px; this prop is accepted for interface
-   *  compatibility but does NOT change the terminal font. */
+  /** Font size for xterm rendering. Parent uses this for layout calculations. */
   fontSize: number;
   onSelect: () => void;
   onExpand: () => void;
@@ -36,7 +34,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUnzoom, onSessionUpdate, fitToCellTrigger }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, fitToCellTrigger }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -102,7 +100,7 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
   // Thumbnails shrink via CSS transform: scale().
   const { termRef, searchAddonRef, status, contentReady, termReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
-    fontSize: 14,
+    fontSize,
     readOnly: true,
     throttleFps: 8,
     fixedCols: session.cols,
@@ -111,26 +109,21 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     onFileLink: handleFileLink,
   });
 
-  // When live dimensions change, resize the xterm instance directly.
-  // This updates the terminal's internal cols/rows so new content
-  // renders at the correct dimensions. CSS scale adjusts automatically.
+  // When live PTY dimensions change (SESSION_UPDATE or handleFitToCell),
+  // resize the local xterm instance to match. This is the ONLY place
+  // that calls term.resize() — the scale computation never mutates.
   useEffect(() => {
     const term = termRef.current;
     if (!term || !contentReady) return;
-    // Only resize if dimensions actually differ from current terminal
     if (term.cols !== liveCols || term.rows !== liveRows) {
-      // Don't resize during zoom — zoom manages its own row count
-      if (!zoomed) {
-        term.resize(liveCols, liveRows);
-      }
+      term.resize(liveCols, liveRows);
     }
-  }, [liveCols, liveRows, contentReady, zoomed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [liveCols, liveRows, contentReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compute CSS scale + manage terminal rows for zoom.
-  // Normal mode: shrink terminal to fit wrapper (scale capped at 1).
-  // Zoomed mode: width-based scale (may be > 1) for readability,
-  // resize xterm to fill wrapper height with actual rows (not CSS-scaled).
-  // Since readOnly=true, the extra rows are local — no RESIZE sent to PTY.
+  // Compute CSS scale to fit the terminal content into the wrapper.
+  // Never calls term.resize() — thumbnails and zoomed views are both
+  // pure CSS-scaled views of the PTY's actual dimensions. Only explicit
+  // user actions (drag handles) change the PTY dimensions.
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -138,7 +131,6 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
 
     const updateScale = () => {
       const container = containerRef.current;
-      const term = termRef.current;
       if (!container) return;
 
       const wrapperRect = wrapper.getBoundingClientRect();
@@ -146,30 +138,14 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
       const termH = container.scrollHeight;
       if (termW === 0 || termH === 0) return;
 
-      if (zoomed && term) {
-        // Render at native font size when zoomed — never shrink the font.
-        // Auto-fit (handleFitToCell) resizes the PTY to match the cell
-        // after the CSS transition settles, so any overflow is brief.
-        const lineH = termH / term.rows;
-        const neededRows = Math.max(liveRows, Math.floor(wrapperRect.height / lineH));
-        if (term.rows !== neededRows) {
-          term.resize(liveCols, neededRows);
-        }
-        setScale(1);
-      } else {
-        // Restore original PTY dimensions when not zoomed
-        if (term && term.rows !== liveRows) {
-          term.resize(liveCols, liveRows);
-        }
-        setScale(Math.min(wrapperRect.width / termW, wrapperRect.height / termH, 1));
-      }
+      setScale(Math.min(wrapperRect.width / termW, wrapperRect.height / termH, 1));
     };
 
     if (contentReady) updateScale();
     const observer = new ResizeObserver(updateScale);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [contentReady, zoomed, liveRows, liveCols]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contentReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wire up keyboard input when selected (sendResize: false — grid manages RESIZE explicitly)
   useTerminalInput({ termRef, sendBinary, replayingRef, enabled: selected, sendResize: false, termReady });
@@ -255,26 +231,15 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     setLiveRows(newRows);
   }, [sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-fit PTY to cell dimensions on zoom state transitions.
-  // Skip initial render — only resize on explicit zoom/unzoom.
+  // Track zoom transitions — no auto-RESIZE on zoom/unzoom.
+  // Zoomed mode keeps cols stable and only adds rows via CSS scale
+  // (handled by the updateScale ResizeObserver). RESIZE is only sent
+  // by explicit drag handle (fitToCellTrigger) or handleFitToCell.
   const prevZoomedRef = useRef<boolean | undefined>(undefined);
 
   useEffect(() => {
-    const wasZoomed = prevZoomedRef.current;
     prevZoomedRef.current = zoomed;
-    if (wasZoomed === undefined) return; // skip initial render
-
-    // Only send RESIZE when entering expanded mode (user is actively engaging).
-    // Never send RESIZE on unzoom — thumbnail is a passive observer and must
-    // not reflow the remote session (which would jumble other devices).
-    if (!zoomed) return;
-
-    // Wait for CSS transition to settle, then resize PTY to match cell
-    const timer = setTimeout(() => {
-      handleFitToCell();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [zoomed, handleFitToCell]);
+  }, [zoomed]);
 
   // External trigger for fit-to-cell (e.g. after drag resize in parent)
   const fitTriggerRef = useRef(fitToCellTrigger);
@@ -287,6 +252,16 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
     const timer = setTimeout(() => handleFitToCell(), 50);
     return () => clearTimeout(timer);
   }, [fitToCellTrigger, zoomed, handleFitToCell]);
+
+  // ── SIGWINCH wand toast ──
+  const [resizeToast, setResizeToast] = useState(false);
+  const resizeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleResizeWand = useCallback(() => {
+    handleFitToCell();
+    setResizeToast(true);
+    if (resizeToastTimer.current) clearTimeout(resizeToastTimer.current);
+    resizeToastTimer.current = setTimeout(() => setResizeToast(false), 1500);
+  }, [handleFitToCell]);
 
   // ── Zoomed toolbar state ──
   const [searchOpen, setSearchOpen] = useState(false);
@@ -537,6 +512,28 @@ export function GridTerminal({ session, selected, zoomed, onSelect, onZoom, onUn
             onClose={() => setSearchOpen(false)}
           />
         </div>
+      )}
+
+      {/* SIGWINCH wand button — only when zoomed */}
+      {zoomed && (
+        <>
+          <button
+            className="absolute top-10 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#1a1a2e]/90 shadow-lg backdrop-blur-sm border border-[#2d2d44] cursor-pointer hover:bg-[#2d2d44] transition-colors"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchStart={(e) => e.preventDefault()}
+            onTouchEnd={(e) => { e.preventDefault(); handleResizeWand(); }}
+            onClick={handleResizeWand}
+            aria-label="Fix text sizing"
+          >
+            <WandSparkles className="w-4 h-4 text-[#94a3b8]" />
+          </button>
+          {resizeToast && (
+            <div className="absolute top-20 right-3 z-20 px-2.5 py-1.5 rounded-full bg-[#1a1a2e]/90 shadow-lg backdrop-blur-sm border border-[#2d2d44] text-xs text-[#94a3b8] font-medium animate-banner-in">
+              Text sizing fixed
+            </div>
+          )}
+        </>
       )}
 
       {/* Terminal content — CSS-scaled to fit */}

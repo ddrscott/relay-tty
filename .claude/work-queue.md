@@ -106,5 +106,7 @@
 
 - [x] Show active session count per project in the project filter dropdown
 
+- [x] Show SIGWINCH wand button in grid/lanes zoomed view — reuse the floating resize wand from terminal.tsx to send RESIZE on demand when a cell is expanded
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
