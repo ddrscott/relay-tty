@@ -102,5 +102,7 @@
 
 - [x] Hide scratchpad recent history behind expander — collapse the 3 inline history entries by default, tap to reveal ([detail](work-queue/scratchpad-history-expander.md))
 
+- [x] Gallery project folder filter — dropdown to filter grid/lanes views by project CWD, defaults to all, multi-select ([detail](work-queue/gallery-project-filter.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

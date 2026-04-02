@@ -7,6 +7,7 @@ import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
+import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -391,6 +392,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
   const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
+  const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -437,11 +439,12 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     });
   }
 
-  // Filter sessions: optionally hide inactive/exited
+  // Filter sessions: optionally hide inactive/exited, then by project CWD
   const gridSessions = useMemo(() => {
-    if (showInactive) return sessions;
-    return sessions.filter((s) => s.status === "running");
-  }, [sessions, showInactive]);
+    let filtered = showInactive ? sessions : sessions.filter((s) => s.status === "running");
+    filtered = filterByProject(filtered, projectFilter);
+    return filtered;
+  }, [sessions, showInactive, projectFilter]);
 
   // Snapshot: recompute sort order only when sort key/dir changes, not on data updates.
   // New sessions append to end; removed sessions are filtered out.
@@ -668,6 +671,13 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
               {showInactive ? `All (${sessions.length})` : `Active (${gridSessions.length})`}
             </button>
           )}
+
+          {/* Project folder filter */}
+          <ProjectFilter
+            sessions={sessions}
+            selectedCwds={projectFilter}
+            onSelectionChange={setProjectFilter}
+          />
 
           {/* Font size picker */}
           <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">

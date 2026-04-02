@@ -7,6 +7,7 @@ import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
+import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -303,6 +304,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const [fontSize, setFontSize] = useState(getStoredLaneFontSize);
   const [laneWidth, setLaneWidth] = useState(getStoredLaneWidth);
   const [laneHeight, setLaneHeight] = useState(getStoredLaneHeight);
+  const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -349,9 +351,10 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
 
   // Filter and sort
   const laneSessions = useMemo(() => {
-    if (showInactive) return sessions;
-    return sessions.filter((s) => s.status === "running");
-  }, [sessions, showInactive]);
+    let filtered = showInactive ? sessions : sessions.filter((s) => s.status === "running");
+    filtered = filterByProject(filtered, projectFilter);
+    return filtered;
+  }, [sessions, showInactive, projectFilter]);
 
   // Snapshot: recompute sort order only when sort key/dir changes, not on data updates.
   const sortedIdsRef = useRef<string[]>([]);
@@ -590,6 +593,13 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
               {showInactive ? `All (${sessions.length})` : `Active (${laneSessions.length})`}
             </button>
           )}
+
+          {/* Project folder filter */}
+          <ProjectFilter
+            sessions={sessions}
+            selectedCwds={projectFilter}
+            onSelectionChange={setProjectFilter}
+          />
 
           {/* Lane width stepper */}
           <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
