@@ -8,6 +8,8 @@ import { useTimeAgo } from "../hooks/use-time-ago";
 import { useSessionMetrics } from "../hooks/use-session-metrics";
 import { SidebarAgentCard } from "./agent-card";
 import { QuickLaunch } from "./quick-launch";
+import { getWindowPref, setWindowPref } from "../lib/window-prefs";
+import { SIDEBAR_COLLAPSED_KEY } from "../lib/sidebar-toggle";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "recent", label: "Recent" },
@@ -17,13 +19,11 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 function getStoredSort(): SortKey {
-  if (typeof window === "undefined") return "recent";
-  return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
+  return (getWindowPref("relay-tty-sort") as SortKey) || "recent";
 }
 
 function getStoredSortDir(): SortDir {
-  if (typeof window === "undefined") return "desc";
-  return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
+  return (getWindowPref("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
 interface SessionFilterToggles {
@@ -35,7 +35,7 @@ const SESSION_FILTER_KEY = "relay-tty:session-filters";
 
 function loadSessionFilters(): SessionFilterToggles {
   try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem(SESSION_FILTER_KEY) : null;
+    const raw = getWindowPref(SESSION_FILTER_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
@@ -49,15 +49,14 @@ function loadSessionFilters(): SessionFilterToggles {
 
 function saveSessionFilters(toggles: SessionFilterToggles) {
   try {
-    localStorage.setItem(SESSION_FILTER_KEY, JSON.stringify(toggles));
+    setWindowPref(SESSION_FILTER_KEY, JSON.stringify(toggles));
   } catch {}
 }
 
 type SidebarView = "list" | "cards";
 
 function getStoredSidebarView(): SidebarView {
-  if (typeof window === "undefined") return "list";
-  return (localStorage.getItem("relay-tty-sidebar-view") as SidebarView) || "list";
+  return (getWindowPref("relay-tty-sidebar-view") as SidebarView) || "list";
 }
 
 function formatRate(bps: number): string {
@@ -118,10 +117,7 @@ function SidebarSessionItem({
         ) : null}
       </div>
       <div className="flex items-center gap-1 mt-1 ml-4 text-xs font-mono text-[#64748b]">
-        <span className="truncate flex-1 min-w-0">
-          {session.cwd.replace(/^\/Users\/[^/]+/, "~")}
-        </span>
-        <span className="shrink-0">
+        <span className="shrink-0 ml-auto">
           {activityAgo}
         </span>
       </div>
@@ -159,7 +155,7 @@ export function SidebarDrawer({
   const toggleSidebarView = useCallback(() => {
     setSidebarView((prev) => {
       const next = prev === "list" ? "cards" : "list";
-      localStorage.setItem("relay-tty-sidebar-view", next);
+      setWindowPref("relay-tty-sidebar-view", next);
       return next;
     });
   }, []);
@@ -180,29 +176,26 @@ export function SidebarDrawer({
     return () => { cancelled = true; };
   }, [showNewPanel, availableCommands]);
 
-  // Desktop sidebar collapse state (persisted to localStorage)
+  // Desktop sidebar collapse state (per-window via sessionStorage)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("relay-tty-sidebar-collapsed") === "true";
+    return getWindowPref(SIDEBAR_COLLAPSED_KEY) === "true";
   });
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem("relay-tty-sidebar-collapsed", String(next));
+      setWindowPref(SIDEBAR_COLLAPSED_KEY, String(next));
       return next;
     });
   }, []);
 
-  // Sync sidebar state when toggled from session toolbar (via storage event)
+  // Sync sidebar state when toggled from session toolbar (via custom event, same window only)
   useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === "relay-tty-sidebar-collapsed") {
-        setSidebarCollapsed(localStorage.getItem("relay-tty-sidebar-collapsed") === "true");
-      }
+    const handler = () => {
+      setSidebarCollapsed(getWindowPref(SIDEBAR_COLLAPSED_KEY) === "true");
     };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+    window.addEventListener("relay-sidebar-toggle", handler);
+    return () => window.removeEventListener("relay-sidebar-toggle", handler);
   }, []);
 
   // Resizable sidebar width (desktop only, persisted to localStorage)
@@ -212,8 +205,7 @@ export function SidebarDrawer({
   const SIDEBAR_WIDTH_KEY = "relay-tty-sidebar-width";
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === "undefined") return SIDEBAR_DEFAULT;
-    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    const stored = getWindowPref(SIDEBAR_WIDTH_KEY);
     if (stored) {
       const n = parseInt(stored, 10);
       if (n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return n;
@@ -250,7 +242,7 @@ export function SidebarDrawer({
         ? parseInt(sidebarElRef.current.style.getPropertyValue("--sidebar-w")) || SIDEBAR_DEFAULT
         : SIDEBAR_DEFAULT;
       setSidebarWidth(finalW);
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(finalW));
+      setWindowPref(SIDEBAR_WIDTH_KEY, String(finalW));
       dragRef.current = null;
     };
 
@@ -341,12 +333,12 @@ export function SidebarDrawer({
     if (key === sortKey) {
       const newDir = sortDir === "desc" ? "asc" : "desc";
       setSortDir(newDir);
-      localStorage.setItem("relay-tty-sort-dir", newDir);
+      setWindowPref("relay-tty-sort-dir", newDir);
     } else {
       setSortKey(key);
       setSortDir("desc");
-      localStorage.setItem("relay-tty-sort", key);
-      localStorage.setItem("relay-tty-sort-dir", "desc");
+      setWindowPref("relay-tty-sort", key);
+      setWindowPref("relay-tty-sort-dir", "desc");
     }
   }, [sortKey, sortDir]);
 

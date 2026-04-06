@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu 
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -37,25 +38,21 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 function getStoredSort(): SortKey {
-  if (typeof window === "undefined") return "recent";
-  return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
+  return (getWindowPref("relay-tty-sort") as SortKey) || "recent";
 }
 
 function getStoredSortDir(): SortDir {
-  if (typeof window === "undefined") return "desc";
-  return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
+  return (getWindowPref("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
 function getStoredShowInactive(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem("relay-tty-show-inactive") === "true";
+  return getWindowPref("relay-tty-show-inactive") === "true";
 }
 
 const DEFAULT_GRID_FONT_SIZE = 12;
 
 function getStoredGridFontSize(): number {
-  if (typeof window === "undefined") return DEFAULT_GRID_FONT_SIZE;
-  const stored = localStorage.getItem("relay-tty-grid-font-size");
+  const stored = getWindowPref("relay-tty-grid-font-size");
   return stored ? Number(stored) : DEFAULT_GRID_FONT_SIZE;
 }
 
@@ -222,10 +219,12 @@ function GridViewport({
     const pos = positions[idx];
     if (!cell || !pos) return null;
 
-    // Fill viewport height; use natural terminal width (scale ≈ 1)
-    // so xterm can add real rows to fill the height, not just CSS-scale
-    // the same content bigger. Clamp width to viewport.
-    let zw = Math.min(cell.w, vpSize.w);
+    // Fill viewport height. Width = terminal's natural pixel width
+    // at the configured font size (scale=1), so the zoomed cell is
+    // exactly as wide as the content — no wider. Other cells stay visible.
+    const dims = snappedDimsRef.current.get(sessions[idx].id);
+    const cols = dims?.cols || 80;
+    let zw = Math.min(cols * gridFontSize * 0.6, vpSize.w);
     let zh = vpSize.h;
 
     // Expand from the cell's original center, then clamp to viewport
@@ -237,7 +236,7 @@ function GridViewport({
     zy = Math.max(0, Math.min(zy, vpSize.h - zh));
 
     return { idx, x: zx, y: zy, w: zw, h: zh };
-  }, [zoomedCellId, sessions, cellSizes, positions, vpSize]);
+  }, [zoomedCellId, sessions, cellSizes, positions, vpSize, gridFontSize]);
 
   // Drag handle state for resizing zoomed cell width
   const [dragWidthOverride, setDragWidthOverride] = useState<number | null>(null);
@@ -524,19 +523,19 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
       // Toggle direction when clicking the same sort key
       const newDir = sortDir === "desc" ? "asc" : "desc";
       setSortDir(newDir);
-      localStorage.setItem("relay-tty-sort-dir", newDir);
+      setWindowPref("relay-tty-sort-dir", newDir);
     } else {
       setSortKey(key);
       setSortDir("desc");
-      localStorage.setItem("relay-tty-sort", key);
-      localStorage.setItem("relay-tty-sort-dir", "desc");
+      setWindowPref("relay-tty-sort", key);
+      setWindowPref("relay-tty-sort-dir", "desc");
     }
   }, [sortKey, sortDir]);
 
   const toggleShowInactive = useCallback(() => {
     setShowInactive((prev) => {
       const next = !prev;
-      localStorage.setItem("relay-tty-show-inactive", String(next));
+      setWindowPref("relay-tty-show-inactive", String(next));
       return next;
     });
   }, []);
@@ -544,7 +543,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   const adjustGridFontSize = useCallback((delta: number) => {
     setGridFontSize((prev) => {
       const next = Math.max(4, Math.min(20, prev + delta));
-      localStorage.setItem("relay-tty-grid-font-size", String(next));
+      setWindowPref("relay-tty-grid-font-size", String(next));
       return next;
     });
   }, []);

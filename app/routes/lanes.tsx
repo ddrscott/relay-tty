@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu 
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -37,18 +38,15 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 function getStoredSort(): SortKey {
-  if (typeof window === "undefined") return "recent";
-  return (localStorage.getItem("relay-tty-sort") as SortKey) || "recent";
+  return (getWindowPref("relay-tty-sort") as SortKey) || "recent";
 }
 
 function getStoredSortDir(): SortDir {
-  if (typeof window === "undefined") return "desc";
-  return (localStorage.getItem("relay-tty-sort-dir") as SortDir) || "desc";
+  return (getWindowPref("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
 function getStoredShowInactive(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem("relay-tty-show-inactive") === "true";
+  return getWindowPref("relay-tty-show-inactive") === "true";
 }
 
 const ADJUSTMENT_STEP = 20;
@@ -57,20 +55,17 @@ const DEFAULT_LANE_WIDTH = 480;
 const DEFAULT_LANE_HEIGHT = 800;
 
 function getStoredLaneFontSize(): number {
-  if (typeof window === "undefined") return DEFAULT_LANE_FONT_SIZE;
-  const stored = localStorage.getItem("relay-tty-lane-font-size");
+  const stored = getWindowPref("relay-tty-lane-font-size");
   return stored ? Number(stored) : DEFAULT_LANE_FONT_SIZE;
 }
 
 function getStoredLaneWidth(): number {
-  if (typeof window === "undefined") return DEFAULT_LANE_WIDTH;
-  const stored = localStorage.getItem("relay-tty-lane-width");
+  const stored = getWindowPref("relay-tty-lane-width");
   return stored ? Number(stored) : DEFAULT_LANE_WIDTH;
 }
 
 function getStoredLaneHeight(): number {
-  if (typeof window === "undefined") return DEFAULT_LANE_HEIGHT;
-  const stored = localStorage.getItem("relay-tty-lane-height");
+  const stored = getWindowPref("relay-tty-lane-height");
   return stored ? Number(stored) : DEFAULT_LANE_HEIGHT;
 }
 
@@ -430,19 +425,19 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     if (key === sortKey) {
       const newDir = sortDir === "desc" ? "asc" : "desc";
       setSortDir(newDir);
-      localStorage.setItem("relay-tty-sort-dir", newDir);
+      setWindowPref("relay-tty-sort-dir", newDir);
     } else {
       setSortKey(key);
       setSortDir("desc");
-      localStorage.setItem("relay-tty-sort", key);
-      localStorage.setItem("relay-tty-sort-dir", "desc");
+      setWindowPref("relay-tty-sort", key);
+      setWindowPref("relay-tty-sort-dir", "desc");
     }
   }, [sortKey, sortDir]);
 
   const toggleShowInactive = useCallback(() => {
     setShowInactive((prev) => {
       const next = !prev;
-      localStorage.setItem("relay-tty-show-inactive", String(next));
+      setWindowPref("relay-tty-show-inactive", String(next));
       return next;
     });
   }, []);
@@ -450,7 +445,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const adjustFontSize = useCallback((delta: number) => {
     setFontSize((prev) => {
       const next = Math.max(4, Math.min(20, prev + delta));
-      localStorage.setItem("relay-tty-lane-font-size", String(next));
+      setWindowPref("relay-tty-lane-font-size", String(next));
       return next;
     });
   }, []);
@@ -458,7 +453,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const adjustLaneWidth = useCallback((delta: number) => {
     setLaneWidth((prev) => {
       const next = Math.max(100, Math.min(1200, prev + delta));
-      localStorage.setItem("relay-tty-lane-width", String(next));
+      setWindowPref("relay-tty-lane-width", String(next));
       return next;
     });
   }, []);
@@ -466,7 +461,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const adjustLaneHeight = useCallback((delta: number) => {
     setLaneHeight((prev) => {
       const next = Math.max(200, Math.min(1600, prev + delta));
-      localStorage.setItem("relay-tty-lane-height", String(next));
+      setWindowPref("relay-tty-lane-height", String(next));
       return next;
     });
   }, []);

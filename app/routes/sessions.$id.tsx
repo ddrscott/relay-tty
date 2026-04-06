@@ -9,6 +9,7 @@ import { ChatTerminal } from "../components/chat-terminal";
 import type { FileLink } from "../lib/file-link-provider";
 import { groupByCwd } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
+import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
@@ -56,21 +57,21 @@ const VIEW_MODE_KEY = "relay-tty-viewmode";
 
 function getViewMode(): ViewMode {
   if (typeof window === "undefined") return "terminal";
-  return (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) || "terminal";
+  return (getWindowPref(VIEW_MODE_KEY) as ViewMode) || "terminal";
 }
 
 function setViewMode(mode: ViewMode) {
-  localStorage.setItem(VIEW_MODE_KEY, mode);
+  setWindowPref(VIEW_MODE_KEY, mode);
 }
 
 function getSessionFontSize(id: string): number {
   if (typeof window === "undefined") return 14;
-  const stored = localStorage.getItem(FONT_KEY(id));
+  const stored = getWindowPref(FONT_KEY(id));
   return stored ? Math.max(8, Math.min(28, parseInt(stored, 10) || 14)) : 14;
 }
 
 function setSessionFontSize(id: string, size: number) {
-  localStorage.setItem(FONT_KEY(id), String(size));
+  setWindowPref(FONT_KEY(id), String(size));
 }
 
 /** Circular offset of `sid` relative to `activeId` in `allIds` (shortest path). */
