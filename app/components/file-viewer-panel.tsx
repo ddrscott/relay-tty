@@ -440,9 +440,12 @@ function parseFrontmatter(content: string): { meta: Record<string, string> | nul
 }
 
 function FrontmatterBlock({ meta }: { meta: Record<string, string> }) {
+  // Filter out title (rendered as h1 above) — skip block entirely if nothing left
+  const entries = Object.entries(meta).filter(([key]) => key !== "title");
+  if (entries.length === 0) return null;
   return (
-    <div className="mx-4 mt-3 mb-1 px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#2d2d44] text-xs font-mono leading-relaxed">
-      {Object.entries(meta).map(([key, val]) => (
+    <div className="not-prose px-3 py-2 rounded-lg bg-[#1a1a2e] border border-[#2d2d44] text-xs font-mono leading-relaxed mb-4">
+      {entries.map(([key, val]) => (
         <div key={key} className="flex gap-2">
           <span className="text-[#64748b] shrink-0">{key}:</span>
           <span className="text-[#94a3b8] break-all">{val}</span>
@@ -474,9 +477,8 @@ function MarkdownRenderer({ content }: { content: string }) {
 
   return (
     <div className="flex-1 overflow-auto min-h-0">
-      {meta && <FrontmatterBlock meta={meta} />}
       <div
-        className="px-4 py-3 prose prose-invert prose-sm max-w-none
+        className="px-4 pt-4 pb-3 prose prose-invert prose-sm max-w-none
           prose-headings:text-[#e2e8f0] prose-p:text-[#cbd5e1]
           prose-a:text-[#60a5fa] prose-strong:text-[#e2e8f0]
           prose-code:text-[#f59e0b] prose-code:bg-[#1a1a2e] prose-code:px-1 prose-code:rounded
@@ -485,8 +487,13 @@ function MarkdownRenderer({ content }: { content: string }) {
           prose-li:text-[#cbd5e1] prose-td:text-[#cbd5e1] prose-th:text-[#e2e8f0]
           prose-hr:border-[#2d2d44]
           prose-img:rounded-lg prose-img:max-w-full"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      >
+        {meta?.title && (
+          <h1>{meta.title}</h1>
+        )}
+        {meta && <FrontmatterBlock meta={meta} />}
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
     </div>
   );
 }
