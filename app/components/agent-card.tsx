@@ -248,12 +248,9 @@ export function SidebarAgentCard({
         </span>
       </div>
 
-      {/* Metadata: cwd + time ago */}
+      {/* Metadata: time ago */}
       <div className="flex items-center gap-1 text-xs font-mono text-[#64748b] min-w-0">
-        <span className="truncate flex-1 min-w-0">
-          {displayPath(session.cwd)}
-        </span>
-        <span className="shrink-0">
+        <span className="shrink-0 ml-auto">
           {activityAgo}
         </span>
       </div>
