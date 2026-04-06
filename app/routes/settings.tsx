@@ -193,7 +193,7 @@ export default function Settings() {
 
   return (
     <main className="h-app bg-[#0a0a0f] overflow-auto">
-      <div className="container mx-auto p-4 max-w-lg">
+      <div className="container mx-auto p-4 max-w-lg lg:max-w-4xl">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <button
@@ -207,8 +207,10 @@ export default function Settings() {
           <h1 className="text-xl font-bold font-mono text-[#e2e8f0]">Settings</h1>
         </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
         {/* Custom Commands section */}
-        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4">
           <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
             <Terminal className="w-4 h-4 text-[#64748b]" />
             Quick Launch Commands
@@ -260,7 +262,7 @@ export default function Settings() {
         </section>
 
         {/* Project Roots section */}
-        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4">
           <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
             <FolderGit2 className="w-4 h-4 text-[#64748b]" />
             Project Roots
@@ -312,7 +314,7 @@ export default function Settings() {
         </section>
 
         {/* Ctrl Shortcuts section */}
-        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4">
           <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
             <Command className="w-4 h-4 text-[#64748b]" />
             Ctrl Shortcuts
@@ -362,7 +364,7 @@ export default function Settings() {
         </section>
 
         {/* Upload Directory section */}
-        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4 mb-4">
+        <section className="bg-[#0f0f1a] border border-[#2d2d44] rounded-xl p-4">
           <h2 className="text-sm font-semibold font-mono text-[#e2e8f0] mb-1 flex items-center gap-2">
             <Upload className="w-4 h-4 text-[#64748b]" />
             Upload Directory
@@ -485,11 +487,12 @@ export default function Settings() {
               onChange={() => toggle("sessionExited")}
             />
           </div>
+          <p className="text-xs font-mono text-[#64748b] mt-4">
+            Activity triggers are off by default. Session exited is on by default. All use your existing notification permissions. Per-session overrides can be set from the info panel in each session view.
+          </p>
         </section>
 
-        <p className="text-xs font-mono text-[#64748b] mt-4 px-1">
-          Activity triggers are off by default. Session exited is on by default. All use your existing notification permissions. Per-session overrides can be set from the info panel in each session view.
-        </p>
+        </div>
       </div>
     </main>
   );
