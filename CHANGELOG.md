@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-04-06
+
+### Added
+- Per-window layout preferences — each browser window maintains independent sort, sidebar, and view state via sessionStorage
+- Settings page responsive grid layout — cards flow into 2 columns on desktop
+
+### Fixed
+- **TUI program stalls (fzf, NeoVim, vim, etc.)**: terminal query responses (DSR, DA1, DA2) were being silently dropped, causing programs to block for seconds waiting for timeouts. Responses now flow through correctly; the replay suppression window handles stale responses.
+- OscExtractor no longer buffers lone trailing ESC bytes between drain cycles, preventing delayed escape sequence delivery
+- Markdown file viewer renders frontmatter `title` as a proper h1 heading instead of small metadata text
+- Sidebar session cards no longer show redundant cwd (already in sticky group header)
+- Settings notification notice text moved inside its card
+
 ## [1.17.0] - 2026-03-31
 
 ### Added
