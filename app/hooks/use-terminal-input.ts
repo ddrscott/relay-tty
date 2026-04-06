@@ -3,29 +3,6 @@ import type { Terminal } from "@xterm/xterm";
 import { encodeDataMessage, encodeResizeMessage } from "../lib/ws-messages";
 import { WS_MSG } from "../../shared/types";
 
-/**
- * Match terminal query responses that xterm.js auto-generates.
- * These are terminal-to-application responses and must NOT be forwarded
- * as user input. In a relay architecture the WS round-trip means they
- * arrive after the querying process (e.g. NeoVim) has already exited,
- * causing the shell to display them as garbage text.
- *
- * Patterns:
- *   DA1  (Primary Device Attributes):   \e[?<digits;...>c
- *   DA2  (Secondary Device Attributes):  \e[><digits;...>c
- *   DA3  (Tertiary Device Attributes):   \eP!|<hex>\e\\
- *   CPR  (Cursor Position Report):       \e[<digits>;<digits>R
- *   DECRPM (Mode Report):                \e[?<d>;<d>$y
- *   DSR  (Device Status Report):         \e[0n  or  \e[?<d>n
- *   XTVERSION:                           \eP>|<text>\e\\
- *   DECRQSS response:                    \eP1$r<text>\e\\
- */
-const TERMINAL_RESPONSE_RE = /^\x1b\[[\?>\!]?[0-9;]*[cRny]$|^\x1b\[\?[0-9;]*\$y$|^\x1bP[^\x1b]*\x1b\\$/;
-
-function isTerminalResponse(data: string): boolean {
-  return TERMINAL_RESPONSE_RE.test(data);
-}
-
 interface UseTerminalInputOpts {
   /** xterm Terminal instance ref */
   termRef: React.RefObject<Terminal | null>;
@@ -63,9 +40,10 @@ export function useTerminalInput({
 
     const dataDisposable = term.onData((data: string) => {
       if (replayingRef.current) return;
-      // Drop terminal query responses (DA1, DA2, CPR, etc.) — these are
-      // xterm.js auto-responses that arrive too late in a relay architecture.
-      if (isTerminalResponse(data)) return;
+      // Terminal query responses (DA1, CPR, etc.) are forwarded — programs
+      // like fzf's LightRenderer depend on live DSR responses to function.
+      // Stale responses from replayed data are already suppressed by the
+      // replayingRef guard above (held for 200ms after replay finishes).
       const transform = inputTransformRef?.current;
       const out = transform ? transform(data) : data;
       if (out === null) return;

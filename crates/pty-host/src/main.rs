@@ -1084,9 +1084,15 @@ fn find_trailing_partial_osc(data: &[u8]) -> Option<usize> {
                 // No terminator found — this is a partial OSC sequence.
                 return Some(i);
             }
-            // Lone ESC at the very end of data (might be start of ESC ])
+            // Lone ESC at the very end of data — do NOT buffer it.
+            // It's far more likely to be the start of CSI (ESC [) than
+            // OSC (ESC ]). Buffering it delays critical escape sequence
+            // data, causing visible rendering stalls in programs like fzf
+            // that go idle after their initial render. xterm.js's parser
+            // handles split escape sequences across write() calls correctly,
+            // so the ESC will be joined with the next chunk on the client.
             if i + 1 == data.len() {
-                return Some(i);
+                return None;
             }
         }
     }
