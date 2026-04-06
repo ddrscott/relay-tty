@@ -184,15 +184,6 @@ export function ProjectPicker({ commandLabel, isAiTool, isCustom, onSelect, onCa
               placeholder="Filter projects…"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
-              onFocus={(e) => {
-                // Allow focus after mousedown prevention — re-focus on click
-                e.target.focus();
-              }}
-              onClick={(e) => {
-                (e.target as HTMLTextAreaElement).focus();
-              }}
             />
             {filter && (
               <button
