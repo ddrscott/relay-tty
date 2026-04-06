@@ -110,5 +110,7 @@
 
 - [x] Project picker regex filter — add filter input to narrow down the project list when creating new sessions ([detail](work-queue/project-picker-filter.md))
 
+- [x] Fix slow Ctrl+R fzf history appearance in web sessions — ~2s delay vs instant in iTerm, investigate and fix ([detail](work-queue/fzf-ctrl-r-latency.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

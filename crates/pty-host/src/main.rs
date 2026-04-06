@@ -1716,32 +1716,57 @@ async fn main() {
         let mut buf = vec![0u8; 65536];
         let mut osc_extractor = OscExtractor::new();
 
+        // Reusable accumulator for draining multiple reads per readability event.
+        // Avoids per-read lock acquisition and broadcast overhead during bursts
+        // (e.g., fzf Ctrl+R initial render, TUI startup).
+        let mut drain_buf: Vec<u8> = Vec::new();
+
         loop {
             let ready = async_fd.readable().await;
             match ready {
                 Ok(mut guard) => {
-                    // SAFETY: reading from the PTY master fd
-                    let result = unsafe {
-                        libc::read(
-                            master_raw_fd,
-                            buf.as_mut_ptr() as *mut libc::c_void,
-                            buf.len(),
-                        )
-                    };
-
-                    if result <= 0 {
-                        if result == 0 {
-                            break; // EOF -- child exited
+                    // Drain all available data from the PTY fd in a tight loop.
+                    // This coalesces multiple small writes (common during TUI
+                    // startup) into a single processing + broadcast pass, reducing
+                    // lock acquisitions and WS frame overhead from N to 1.
+                    drain_buf.clear();
+                    let mut eof = false;
+                    loop {
+                        let result = unsafe {
+                            libc::read(
+                                master_raw_fd,
+                                buf.as_mut_ptr() as *mut libc::c_void,
+                                buf.len(),
+                            )
+                        };
+                        if result > 0 {
+                            drain_buf.extend_from_slice(&buf[..result as usize]);
+                            // Cap drain at 256KB to avoid holding the fd too long
+                            if drain_buf.len() >= 256 * 1024 {
+                                break;
+                            }
+                        } else if result == 0 {
+                            eof = true;
+                            break;
+                        } else {
+                            let err = io::Error::last_os_error();
+                            if err.kind() == io::ErrorKind::WouldBlock {
+                                break; // No more data available right now
+                            }
+                            eof = true;
+                            break;
                         }
-                        let err = io::Error::last_os_error();
-                        if err.kind() == io::ErrorKind::WouldBlock {
-                            guard.clear_ready();
-                            continue;
-                        }
-                        break; // Error -- child likely exited
                     }
 
-                    let data = &buf[..result as usize];
+                    if drain_buf.is_empty() {
+                        if eof {
+                            break;
+                        }
+                        guard.clear_ready();
+                        continue;
+                    }
+
+                    let data = &drain_buf[..];
 
                     // Parse OSC title
                     if let Some(new_title) = parse_osc_title(data) {
@@ -1831,6 +1856,9 @@ async fn main() {
                         let _ = broadcast_tx_pty.send(encode_frame(&data_msg));
                     }
 
+                    if eof {
+                        break;
+                    }
                     guard.clear_ready();
                 }
                 Err(_) => break,
