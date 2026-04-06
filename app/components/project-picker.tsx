@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { FolderGit2, Home, Loader2, Sparkles, Terminal, HelpCircle, X, ChevronLeft, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { FolderGit2, Home, Loader2, Sparkles, Terminal, HelpCircle, X, ChevronLeft, AlertTriangle, Filter } from "lucide-react";
+import { PlainInput } from "./plain-input";
 import type { Project } from "../../shared/types";
 
 interface ProjectPickerProps {
@@ -16,6 +17,7 @@ export function ProjectPicker({ commandLabel, isAiTool, isCustom, onSelect, onCa
   const [error, setError] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showHomeWarning, setShowHomeWarning] = useState(false);
+  const [filter, setFilter] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -37,9 +39,29 @@ export function ProjectPicker({ commandLabel, isAiTool, isCustom, onSelect, onCa
     return null;
   }
 
-  const recentProjects = projects?.filter((p) => p.source === "recent") ?? [];
-  const otherProjects = projects?.filter((p) => p.source !== "recent") ?? [];
   const Icon = isCustom ? Terminal : isAiTool ? Sparkles : Terminal;
+
+  const filteredProjects = useMemo(() => {
+    if (!projects) return { recent: [], other: [] };
+    const recent = projects.filter((p) => p.source === "recent");
+    const other = projects.filter((p) => p.source !== "recent");
+    if (!filter.trim()) return { recent, other };
+
+    let re: RegExp | null = null;
+    try {
+      re = new RegExp(filter, "i");
+    } catch {
+      // invalid regex — fall back to literal case-insensitive match
+    }
+    const matches = (p: Project) => {
+      const hay = `${p.name}\n${p.path}`;
+      return re ? re.test(hay) : hay.toLowerCase().includes(filter.toLowerCase());
+    };
+    return { recent: recent.filter(matches), other: other.filter(matches) };
+  }, [projects, filter]);
+
+  const recentProjects = filteredProjects.recent;
+  const otherProjects = filteredProjects.other;
 
   const handleHomeClick = () => {
     if (isAiTool) {
@@ -152,6 +174,41 @@ export function ProjectPicker({ commandLabel, isAiTool, isCustom, onSelect, onCa
         <p className="text-xs text-[#64748b] uppercase tracking-wider">Choose a project directory</p>
       </div>
 
+      {/* Filter input */}
+      {projects && projects.length > 0 && (
+        <div className="px-3 pb-2 shrink-0">
+          <div className="relative flex items-center">
+            <Filter className="absolute left-2.5 w-3.5 h-3.5 text-[#64748b] pointer-events-none" />
+            <PlainInput
+              className="toolbar-input w-full pl-8 pr-2 text-base"
+              placeholder="Filter projects…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              onMouseDown={(e) => e.preventDefault()}
+              tabIndex={-1}
+              onFocus={(e) => {
+                // Allow focus after mousedown prevention — re-focus on click
+                e.target.focus();
+              }}
+              onClick={(e) => {
+                (e.target as HTMLTextAreaElement).focus();
+              }}
+            />
+            {filter && (
+              <button
+                className="absolute right-2 p-0.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors"
+                onClick={() => setFilter("")}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+                aria-label="Clear filter"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Loading state */}
       {!projects ? (
         <div className="flex-1 flex justify-center items-center">
@@ -204,25 +261,31 @@ export function ProjectPicker({ commandLabel, isAiTool, isCustom, onSelect, onCa
               </div>
             )}
 
-            {projects.length === 0 && (
+            {recentProjects.length === 0 && otherProjects.length === 0 && (
               <div className="px-3 py-6 text-center">
-                <p className="text-xs font-mono text-[#64748b]">No projects found.</p>
-                <p className="text-xs font-mono text-[#64748b] mt-1">
-                  Add project directories in{" "}
-                  <button
-                    className="text-[#3b82f6] hover:underline cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onCancel();
-                      window.location.href = "/settings";
-                    }}
-                    onMouseDown={(e) => e.preventDefault()}
-                    tabIndex={-1}
-                  >
-                    Settings
-                  </button>{" "}
-                  or run <code className="text-[#94a3b8]">relay &lt;cmd&gt;</code> from a project directory.
-                </p>
+                {filter.trim() ? (
+                  <p className="text-xs font-mono text-[#64748b]">No projects match "{filter}"</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-mono text-[#64748b]">No projects found.</p>
+                    <p className="text-xs font-mono text-[#64748b] mt-1">
+                      Add project directories in{" "}
+                      <button
+                        className="text-[#3b82f6] hover:underline cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCancel();
+                          window.location.href = "/settings";
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        tabIndex={-1}
+                      >
+                        Settings
+                      </button>{" "}
+                      or run <code className="text-[#94a3b8]">relay &lt;cmd&gt;</code> from a project directory.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>

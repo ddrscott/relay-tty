@@ -108,5 +108,7 @@
 
 - [x] Show SIGWINCH wand button in grid/lanes zoomed view — reuse the floating resize wand from terminal.tsx to send RESIZE on demand when a cell is expanded
 
+- [x] Project picker regex filter — add filter input to narrow down the project list when creating new sessions ([detail](work-queue/project-picker-filter.md))
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->
