@@ -55,4 +55,6 @@ Gallery views (grid, lanes) are **passive observers**. Thumbnails MUST:
 SIGWINCH is ONLY permitted when a cell enters **expanded/interactive mode** (zoom, modal, fit-to-cell) where the user is actively engaging with that terminal. Other devices will naturally get SIGWINCH when they next open their session view.
 
 ## Documentation
-Docs site at **docs.relaytty.com** — Fumadocs (Next.js static export) in `docs/`. When adding or changing features, update the corresponding doc page. Use the `docs-site` skill for full details on structure, build, and conventions.
+Docs site at **docs.relaytty.com** — Fumadocs (Next.js static export) in `docs/`. Use the `docs-site` skill for full details on structure, build, and conventions.
+
+**Rule: Always update docs when changing user-facing features.** Any CLI command, keybinding, UI change, or new feature must have its corresponding doc page updated (or created). This includes `docs/content/reference/cli.mdx`, `docs/content/reference/keyboard-shortcuts.mdx`, and any relevant how-to or tutorial pages.
