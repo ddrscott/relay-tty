@@ -300,6 +300,10 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, []);
 
   // Desktop keyboard shortcuts
+  const handleSetFontSizeRef = useRef(handleSetFontSize);
+  handleSetFontSizeRef.current = handleSetFontSize;
+  const activeFontSizeRef = useRef(activeFontSize);
+  activeFontSizeRef.current = activeFontSize;
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -315,6 +319,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       ) {
         e.preventDefault();
         terminalRef.current?.clearScrollback();
+      }
+      // Cmd+= / Cmd+- adjusts font size (also prevents browser zoom)
+      if (e.metaKey || e.ctrlKey) {
+        const isPlus = e.key === "=" || e.key === "+";
+        const isMinus = e.key === "-" || e.key === "_";
+        if (isPlus || isMinus) {
+          e.preventDefault();
+          handleSetFontSizeRef.current(activeFontSizeRef.current + (isPlus ? 1 : -1));
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);

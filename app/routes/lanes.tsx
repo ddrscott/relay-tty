@@ -50,13 +50,19 @@ function getStoredShowInactive(): boolean {
 }
 
 const ADJUSTMENT_STEP = 20;
-const DEFAULT_LANE_FONT_SIZE = 12;
 const DEFAULT_LANE_WIDTH = 480;
 const DEFAULT_LANE_HEIGHT = 800;
 
-function getStoredLaneFontSize(): number {
-  const stored = getWindowPref("relay-tty-lane-font-size");
-  return stored ? Number(stored) : DEFAULT_LANE_FONT_SIZE;
+const DEFAULT_SESSION_FONT_SIZE = 12;
+const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
+
+function getSessionFontSize(id: string): number {
+  const stored = getWindowPref(FONT_KEY(id));
+  return stored ? Math.max(4, Math.min(28, parseInt(stored, 10) || DEFAULT_SESSION_FONT_SIZE)) : DEFAULT_SESSION_FONT_SIZE;
+}
+
+function setSessionFontSize(id: string, size: number) {
+  setWindowPref(FONT_KEY(id), String(size));
 }
 
 function getStoredLaneWidth(): number {
@@ -122,7 +128,7 @@ function LanesViewport({
   sessions,
   selectedCellId,
   zoomedCellId,
-  fontSize,
+  sessionFontSizes,
   laneWidth,
   laneHeight,
   GridTerminalComponent,
@@ -132,11 +138,12 @@ function LanesViewport({
   onZoomCell,
   onUnzoomCell,
   onSessionUpdate,
+  onFontSizeChange,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
   zoomedCellId: string | null;
-  fontSize: number;
+  sessionFontSizes: Map<string, number>;
   laneWidth: number;
   laneHeight: number;
   GridTerminalComponent: React.ComponentType<any> | null;
@@ -146,6 +153,7 @@ function LanesViewport({
   onZoomCell: (id: string) => void;
   onUnzoomCell: () => void;
   onSessionUpdate?: (session: Session) => void;
+  onFontSizeChange?: (sessionId: string, delta: number) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -261,12 +269,13 @@ function LanesViewport({
               session={session}
               selected={selectedCellId === session.id}
               zoomed={isZoomed}
-              fontSize={fontSize}
+              fontSize={sessionFontSizes.get(session.id) ?? DEFAULT_SESSION_FONT_SIZE}
               onSelect={() => onSelectCell(session.id)}
               onExpand={() => onOpenModal(session.id)}
               onZoom={() => onZoomCell(session.id)}
               onUnzoom={onUnzoomCell}
               onSessionUpdate={onSessionUpdate}
+              onFontSizeChange={onFontSizeChange ? (delta: number) => onFontSizeChange(session.id, delta) : undefined}
             />
           </div>
         ) : (
@@ -296,7 +305,13 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
-  const [fontSize, setFontSize] = useState(getStoredLaneFontSize);
+  const [sessionFontSizes, setSessionFontSizes] = useState<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    for (const s of loaderSessions) {
+      map.set(s.id, getSessionFontSize(s.id));
+    }
+    return map;
+  });
   const [laneWidth, setLaneWidth] = useState(getStoredLaneWidth);
   const [laneHeight, setLaneHeight] = useState(getStoredLaneHeight);
   const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
@@ -442,11 +457,15 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  const adjustFontSize = useCallback((delta: number) => {
-    setFontSize((prev) => {
-      const next = Math.max(4, Math.min(20, prev + delta));
-      setWindowPref("relay-tty-lane-font-size", String(next));
-      return next;
+  const handleFontSizeChange = useCallback((sessionId: string, delta: number) => {
+    setSessionFontSizes((prev) => {
+      const current = prev.get(sessionId) ?? getSessionFontSize(sessionId);
+      const next = Math.max(4, Math.min(28, current + delta));
+      if (next === current) return prev;
+      const map = new Map(prev);
+      map.set(sessionId, next);
+      setSessionFontSize(sessionId, next);
+      return map;
     });
   }, []);
 
@@ -513,6 +532,23 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [selectedCellId, zoomedCellId, modalSessionId]);
+
+  // Cmd+/- to adjust per-session font size (also prevents browser zoom)
+  useEffect(() => {
+    if (modalSessionId) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const isPlus = e.key === "=" || e.key === "+";
+      const isMinus = e.key === "-" || e.key === "_";
+      if (!isPlus && !isMinus) return;
+      e.preventDefault();
+      const targetId = zoomedCellId ?? selectedCellId;
+      if (!targetId) return;
+      handleFontSizeChange(targetId, isPlus ? 1 : -1);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedCellId, zoomedCellId, modalSessionId, handleFontSizeChange]);
 
   return (
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
@@ -636,25 +672,6 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
             </button>
           </div>
 
-          {/* Font size picker */}
-          <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
-            <button
-              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustFontSize(-1)}
-              aria-label="Decrease font size"
-            >
-              <Minus className="w-3 h-3" />
-            </button>
-            <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{fontSize}</span>
-            <button
-              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustFontSize(1)}
-              aria-label="Increase font size"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-          </div>
-
           {/* Fullscreen toggle */}
           <button
             className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
@@ -716,7 +733,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           sessions={sortedLaneSessions}
           selectedCellId={selectedCellId}
           zoomedCellId={zoomedCellId}
-          fontSize={fontSize}
+          sessionFontSizes={sessionFontSizes}
           laneWidth={laneWidth}
           laneHeight={laneHeight}
           GridTerminalComponent={GridTerminalComponent}
@@ -725,6 +742,7 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
+          onFontSizeChange={handleFontSizeChange}
         />
       )}
 

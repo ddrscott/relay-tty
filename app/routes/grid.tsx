@@ -4,7 +4,7 @@ import type { Route } from "./+types/grid";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Maximize, Minimize, Menu } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
@@ -49,11 +49,22 @@ function getStoredShowInactive(): boolean {
   return getWindowPref("relay-tty-show-inactive") === "true";
 }
 
-const DEFAULT_GRID_FONT_SIZE = 12;
+/** Fixed font size used only for grid layout cell-size calculations.
+ *  Per-session font sizes affect xterm rendering inside each cell,
+ *  but the grid layout always uses this constant so that changing
+ *  one cell's font never reflows the entire grid. */
+const LAYOUT_FONT_SIZE = 12;
 
-function getStoredGridFontSize(): number {
-  const stored = getWindowPref("relay-tty-grid-font-size");
-  return stored ? Number(stored) : DEFAULT_GRID_FONT_SIZE;
+const DEFAULT_SESSION_FONT_SIZE = 12;
+const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
+
+function getSessionFontSize(id: string): number {
+  const stored = getWindowPref(FONT_KEY(id));
+  return stored ? Math.max(4, Math.min(28, parseInt(stored, 10) || DEFAULT_SESSION_FONT_SIZE)) : DEFAULT_SESSION_FONT_SIZE;
+}
+
+function setSessionFontSize(id: string, size: number) {
+  setWindowPref(FONT_KEY(id), String(size));
 }
 
 /** Gap between grid cells in pixels */
@@ -110,7 +121,7 @@ function GridViewport({
   sessions,
   selectedCellId,
   zoomedCellId,
-  gridFontSize,
+  sessionFontSizes,
   GridTerminalComponent,
   onDeselectCell,
   onSelectCell,
@@ -118,11 +129,12 @@ function GridViewport({
   onZoomCell,
   onUnzoomCell,
   onSessionUpdate,
+  onFontSizeChange,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
   zoomedCellId: string | null;
-  gridFontSize: number;
+  sessionFontSizes: Map<string, number>;
   GridTerminalComponent: React.ComponentType<any> | null;
   onDeselectCell: () => void;
   onSelectCell: (id: string) => void;
@@ -130,6 +142,7 @@ function GridViewport({
   onZoomCell: (id: string) => void;
   onUnzoomCell: () => void;
   onSessionUpdate?: (session: Session) => void;
+  onFontSizeChange?: (sessionId: string, delta: number) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -144,8 +157,8 @@ function GridViewport({
     return () => observer.disconnect();
   }, []);
 
-  const charW = gridFontSize * 0.6;
-  const lineH = gridFontSize * 1.2;
+  const charW = LAYOUT_FONT_SIZE * 0.6;
+  const lineH = LAYOUT_FONT_SIZE * 1.2;
 
   // Snapshot cell dimensions per session — only update when sessions are
   // added/removed or font size changes, NOT on live dimension updates from
@@ -220,11 +233,13 @@ function GridViewport({
     if (!cell || !pos) return null;
 
     // Fill viewport height. Width = terminal's natural pixel width
-    // at the configured font size (scale=1), so the zoomed cell is
-    // exactly as wide as the content — no wider. Other cells stay visible.
+    // at the layout font size, so the zoomed container stays fixed
+    // when the user changes per-session font size via Cmd+/-.
+    // Inside the cell, xterm renders at the actual font size and
+    // handleFitToCell computes cols/rows to fill this fixed area.
     const dims = snappedDimsRef.current.get(sessions[idx].id);
     const cols = dims?.cols || 80;
-    let zw = Math.min(cols * gridFontSize * 0.6, vpSize.w);
+    let zw = Math.min(cols * LAYOUT_FONT_SIZE * 0.6, vpSize.w);
     let zh = vpSize.h;
 
     // Expand from the cell's original center, then clamp to viewport
@@ -236,7 +251,7 @@ function GridViewport({
     zy = Math.max(0, Math.min(zy, vpSize.h - zh));
 
     return { idx, x: zx, y: zy, w: zw, h: zh };
-  }, [zoomedCellId, sessions, cellSizes, positions, vpSize, gridFontSize]);
+  }, [zoomedCellId, sessions, cellSizes, positions, vpSize]);
 
   // Drag handle state for resizing zoomed cell width
   const [dragWidthOverride, setDragWidthOverride] = useState<number | null>(null);
@@ -334,12 +349,13 @@ function GridViewport({
               session={session}
               selected={selectedCellId === session.id}
               zoomed={isZoomed}
-              fontSize={gridFontSize}
+              fontSize={sessionFontSizes.get(session.id) ?? DEFAULT_SESSION_FONT_SIZE}
               onSelect={() => onSelectCell(session.id)}
               onExpand={() => onOpenModal(session.id)}
               onZoom={() => onZoomCell(session.id)}
               onUnzoom={onUnzoomCell}
               onSessionUpdate={onSessionUpdate}
+              onFontSizeChange={onFontSizeChange ? (delta: number) => onFontSizeChange(session.id, delta) : undefined}
               fitToCellTrigger={isZoomed ? fitToCellTrigger : undefined}
             />
             {/* Drag handles — only on zoomed cells */}
@@ -390,7 +406,13 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   const [sortKey, setSortKey] = useState<SortKey>(getStoredSort);
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
-  const [gridFontSize, setGridFontSize] = useState(getStoredGridFontSize);
+  const [sessionFontSizes, setSessionFontSizes] = useState<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    for (const s of loaderSessions) {
+      map.set(s.id, getSessionFontSize(s.id));
+    }
+    return map;
+  });
   const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -540,11 +562,15 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  const adjustGridFontSize = useCallback((delta: number) => {
-    setGridFontSize((prev) => {
-      const next = Math.max(4, Math.min(20, prev + delta));
-      setWindowPref("relay-tty-grid-font-size", String(next));
-      return next;
+  const handleFontSizeChange = useCallback((sessionId: string, delta: number) => {
+    setSessionFontSizes((prev) => {
+      const current = prev.get(sessionId) ?? getSessionFontSize(sessionId);
+      const next = Math.max(4, Math.min(28, current + delta));
+      if (next === current) return prev;
+      const map = new Map(prev);
+      map.set(sessionId, next);
+      setSessionFontSize(sessionId, next);
+      return map;
     });
   }, []);
 
@@ -595,6 +621,23 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [selectedCellId, zoomedCellId, modalSessionId]);
+
+  // Cmd+/- to adjust per-session font size (also prevents browser zoom)
+  useEffect(() => {
+    if (modalSessionId) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const isPlus = e.key === "=" || e.key === "+";
+      const isMinus = e.key === "-" || e.key === "_";
+      if (!isPlus && !isMinus) return;
+      e.preventDefault();
+      const targetId = zoomedCellId ?? selectedCellId;
+      if (!targetId) return;
+      handleFontSizeChange(targetId, isPlus ? 1 : -1);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedCellId, zoomedCellId, modalSessionId, handleFontSizeChange]);
 
   return (
     <main className="h-screen bg-[#0a0a0f] flex flex-col p-4">
@@ -678,25 +721,6 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
             onSelectionChange={setProjectFilter}
           />
 
-          {/* Font size picker */}
-          <div className="hidden lg:flex items-center gap-0.5 text-xs font-mono text-[#64748b] border border-[#2d2d44] rounded-lg overflow-hidden">
-            <button
-              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustGridFontSize(-1)}
-              aria-label="Decrease font size"
-            >
-              <Minus className="w-3 h-3" />
-            </button>
-            <span className="px-1.5 text-[#94a3b8] tabular-nums min-w-[2.5ch] text-center">{gridFontSize}</span>
-            <button
-              className="p-1.5 hover:text-[#e2e8f0] hover:bg-[#1a1a2e] transition-colors"
-              onClick={() => adjustGridFontSize(1)}
-              aria-label="Increase font size"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-          </div>
-
           {/* Fullscreen toggle */}
           <button
             className="hidden lg:flex items-center p-1.5 transition-colors text-[#64748b] hover:text-[#e2e8f0] border border-[#2d2d44] rounded-lg"
@@ -758,13 +782,14 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           sessions={sortedGridSessions}
           selectedCellId={selectedCellId}
           zoomedCellId={zoomedCellId}
-          gridFontSize={gridFontSize}
+          sessionFontSizes={sessionFontSizes}
           GridTerminalComponent={GridTerminalComponent}
           onDeselectCell={deselectCell}
           onSelectCell={selectCell}
           onOpenModal={openModal}
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
+          onFontSizeChange={handleFontSizeChange}
         />
       )}
 

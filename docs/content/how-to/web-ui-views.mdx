@@ -35,21 +35,27 @@ A tiled overview showing live terminal thumbnails for all sessions. Each cell re
 
 ![Grid gallery with live terminals](/images/mobile/grid-gallery.png)
 
-1. **Grid toolbar** — sort sessions, toggle inactive, adjust font size, create new sessions
+1. **Grid toolbar** — sort sessions, toggle inactive, filter by project, create new sessions
 2. **Live terminal cells** — each cell renders real terminal output, scaled to fit
 
 - Thumbnails update in real-time
-- Click a cell to expand into full interactive mode
+- Click a cell to select it for keyboard input
+- Double-click a cell (or click the expand icon) to zoom it to full size
 - Useful for monitoring multiple long-running processes at a glance
 
-<Callout type="info" title="Thumbnails are passive">
-Grid thumbnails use the session's existing terminal width. They never resize the remote PTY — other connected devices won't be affected.
-</Callout>
+### Per-session font size
+
+Each session has its own font size, adjustable with **Cmd+=** / **Cmd+-** (or pinch-to-zoom on touch devices). The font size is persisted per session and shared across all views.
+
+When you change font size, the terminal dimensions (columns and rows) are recomputed to fit the same container area at the new cell size — the container stays fixed while the text gets larger or smaller. A SIGWINCH is sent so the running program redraws at the new dimensions.
+
 ## Lanes View
 
-Side-by-side terminal panels. Each lane shows a different session at readable scale.
+Side-by-side terminal panels in uniform cells. Each lane shows a different session.
 
-- Drag to reorder lanes
+- Adjust lane width and height from the toolbar
+- Click a cell to select, double-click to zoom
+- Per-session font size works the same as in Grid (Cmd+=/-, pinch-to-zoom)
 - Useful for comparing output or watching related processes
 
 ## Switching Views

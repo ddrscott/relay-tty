@@ -211,13 +211,29 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
     resizeToastTimer.current = setTimeout(() => setResizeToast(false), 1500);
   }, [termRef, sendBinary]);
 
-  // Update font size on existing terminal
+  // Update font size on existing terminal — refit and send SIGWINCH
+  // so the PTY adjusts to the new cols/rows at the new font size.
+  // snapToBottom: false preserves the user's scroll position (the
+  // default snap-to-bottom behavior fights incoming TUI redraws and
+  // jumps the viewport away from where the user was reading).
+  const prevFontSizeRef = useRef(fontSize);
   useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.fontSize = fontSize;
-      fit();
+    if (!termRef.current) return;
+    const changed = prevFontSizeRef.current !== fontSize;
+    prevFontSizeRef.current = fontSize;
+    termRef.current.options.fontSize = fontSize;
+    fit({ snapToBottom: false });
+    if (changed) {
+      // Small delay to let xterm settle after refit, then send SIGWINCH
+      const timer = setTimeout(() => {
+        const term = termRef.current;
+        if (!term) return;
+        sendBinary(encodeResizeMessage(term.cols, term.rows));
+        setPtyDims({ cols: term.cols, rows: term.rows });
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [fontSize, fit, termRef]);
+  }, [fontSize, fit, termRef, sendBinary]);
 
   // Debounce the reconnecting pill — brief disconnections (tunnel hiccups,
   // tab switches) shouldn't flash a distracting indicator.

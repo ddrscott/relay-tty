@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Per-session font sizing — Cmd+=/Cmd+- (desktop) and pinch-to-zoom (touch) adjust font size independently for each session across all views
+- Font size changes send SIGWINCH — terminal columns/rows recompute to fit the fixed container at the new cell size, like iTerm with "Adjust window" disabled
+
+### Removed
+- Global font size picker from grid and lanes toolbars — replaced by per-session Cmd+/- and pinch-to-zoom
+
 ## [1.18.0] - 2026-04-06
 
 ### Added

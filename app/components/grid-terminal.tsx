@@ -20,6 +20,8 @@ interface GridTerminalProps {
   onUnzoom?: () => void;
   /** Called when a SESSION_UPDATE arrives — parent updates grid layout */
   onSessionUpdate?: (session: Session) => void;
+  /** Called when a pinch-to-zoom gesture requests a font size change */
+  onFontSizeChange?: (delta: number) => void;
   /** Increment to trigger a fit-to-cell RESIZE (used by drag handle in parent) */
   fitToCellTrigger?: number;
 }
@@ -34,7 +36,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, fitToCellTrigger }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, onFontSizeChange, fitToCellTrigger }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -107,6 +109,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,
     onFileLink: handleFileLink,
+    onFontSizeChange,
   });
 
   // When live PTY dimensions change (SESSION_UPDATE or handleFitToCell),
@@ -231,15 +234,40 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     setLiveRows(newRows);
   }, [sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track zoom transitions — no auto-RESIZE on zoom/unzoom.
-  // Zoomed mode keeps cols stable and only adds rows via CSS scale
-  // (handled by the updateScale ResizeObserver). RESIZE is only sent
-  // by explicit drag handle (fitToCellTrigger) or handleFitToCell.
+  // Track zoom transitions — restore relative scroll position when
+  // entering zoomed mode. Fixed-size terminals skip the ResizeObserver
+  // fit() path, so xterm's scroll position goes stale after the wrapper
+  // resizes. Capture the scroll percentage before zoom and restore it
+  // after the CSS transition settles.
   const prevZoomedRef = useRef<boolean | undefined>(undefined);
+  const scrollPctRef = useRef<number>(1);
 
   useEffect(() => {
+    const wasZoomed = prevZoomedRef.current;
+    const term = termRef.current;
+
+    // Capture scroll position before zoom transition
+    if (term && !zoomed) {
+      const baseY = term.buffer.active.baseY;
+      const viewportY = term.buffer.active.viewportY;
+      scrollPctRef.current = baseY > 0 ? viewportY / baseY : 1;
+    }
+
     prevZoomedRef.current = zoomed;
-  }, [zoomed]);
+
+    if (zoomed && !wasZoomed && term) {
+      const timer = setTimeout(() => {
+        const t = termRef.current;
+        if (!t) return;
+        const baseY = t.buffer.active.baseY;
+        const targetLine = Math.round(scrollPctRef.current * baseY);
+        const currentLine = t.buffer.active.viewportY;
+        const delta = targetLine - currentLine;
+        if (delta !== 0) t.scrollLines(delta);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [zoomed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // External trigger for fit-to-cell (e.g. after drag resize in parent)
   const fitTriggerRef = useRef(fitToCellTrigger);
@@ -252,6 +280,55 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     const timer = setTimeout(() => handleFitToCell(), 50);
     return () => clearTimeout(timer);
   }, [fitToCellTrigger, zoomed, handleFitToCell]);
+
+  // React to font size prop changes — recompute PTY dimensions so
+  // the container stays fixed while cols/rows adjust to the new cell
+  // size (iTerm "don't adjust window" behavior).
+  //
+  // Zoomed cells (scale ~1): use wrapper rect as the reference area.
+  // Thumbnails (scale < 1): use the pre-scale content area (the
+  //   "virtual screen"). The wrapper rect is the tiny CSS-scaled
+  //   visual size — computing from that would give absurd dimensions
+  //   like 19×7. Instead, capture the unscaled content size BEFORE
+  //   the font change and compute how many cols/rows fit that same
+  //   virtual area at the new cell dimensions.
+  const prevFontSizeRef = useRef(fontSize);
+  useEffect(() => {
+    const term = termRef.current;
+    const wrapper = wrapperRef.current;
+    const container = containerRef.current;
+    if (!term || !wrapper || !container || !contentReady) return;
+    if (prevFontSizeRef.current === fontSize) return;
+
+    // Capture the pre-font-change content dimensions (unscaled).
+    // For zoomed (scale ~1), this ≈ wrapper rect. For thumbnails,
+    // this is the full virtual terminal area before CSS scaling.
+    const refW = zoomed ? wrapper.getBoundingClientRect().width : container.scrollWidth;
+    const refH = zoomed ? wrapper.getBoundingClientRect().height : container.scrollHeight;
+
+    prevFontSizeRef.current = fontSize;
+    term.options.fontSize = fontSize;
+
+    // Wait for xterm to re-measure the font, then compute new
+    // cols/rows from the reference area and new cell dimensions.
+    const timer = setTimeout(() => {
+      const core = (term as any)._core;
+      const cellW = core?._renderService?.dimensions?.css?.cell?.width;
+      const cellH = core?._renderService?.dimensions?.css?.cell?.height;
+      if (!cellW || !cellH) return;
+
+      const newCols = Math.max(1, Math.floor(refW / cellW));
+      const newRows = Math.max(1, Math.floor(refH / cellH));
+
+      if (term.cols === newCols && term.rows === newRows) return;
+
+      sendBinary(encodeResizeMessage(newCols, newRows));
+      term.resize(newCols, newRows);
+      setLiveCols(newCols);
+      setLiveRows(newRows);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [fontSize, contentReady, zoomed, sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SIGWINCH wand toast ──
   const [resizeToast, setResizeToast] = useState(false);

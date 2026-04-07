@@ -20,13 +20,29 @@ title: Keyboard Shortcuts
 | `g` / `G` | Jump to top / bottom |
 | `q` or `Esc` | Quit |
 
-## Web UI
+## Web UI — Session View
 
 | Shortcut | Action |
 |----------|--------|
 | Standard terminal shortcuts | Passed through to the remote shell |
 | Cmd+K (macOS) / Ctrl+Shift+K | Clear scrollback buffer |
 | Ctrl+Shift+F | Toggle terminal search |
+| Cmd+= / Cmd+- | Increase/decrease font size |
+| Pinch-to-zoom | Increase/decrease font size (touch devices) |
+
+Font size changes send SIGWINCH — the terminal columns and rows adjust to fit the viewport at the new font size. Scroll position is preserved.
+
+## Web UI — Grid & Lanes Views
+
+| Shortcut | Action |
+|----------|--------|
+| Click cell | Select cell for keyboard input |
+| Double-click cell | Zoom/expand cell |
+| Cmd+= / Cmd+- | Increase/decrease font size of selected cell |
+| Pinch-to-zoom | Increase/decrease font size (touch devices) |
+| Escape | Unzoom, then deselect |
+
+Font size is saved per session and shared across all views (grid, lanes, and single-session). Every font size change sends SIGWINCH to recompute terminal dimensions — the container stays fixed while columns and rows adjust to fit the new cell size.
 
 ## Mobile toolbar
 

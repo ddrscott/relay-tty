@@ -190,12 +190,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   // tells the DATA handler to keep snapping to bottom for a brief window.
   const snapBottomUntilRef = useRef(0);
 
-  const fit = useCallback(() => {
+  const fit = useCallback((opts?: { snapToBottom?: boolean }) => {
     if (fitAddonRef.current && termRef.current) {
       try {
         fitAddonRef.current.fit();
         // Snap to bottom for 500ms after resize to catch app redraws
-        snapBottomUntilRef.current = Date.now() + 500;
+        // (e.g. SIGWINCH causes TUI apps to redraw). Opt out when the
+        // resize is purely visual (font size change) where the user
+        // expects scroll position to stay put.
+        if (opts?.snapToBottom !== false) {
+          snapBottomUntilRef.current = Date.now() + 500;
+        }
       } catch {}
     }
   }, []);
