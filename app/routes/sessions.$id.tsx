@@ -38,6 +38,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import { usePushSubscription, syncPushTriggers } from "../hooks/use-push-subscription";
 import {
@@ -152,6 +153,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // The "session" used for UI chrome — find it from allSessions or fall back
   const session = allSessions.find(s => s.id === activeId) ?? initialSession;
+
+  // Cmd+N / Ctrl+N: create new session in current session's CWD
+  useNewSessionShortcut(useCallback(() => session.cwd, [session.cwd]));
 
   // Ref for activeId so callbacks captured in useTerminalCore closures
   // can check if their session is still the active one before updating state.

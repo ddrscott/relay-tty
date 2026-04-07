@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { useNavigate, useRevalidator } from "react-router";
+import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/activity";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
@@ -36,6 +37,9 @@ export default function ActivityPage({ loaderData }: Route.ComponentProps) {
   );
 
   const sorted = useMemo(() => sortSessions(runningSessions, "active", "desc"), [runningSessions]);
+
+  // Cmd+N / Ctrl+N: create new session in the first session's CWD
+  useNewSessionShortcut(useCallback(() => sorted[0]?.cwd, [sorted]));
 
   // Live metrics via global WS
   const metrics = useSessionMetrics(sorted, revalidate);

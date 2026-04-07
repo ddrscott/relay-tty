@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/home";
 import { Terminal, type TerminalHandle } from "../components/terminal";
 import type { Session } from "../../shared/types";
@@ -90,6 +91,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   // ?new — force empty state to show the quick-launch welcome screen
   const sessions = searchParams.has("new") ? [] : realSessions;
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Cmd+N / Ctrl+N: create new session in the first session's CWD
+  useNewSessionShortcut(useCallback(() => realSessions[0]?.cwd, [realSessions]));
 
   // Desktop detection
   const [isDesktop, setIsDesktop] = useState(false);

@@ -112,5 +112,7 @@
 
 - [x] Fix slow Ctrl+R fzf history appearance in web sessions — ~2s delay vs instant in iTerm, investigate and fix ([detail](work-queue/fzf-ctrl-r-latency.md))
 
+- [x] Cmd+N in web UI creates a new session in the current project directory
+
 <!-- Completed tasks archived to docs/work-queue-archive.md -->
 <!-- Detail files preserved in .claude/work-queue/ for reference -->

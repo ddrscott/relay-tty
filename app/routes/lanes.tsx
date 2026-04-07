@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator } from "react-router";
+import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/lanes";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
@@ -358,6 +359,12 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
       setSessionModalComponent(() => mod.SessionModal);
     });
   }
+
+  // Cmd+N / Ctrl+N: create new session in the selected cell's CWD (or first session)
+  useNewSessionShortcut(useCallback(() => {
+    const target = sessions.find(s => s.id === (zoomedCellId ?? selectedCellId)) ?? sessions[0];
+    return target?.cwd;
+  }, [sessions, zoomedCellId, selectedCellId]));
 
   // Filter and sort
   const laneSessions = useMemo(() => {
