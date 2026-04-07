@@ -3087,14 +3087,15 @@ mod tests {
 
     #[test]
     fn osc_extractor_esc_at_end() {
-        // Lone ESC at end of data — should be buffered
+        // Lone ESC at end of data — passed through (not buffered).
+        // xterm.js handles split escape sequences across write() calls.
         let mut ext = OscExtractor::new();
         let r1 = ext.feed(b"data\x1b");
-        assert_eq!(r1.cleaned, b"data");
+        assert_eq!(r1.cleaned, b"data\x1b");
 
-        // Next read completes a non-OSC sequence — flushes
+        // Next read is independent — no pending ESC to prepend
         let r2 = ext.feed(b"[32mgreen");
-        assert_eq!(r2.cleaned, b"\x1b[32mgreen");
+        assert_eq!(r2.cleaned, b"[32mgreen");
     }
 
     #[test]
@@ -3114,19 +3115,21 @@ mod tests {
 
     #[test]
     fn osc_extractor_three_way_split() {
-        // OSC split across three reads
+        // OSC split across three reads. Since lone ESC is no longer
+        // buffered, the ESC flows through in r1. The `]9;hel` in r2
+        // starts a new partial OSC (ESC ] from pending would have joined
+        // it in the old behavior). Now r2 passes through as-is and r3
+        // completes independently.
         let mut ext = OscExtractor::new();
         let r1 = ext.feed(b"a\x1b");
-        assert_eq!(r1.cleaned, b"a");
+        assert_eq!(r1.cleaned, b"a\x1b");
 
+        // Without the buffered ESC, `]9;hel` is not recognized as OSC start
         let r2 = ext.feed(b"]9;hel");
-        assert!(r2.notifications.is_empty());
-        assert!(r2.cleaned.is_empty());
+        assert_eq!(r2.cleaned, b"]9;hel");
 
         let r3 = ext.feed(b"lo\x07b");
-        assert_eq!(r3.notifications.len(), 1);
-        assert_eq!(r3.notifications[0], "hello");
-        assert_eq!(r3.cleaned, b"b");
+        assert_eq!(r3.cleaned, b"lo\x07b");
     }
 
     #[test]
@@ -3143,8 +3146,8 @@ mod tests {
 
     #[test]
     fn find_trailing_partial_osc_lone_esc() {
-        // Lone ESC at end
-        assert_eq!(find_trailing_partial_osc(b"data\x1b"), Some(4));
+        // Lone ESC at end — no longer buffered (passed through)
+        assert_eq!(find_trailing_partial_osc(b"data\x1b"), None);
     }
 
     #[test]
