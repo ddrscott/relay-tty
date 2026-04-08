@@ -36,6 +36,7 @@ import {
   ImageIcon,
   Keyboard,
   Search,
+  SquarePlus,
   X,
 } from "lucide-react";
 import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
@@ -154,8 +155,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // The "session" used for UI chrome — find it from allSessions or fall back
   const session = allSessions.find(s => s.id === activeId) ?? initialSession;
 
-  // Cmd+N / Ctrl+N: create new session in current session's CWD
-  useNewSessionShortcut(useCallback(() => session.cwd, [session.cwd]));
+  // Cmd+Shift+N / Ctrl+Shift+N: create new session in current session's CWD
+  const createNewSession = useNewSessionShortcut(useCallback(() => session.cwd, [session.cwd]));
 
   // Ref for activeId so callbacks captured in useTerminalCore closures
   // can check if their session is still the active one before updating state.
@@ -982,6 +983,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         <div className="hidden lg:block shrink-0">
           <LayoutSwitcher />
         </div>
+
+        {/* New session button */}
+        <button
+          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0] shrink-0"
+          onClick={createNewSession}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          aria-label="New session in this project"
+          title="New session in this project"
+        >
+          <SquarePlus className="w-4 h-4" />
+        </button>
 
         {/* Notification bell — request permission on tap (user gesture for iOS) */}
         {notifPermission !== "granted" && notifPermission !== "unsupported" && (

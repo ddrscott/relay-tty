@@ -6,6 +6,8 @@ import { useNavigate, useRevalidator } from "react-router";
  * The session inherits the CWD from the provided getter function.
  * After creation, navigates to the new session.
  *
+ * Returns the createSession function so callers can also wire it to buttons.
+ *
  * Note: Cmd+N is browser-reserved (opens new window) and cannot be
  * intercepted via preventDefault in most browsers.
  */
@@ -35,12 +37,16 @@ export function useNewSessionShortcut(getCwd: () => string | undefined) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "N" && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey) {
+      if ((e.key === "N" || e.key === "n") && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey) {
         e.preventDefault();
+        e.stopPropagation();
         createSession();
       }
     }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    // Use capture phase to intercept before xterm swallows the event
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [createSession]);
+
+  return createSession;
 }
