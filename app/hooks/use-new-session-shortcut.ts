@@ -2,9 +2,12 @@ import { useEffect, useCallback, useRef } from "react";
 import { useNavigate, useRevalidator } from "react-router";
 
 /**
- * Cmd+N (macOS) / Ctrl+N keyboard shortcut to create a new session.
+ * Cmd+Shift+N (macOS) / Ctrl+Shift+N keyboard shortcut to create a new session.
  * The session inherits the CWD from the provided getter function.
  * After creation, navigates to the new session.
+ *
+ * Note: Cmd+N is browser-reserved (opens new window) and cannot be
+ * intercepted via preventDefault in most browsers.
  */
 export function useNewSessionShortcut(getCwd: () => string | undefined) {
   const navigate = useNavigate();
@@ -32,7 +35,7 @@ export function useNewSessionShortcut(getCwd: () => string | undefined) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "n" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      if (e.key === "N" && (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey) {
         e.preventDefault();
         createSession();
       }

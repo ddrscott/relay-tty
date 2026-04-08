@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Cmd+N / Ctrl+N keyboard shortcut to create a new session in the current project directory — works across session, grid, lanes, activity, and home views
+- Cmd+Shift+N / Ctrl+Shift+N keyboard shortcut to create a new session in the current project directory — works across session, grid, lanes, activity, and home views
 - Per-session font sizing — Cmd+=/Cmd+- (desktop) and pinch-to-zoom (touch) adjust font size independently for each session across all views
 - Font size changes send SIGWINCH — terminal columns/rows recompute to fit the fixed container at the new cell size, like iTerm with "Adjust window" disabled
 
