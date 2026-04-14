@@ -38,6 +38,25 @@ export function useTerminalInput({
     const term = termRef.current;
     if (!term || !enabled) return;
 
+    // Shift+Enter → CSI 13;2u (kitty keyboard protocol) so programs like
+    // Claude Code that request extended key reporting can distinguish it
+    // from plain Enter and insert a newline instead of submitting.
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        // Send CSI sequence only on keydown (not keypress/keyup), but
+        // return false for ALL event types to fully suppress xterm's \r.
+        if (event.type === "keydown") {
+          if (replayingRef.current) return false;
+          const seq = "\x1b[13;2u";
+          const transform = inputTransformRef?.current;
+          const out = transform ? transform(seq) : seq;
+          if (out !== null) sendBinary(encodeDataMessage(out));
+        }
+        return false;
+      }
+      return true;
+    });
+
     const dataDisposable = term.onData((data: string) => {
       if (replayingRef.current) return;
       // Terminal query responses (DA1, CPR, etc.) are forwarded — programs

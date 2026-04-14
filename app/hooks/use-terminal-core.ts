@@ -574,6 +574,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       let compositionSent = "";
       let inComposition = false;
       let keydownHandledKey = "";
+      let shiftEnterHandled = false;
 
       // Track whether xterm's keydown handler already processed a key.
       // keydown fires before beforeinput — if xterm handled the character,
@@ -582,6 +583,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // beforeinput(insertText) for space/shift+letter even after xterm
       // called preventDefault() on keydown.
       textarea.addEventListener("keydown", (e) => {
+        // Track Shift+Enter so the beforeinput insertLineBreak handler
+        // doesn't send a redundant \r (attachCustomKeyEventHandler already
+        // sent CSI 13;2u for the kitty keyboard protocol).
+        shiftEnterHandled = e.key === "Enter" && e.shiftKey;
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
           keydownHandledKey = e.key;
         } else {
@@ -616,7 +621,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       textarea.addEventListener("beforeinput", (e) => {
         if (e.inputType === "insertLineBreak") {
           e.preventDefault();
-          term.input("\r");
+          // Shift+Enter is handled by attachCustomKeyEventHandler (sends
+          // CSI 13;2u). Only send \r for plain Enter.
+          if (!shiftEnterHandled) {
+            term.input("\r");
+          }
+          shiftEnterHandled = false;
           return;
         }
 
@@ -1153,6 +1163,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       ws.onclose = (event) => {
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         if (disposed) return;
+        // Ignore close events from stale WebSockets — a newer connection may
+        // already be open. Without this guard, a late-firing onclose from an
+        // old WS overwrites the "connected" status of the current WS, causing
+        // the "Waiting for server connection" banner to appear even while data
+        // is flowing on the active connection.
+        if (ws !== wsRef.current) return;
         if (event.code === 4001 || event.code === 1008) {
           opts.onAuthError?.(event.reason || undefined);
           return;
