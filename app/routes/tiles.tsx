@@ -65,7 +65,6 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 ];
 
 const LAYOUT_KEY = "relay-tty-tile-layout";
-const KNOWN_KEY = "relay-tty-tile-known";
 const DISMISSED_KEY = "relay-tty-tile-dismissed";
 const COLUMN_WIDTHS_KEY = "relay-tty-tile-column-widths";
 const SORT_STORE = "relay-tty-tile-sort";
@@ -152,7 +151,6 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [layout, setLayoutState] = useState<TileLayout>(getStoredLayout);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
-  const knownIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(KNOWN_KEY)));
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
 
   // Per-session font sizes (same scheme as lanes/sessions routes).
@@ -170,10 +168,6 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  const persistKnown = useCallback(() => {
-    setWindowPref(KNOWN_KEY, JSON.stringify([...knownIdsRef.current]));
-  }, []);
-
   const persistDismissed = useCallback(() => {
     setWindowPref(DISMISSED_KEY, JSON.stringify([...dismissedIdsRef.current]));
   }, []);
@@ -189,7 +183,9 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
 
   // Reconcile the persisted layout with the current session list:
   //   - drop sessions no longer on the server (or no longer eligible)
-  //   - prepend sessions that are new to this browser (not in known set)
+  //   - prepend eligible sessions that aren't in the layout and weren't
+  //     explicitly dismissed by the user. This covers both new arrivals and
+  //     sessions brought back into scope by a filter change.
   useEffect(() => {
     const eligibleIds = new Set(eligibleSessions.map((s) => s.id));
     const allLiveIds = new Set(loaderSessions.map((s) => s.id));
@@ -198,38 +194,31 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
       let next = prev;
       const inLayout = new Set(getAllSessionIds(next));
 
-      // Drop sessions the server no longer knows about, or that the current
-      // filter excludes. When a session is truly gone, forget it entirely so
-      // a same-id recreate would be treated as new.
       for (const sid of inLayout) {
         if (!allLiveIds.has(sid)) {
           next = removeSession(next, sid);
-          knownIdsRef.current.delete(sid);
           dismissedIdsRef.current.delete(sid);
         } else if (!eligibleIds.has(sid)) {
           next = removeSession(next, sid);
         }
       }
 
-      // Prepend sessions this browser has never seen that pass the filter.
-      // Iterate newest → oldest so insertAtStart leaves the newest at the
-      // leftmost position.
+      const layoutIds = new Set(getAllSessionIds(next));
       const toPrepend = eligibleSessions.filter(
-        (s) => !knownIdsRef.current.has(s.id) && !dismissedIdsRef.current.has(s.id),
+        (s) => !layoutIds.has(s.id) && !dismissedIdsRef.current.has(s.id),
       );
+      // Iterate newest → oldest so insertAtStart leaves the newest leftmost.
       for (let i = toPrepend.length - 1; i >= 0; i--) {
         next = insertAtStart(next, toPrepend[i].id);
-        knownIdsRef.current.add(toPrepend[i].id);
       }
 
-      persistKnown();
       persistDismissed();
       if (serializeLayout(next) !== serializeLayout(prev)) {
         setWindowPref(LAYOUT_KEY, serializeLayout(next));
       }
       return next;
     });
-  }, [eligibleSessions, loaderSessions, persistKnown, persistDismissed]);
+  }, [eligibleSessions, loaderSessions, persistDismissed]);
 
   // Set initial focus on the first terminal once layout has content.
   useEffect(() => {
@@ -280,15 +269,13 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   }, [focusedNodeId, layout, loaderSessions]);
 
   // Cmd+D: new session, placed as a column after the focused node's column.
+  // We insert at the explicit position before the reconcile effect runs;
+  // since the session is already in the layout, reconcile won't prepend it.
   const splitHorizontal = useCallback(async () => {
     const target = focusedNodeId;
     const cwd = focusedSession?.cwd;
     const session = await createSessionWith("$SHELL", cwd);
     if (!session) return;
-    // Mark as known *before* the reconcile effect runs so we manage the
-    // insertion location manually instead of prepending.
-    knownIdsRef.current.add(session.id);
-    persistKnown();
     setLayout((prev) => {
       if (!prev.root) return insertAtStart(prev, session.id);
       if (!target) return insertAtStart(prev, session.id);
@@ -297,7 +284,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
       if (newNode) setFocusedNodeId(newNode.id);
       return next;
     });
-  }, [focusedNodeId, focusedSession, createSessionWith, persistKnown, setLayout]);
+  }, [focusedNodeId, focusedSession, createSessionWith, setLayout]);
 
   // Cmd+Shift+D: new session, stacked below the focused leaf.
   const splitVertical = useCallback(async () => {
@@ -308,15 +295,13 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     const cwd = focusedSession?.cwd;
     const session = await createSessionWith("$SHELL", cwd);
     if (!session) return;
-    knownIdsRef.current.add(session.id);
-    persistKnown();
     setLayout((prev) => {
       const next = splitLeafVertical(prev, target, session.id);
       const newNode = findNodeBySessionId(next, session.id);
       if (newNode) setFocusedNodeId(newNode.id);
       return next;
     });
-  }, [focusedNodeId, focusedSession, layout, createSessionWith, persistKnown, setLayout]);
+  }, [focusedNodeId, focusedSession, layout, createSessionWith, setLayout]);
 
   // Cmd+Shift+N: new session as a fresh full-height column (leftmost).
   const newSession = useCallback(async () => {
