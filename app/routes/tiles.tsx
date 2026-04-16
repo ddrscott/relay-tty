@@ -67,6 +67,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 const LAYOUT_KEY = "relay-tty-tile-layout";
 const KNOWN_KEY = "relay-tty-tile-known";
 const DISMISSED_KEY = "relay-tty-tile-dismissed";
+const COLUMN_WIDTHS_KEY = "relay-tty-tile-column-widths";
 const SORT_STORE = "relay-tty-tile-sort";
 const SORT_DIR_STORE = "relay-tty-tile-sort-dir";
 const SHOW_INACTIVE_STORE = "relay-tty-tile-show-inactive";
@@ -116,6 +117,23 @@ function getStoredShowInactive(): boolean {
   return getWindowPref(SHOW_INACTIVE_STORE) === "true";
 }
 
+function getStoredColumnWidths(): Map<string, number> {
+  if (typeof window === "undefined") return new Map();
+  const raw = getWindowPref(COLUMN_WIDTHS_KEY);
+  if (!raw) return new Map();
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return new Map();
+    const entries: [string, number][] = [];
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "number" && v > 0) entries.push([k, v]);
+    }
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
 export default function Tiles({ loaderData }: Route.ComponentProps) {
   const { sessions: loaderSessions, hostname } = loaderData as {
     sessions: Session[];
@@ -133,6 +151,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
 
   const [layout, setLayoutState] = useState<TileLayout>(getStoredLayout);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
   const knownIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(KNOWN_KEY)));
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
 
@@ -338,6 +357,15 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     },
     [setLayout],
   );
+
+  const handleColumnWidthChange = useCallback((nodeId: string, width: number) => {
+    setColumnWidths((prev) => {
+      const next = new Map(prev);
+      next.set(nodeId, width);
+      setWindowPref(COLUMN_WIDTHS_KEY, JSON.stringify(Object.fromEntries(next)));
+      return next;
+    });
+  }, []);
 
   const handleFontSizeDelta = useCallback((sessionId: string, delta: number) => {
     setFontSizes((prev) => {
@@ -630,6 +658,8 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             onResize={handleResize}
             getFontSize={getFontSize}
             onFontSizeDelta={handleFontSizeDelta}
+            columnWidths={columnWidths}
+            onColumnWidthChange={handleColumnWidthChange}
             isRoot
           />
         )}

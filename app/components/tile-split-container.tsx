@@ -4,6 +4,9 @@ import type { TileNode } from "../../shared/tile-layout";
 import { TilePane } from "./tile-pane";
 import type { Session } from "../../shared/types";
 
+export const DEFAULT_COLUMN_WIDTH = 640; // ~80 cols at default font size
+export const MIN_COLUMN_WIDTH = 200;
+
 interface TileSplitContainerProps {
   node: TileNode;
   sessions: Session[];
@@ -13,21 +16,17 @@ interface TileSplitContainerProps {
   onResize: (splitId: string, sizes: number[]) => void;
   getFontSize: (sessionId: string) => number;
   onFontSizeDelta: (sessionId: string, delta: number) => void;
+  columnWidths: Map<string, number>;
+  onColumnWidthChange: (nodeId: string, width: number) => void;
   isRoot?: boolean;
 }
 
-/** Recursively renders a layout tree with flex + drag handles between siblings. */
-export function TileSplitContainer({
-  node,
-  sessions,
-  focusedNodeId,
-  onFocus,
-  onClosePane,
-  onResize,
-  getFontSize,
-  onFontSizeDelta,
-  isRoot = false,
-}: TileSplitContainerProps) {
+/** Recursively renders a layout tree. Horizontal splits use per-column pixel
+ *  widths (iTerm-style: each lane has its own width, container overflows and
+ *  scrolls horizontally). Vertical splits use percentage-based flex sizing. */
+export function TileSplitContainer(props: TileSplitContainerProps) {
+  const { node, sessions, focusedNodeId, onFocus, onClosePane, getFontSize, onFontSizeDelta } = props;
+
   if (node.type === "terminal") {
     const session = sessions.find((s) => s.id === node.sessionId);
     if (!session) return null;
@@ -44,57 +43,81 @@ export function TileSplitContainer({
     );
   }
 
+  if (node.direction === "horizontal") {
+    return <HorizontalSplit split={node} {...props} />;
+  }
+  return <VerticalSplit split={node} {...props} />;
+}
+
+type SplitInnerProps = TileSplitContainerProps & {
+  split: Extract<TileNode, { type: "split" }>;
+};
+
+function getColumnWidth(widths: Map<string, number>, nodeId: string): number {
+  return widths.get(nodeId) ?? DEFAULT_COLUMN_WIDTH;
+}
+
+/** Horizontal split: each child is a fixed-pixel-width column. Container
+ *  overflows when total width exceeds the viewport (root-level only). */
+function HorizontalSplit({
+  split,
+  node: _node,
+  columnWidths,
+  onColumnWidthChange,
+  isRoot,
+  ...rest
+}: SplitInnerProps) {
   return (
-    <SplitContainerInner
-      split={node}
-      sessions={sessions}
-      focusedNodeId={focusedNodeId}
-      onFocus={onFocus}
-      onClosePane={onClosePane}
-      onResize={onResize}
-      getFontSize={getFontSize}
-      onFontSizeDelta={onFontSizeDelta}
-      isRoot={isRoot}
-    />
+    <div
+      className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
+      style={{ minHeight: 0 }}
+    >
+      {split.children.map((child) => {
+        const width = getColumnWidth(columnWidths, child.id);
+        return (
+          <div
+            key={child.id}
+            className="relative flex flex-col shrink-0 h-full"
+            style={{ width: `${width}px`, minWidth: `${width}px` }}
+          >
+            <TileSplitContainer
+              node={child}
+              columnWidths={columnWidths}
+              onColumnWidthChange={onColumnWidthChange}
+              {...rest}
+            />
+            <ColumnResizeHandle
+              getCurrentWidth={() => getColumnWidth(columnWidths, child.id)}
+              onWidthChange={(w) => onColumnWidthChange(child.id, w)}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
-interface SplitContainerInnerProps extends Omit<TileSplitContainerProps, "node"> {
-  split: Extract<TileNode, { type: "split" }>;
-}
-
-function SplitContainerInner({
-  split,
-  sessions,
-  focusedNodeId,
-  onFocus,
-  onClosePane,
-  onResize,
-  getFontSize,
-  onFontSizeDelta,
-  isRoot,
-}: SplitContainerInnerProps) {
+/** Vertical split: percentage-based flex sizes (top/bottom share column height). */
+function VerticalSplit(props: SplitInnerProps) {
+  const { split, onResize } = props;
   const containerRef = useRef<HTMLDivElement>(null);
-  const horizontal = split.direction === "horizontal";
 
   const handleDragStart = useCallback(
     (index: number, startEvt: React.PointerEvent<HTMLDivElement>) => {
       startEvt.preventDefault();
       const container = containerRef.current;
       if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const totalPx = horizontal ? rect.width : rect.height;
+      const totalPx = container.getBoundingClientRect().height;
       if (totalPx <= 0) return;
 
-      const startPoint = horizontal ? startEvt.clientX : startEvt.clientY;
+      const startPoint = startEvt.clientY;
       const startSizes = [...split.sizes];
       const combined = startSizes[index] + startSizes[index + 1];
-      const minPct = Math.max(5, (100 * 80) / totalPx); // ≥80px or 5%
+      const minPct = Math.max(5, (100 * 80) / totalPx);
       (startEvt.target as Element).setPointerCapture?.(startEvt.pointerId);
 
       function onMove(e: PointerEvent) {
-        const point = horizontal ? e.clientX : e.clientY;
-        const deltaPct = ((point - startPoint) / totalPx) * 100;
+        const deltaPct = ((e.clientY - startPoint) / totalPx) * 100;
         let a = startSizes[index] + deltaPct;
         let b = combined - a;
         if (a < minPct) {
@@ -121,12 +144,12 @@ function SplitContainerInner({
       document.addEventListener("pointerup", onUp);
       document.addEventListener("pointercancel", onUp);
     },
-    [horizontal, split.id, split.sizes, onResize],
+    [split.id, split.sizes, onResize],
   );
 
   const containerStyle: CSSProperties = {
     display: "flex",
-    flexDirection: horizontal ? "row" : "column",
+    flexDirection: "column",
     width: "100%",
     height: "100%",
     minWidth: 0,
@@ -134,11 +157,7 @@ function SplitContainerInner({
   };
 
   return (
-    <div
-      ref={containerRef}
-      style={containerStyle}
-      className={isRoot ? "bg-[#0a0a0f]" : undefined}
-    >
+    <div ref={containerRef} style={containerStyle}>
       {split.children.map((child, i) => {
         const size = split.sizes[i] ?? 100 / split.children.length;
         const childStyle: CSSProperties = {
@@ -150,24 +169,11 @@ function SplitContainerInner({
         };
         return (
           <div key={child.id} style={childStyle}>
-            <TileSplitContainer
-              node={child}
-              sessions={sessions}
-              focusedNodeId={focusedNodeId}
-              onFocus={onFocus}
-              onClosePane={onClosePane}
-              onResize={onResize}
-              getFontSize={getFontSize}
-              onFontSizeDelta={onFontSizeDelta}
-            />
+            <TileSplitContainer {...props} node={child} isRoot={false} />
             {i < split.children.length - 1 && (
               <div
                 onPointerDown={(e) => handleDragStart(i, e)}
-                className={
-                  horizontal
-                    ? "absolute top-0 right-[-3px] w-[6px] h-full z-10 cursor-ew-resize hover:bg-[#3b82f6]/40"
-                    : "absolute left-0 bottom-[-3px] h-[6px] w-full z-10 cursor-ns-resize hover:bg-[#3b82f6]/40"
-                }
+                className="absolute left-0 bottom-[-3px] h-[6px] w-full z-10 cursor-ns-resize hover:bg-[#3b82f6]/40"
                 style={{ touchAction: "none" }}
               />
             )}
@@ -175,5 +181,46 @@ function SplitContainerInner({
         );
       })}
     </div>
+  );
+}
+
+/** Right-edge drag handle; adjusts this column's absolute width only. */
+function ColumnResizeHandle({
+  getCurrentWidth,
+  onWidthChange,
+}: {
+  getCurrentWidth: () => number;
+  onWidthChange: (width: number) => void;
+}) {
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startWidth = getCurrentWidth();
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+
+      function onMove(me: PointerEvent) {
+        const delta = me.clientX - startX;
+        onWidthChange(Math.max(MIN_COLUMN_WIDTH, startWidth + delta));
+      }
+      function onUp() {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onUp);
+      }
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
+    },
+    [getCurrentWidth, onWidthChange],
+  );
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      className="absolute top-0 right-[-3px] w-[6px] h-full z-10 cursor-ew-resize hover:bg-[#3b82f6]/40"
+      style={{ touchAction: "none" }}
+    />
   );
 }
