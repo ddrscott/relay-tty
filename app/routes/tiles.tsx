@@ -402,20 +402,21 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
       const targetColumnId = colEl.getAttribute("data-tile-column-id")!;
       const rect = colEl.getBoundingClientRect();
 
-      // Classify into one of four triangular zones that meet at the center:
-      // top / bottom / left / right. Uses normalized offsets so the zone
-      // boundaries are the diagonals of the column rather than pure pixel
-      // distance (which would bias lateral zones in tall/narrow columns).
-      const nX = (clientX - rect.left) / rect.width - 0.5;
-      const nY = (clientY - rect.top) / rect.height - 0.5;
+      // Explicit banded zones so top/bottom are easy to hit reliably
+      // regardless of column width. Top/bottom each claim 25% of height;
+      // the middle 50% band is lateral (left/right by horizontal midline).
+      const TOP_BAND = 0.25;
+      const BOT_BAND = 0.75;
+      const relY = (clientY - rect.top) / rect.height;
+      const relX = (clientX - rect.left) / rect.width;
       const zone: DropZone =
-        Math.abs(nY) > Math.abs(nX)
-          ? nY < 0
-            ? "top"
-            : "bottom"
-          : nX < 0
-            ? "left"
-            : "right";
+        relY < TOP_BAND
+          ? "top"
+          : relY > BOT_BAND
+            ? "bottom"
+            : relX < 0.5
+              ? "left"
+              : "right";
 
       // Resolve the target *pane* under the cursor when stacking so that
       // top/bottom on a multi-pane stack targets the correct sibling pane
