@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from "react-router";
-import { List, LayoutGrid, Columns, Activity } from "lucide-react";
+import { List, LayoutGrid, Columns, Activity, PanelsTopLeft } from "lucide-react";
 
 const LAYOUTS = [
   { icon: List, title: "Home", path: "/" },
   { icon: Activity, title: "Activity", path: "/activity" },
   { icon: LayoutGrid, title: "Grid", path: "/grid" },
   { icon: Columns, title: "Lanes", path: "/lanes" },
+  { icon: PanelsTopLeft, title: "Tiles", path: "/tiles" },
 ] as const;
 
 /**
