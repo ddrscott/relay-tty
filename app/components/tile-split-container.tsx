@@ -11,7 +11,7 @@ interface TileSplitContainerProps extends TilePaneDragCallbacks {
   node: TileNode;
   sessions: Session[];
   focusedNodeId: string | null;
-  dragSourceColumnId: string | null;
+  dragSourcePaneId: string | null;
   onFocus: (nodeId: string) => void;
   onClosePane: (nodeId: string) => void;
   onResize: (splitId: string, sizes: number[]) => void;
@@ -30,7 +30,7 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
     node,
     sessions,
     focusedNodeId,
-    dragSourceColumnId,
+    dragSourcePaneId,
     onFocus,
     onClosePane,
     getFontSize,
@@ -48,7 +48,7 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
         node={node}
         session={session}
         focused={focusedNodeId === node.id}
-        isDragSource={dragSourceColumnId === node.id}
+        isDragSource={dragSourcePaneId === node.id}
         onFocus={() => onFocus(node.id)}
         onClose={() => onClosePane(node.id)}
         onDragStart={onDragStart}
@@ -91,14 +91,11 @@ function HorizontalSplit({
     >
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
-        const isDragSource = rest.dragSourceColumnId === child.id;
         return (
           <div
             key={child.id}
             data-tile-column-id={child.id}
-            className={`relative flex flex-col shrink-0 h-full transition-opacity ${
-              isDragSource ? "opacity-40" : ""
-            }`}
+            className="relative flex flex-col shrink-0 h-full"
             style={{ width: `${width}px`, minWidth: `${width}px` }}
           >
             <TileSplitContainer

@@ -245,6 +245,167 @@ function indexOfColumnContaining(root: SplitNode, nodeId: string): number {
   return -1;
 }
 
+/** Insert a new column immediately before the column containing targetNodeId. */
+export function insertBeforeColumn(
+  layout: TileLayout,
+  targetNodeId: string,
+  sessionId: string,
+): TileLayout {
+  if (!layout.root) return createLayoutWithTerminal(sessionId);
+  const leaf = terminal(sessionId);
+
+  if (layout.root.type === "terminal") {
+    if (layout.root.id !== targetNodeId) return layout;
+    return {
+      root: {
+        type: "split",
+        id: newId(),
+        direction: "horizontal",
+        children: [leaf, clone(layout.root)],
+        sizes: equalShares(2),
+      },
+      version: layout.version,
+    };
+  }
+
+  const columnIndex = indexOfColumnContaining(layout.root, targetNodeId);
+  if (columnIndex < 0) return layout;
+
+  const next: SplitNode = {
+    ...layout.root,
+    children: layout.root.children
+      .map(clone)
+      .flatMap((c, i) => (i === columnIndex ? [leaf, c] : [c])),
+    sizes: equalShares(layout.root.children.length + 1),
+  };
+  return { root: next, version: layout.version };
+}
+
+/** Insert a new terminal at the top of the column containing targetNodeId.
+ *  Promotes a lone-terminal column to a vertical stack as needed. */
+export function insertAtColumnTop(
+  layout: TileLayout,
+  targetNodeId: string,
+  sessionId: string,
+): TileLayout {
+  return insertIntoColumn(layout, targetNodeId, sessionId, "top");
+}
+
+/** Insert a new terminal at the bottom of the column containing targetNodeId. */
+export function insertAtColumnBottom(
+  layout: TileLayout,
+  targetNodeId: string,
+  sessionId: string,
+): TileLayout {
+  return insertIntoColumn(layout, targetNodeId, sessionId, "bottom");
+}
+
+function insertIntoColumn(
+  layout: TileLayout,
+  targetNodeId: string,
+  sessionId: string,
+  edge: "top" | "bottom",
+): TileLayout {
+  if (!layout.root) return createLayoutWithTerminal(sessionId);
+  const leaf = terminal(sessionId);
+
+  function wrapTerminalCol(col: TerminalNode): SplitNode {
+    const kids = edge === "top" ? [leaf, clone(col)] : [clone(col), leaf];
+    return {
+      type: "split",
+      id: newId(),
+      direction: "vertical",
+      children: kids,
+      sizes: equalShares(2),
+    };
+  }
+
+  function extendVerticalCol(col: SplitNode): SplitNode {
+    const kids = col.children.map(clone);
+    if (edge === "top") kids.unshift(leaf);
+    else kids.push(leaf);
+    return { ...col, children: kids, sizes: equalShares(kids.length) };
+  }
+
+  // Root is a lone terminal — either matches the target or we no-op.
+  if (layout.root.type === "terminal") {
+    if (layout.root.id !== targetNodeId) return layout;
+    return { root: wrapTerminalCol(layout.root), version: layout.version };
+  }
+
+  // Root is a vertical split (single-column layout with a stack).
+  if (layout.root.direction === "vertical") {
+    if (indexOfColumnContaining(layout.root, targetNodeId) < 0 && layout.root.id !== targetNodeId) {
+      return layout;
+    }
+    return { root: extendVerticalCol(layout.root), version: layout.version };
+  }
+
+  // Root is horizontal split — rewrite the matching column.
+  const root = layout.root;
+  const columnIndex = indexOfColumnContaining(root, targetNodeId);
+  if (columnIndex < 0) return layout;
+  const children = root.children.map((col, i): TileNode => {
+    if (i !== columnIndex) return clone(col);
+    if (col.type === "terminal") return wrapTerminalCol(col);
+    if (col.type === "split" && col.direction === "vertical") return extendVerticalCol(col);
+    return clone(col);
+  });
+  return { root: { ...root, children, sizes: [...root.sizes] }, version: layout.version };
+}
+
+export type DropZone = "left" | "right" | "top" | "bottom";
+
+/**
+ * Move a pane (terminal leaf) to a drop zone relative to a target node.
+ * The source is removed from its current location (collapsing splits that
+ * end up with one child), then reinserted:
+ *   - left/right: as a new column before/after the target's column
+ *   - top/bottom: as a new pane at the top/bottom of the target's column stack
+ *
+ * No-ops on self-drops and other invalid combinations.
+ */
+export function movePane(
+  layout: TileLayout,
+  sourcePaneId: string,
+  targetNodeId: string,
+  zone: DropZone,
+): TileLayout {
+  const source = findNodeById(layout, sourcePaneId);
+  if (!source || source.type !== "terminal") return layout;
+  if (sourcePaneId === targetNodeId) return layout;
+
+  const sessionId = source.sessionId;
+  const sourceColumnId = findColumnOf(layout, sourcePaneId);
+  const targetColumnId = findColumnOf(layout, targetNodeId);
+  if (!sourceColumnId || !targetColumnId) return layout;
+
+  const afterRemove = removeNode(layout, sourcePaneId);
+  if (!afterRemove.root) {
+    // Source was the only pane. Re-insert into the (empty) layout.
+    return createLayoutWithTerminal(sessionId);
+  }
+
+  // The target may have been nested inside a split that collapsed when the
+  // source was removed (same-column top/bottom reorder). Resolve again.
+  let targetAnchor = findNodeById(afterRemove, targetNodeId);
+  if (!targetAnchor) {
+    targetAnchor = findNodeById(afterRemove, targetColumnId);
+  }
+  if (!targetAnchor) return layout;
+
+  switch (zone) {
+    case "left":
+      return insertBeforeColumn(afterRemove, targetAnchor.id, sessionId);
+    case "right":
+      return insertAfterColumn(afterRemove, targetAnchor.id, sessionId);
+    case "top":
+      return insertAtColumnTop(afterRemove, targetAnchor.id, sessionId);
+    case "bottom":
+      return insertAtColumnBottom(afterRemove, targetAnchor.id, sessionId);
+  }
+}
+
 /**
  * Stack a new terminal below the target leaf (within its column).
  * - If target is a lone terminal, promote to a vertical split.

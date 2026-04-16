@@ -10,7 +10,11 @@ import {
   insertAfterColumn,
   insertAtEnd,
   insertAtStart,
+  insertBeforeColumn,
+  insertAtColumnTop,
+  insertAtColumnBottom,
   moveColumn,
+  movePane,
   reconcile,
   removeSession,
   resizeSplit,
@@ -260,6 +264,95 @@ describe("tile-layout: moveColumn", () => {
     assert.equal(rs.children[0].type, "terminal");
     assert.equal(rs.children[1].type, "terminal");
     assert.equal(rs.children[2].type, "split");
+  });
+});
+
+describe("tile-layout: insertBeforeColumn / insertAtColumnTop / insertAtColumnBottom", () => {
+  it("inserts a new column immediately before the target's column", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b"); // [a, b]
+    const b = findNodeBySessionId(l, "b")!;
+    l = insertBeforeColumn(l, b.id, "NEW");
+    assert.deepEqual(getAllSessionIds(l), ["a", "NEW", "b"]);
+  });
+
+  it("promotes a lone-terminal column to a vertical stack when stacking at top", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b"); // [a, b]
+    const b = findNodeBySessionId(l, "b")!;
+    l = insertAtColumnTop(l, b.id, "B0");
+    const rs = rootSplit(l);
+    const bCol = rs.children[1];
+    assert.ok(bCol.type === "split" && bCol.direction === "vertical");
+    assert.deepEqual(
+      bCol.children.map((c) => (c.type === "terminal" ? c.sessionId : "?")),
+      ["B0", "b"],
+    );
+  });
+
+  it("appends to bottom of an existing vertical stack", () => {
+    let l = createLayoutWithTerminal("a");
+    const a = findNodeBySessionId(l, "a")!;
+    l = splitLeafVertical(l, a.id, "a2"); // vertical[a, a2]
+    l = insertAtColumnBottom(l, a.id, "a3");
+    const rs = rootSplit(l);
+    assert.equal(rs.direction, "vertical");
+    assert.deepEqual(
+      rs.children.map((c) => (c.type === "terminal" ? c.sessionId : "?")),
+      ["a", "a2", "a3"],
+    );
+  });
+});
+
+describe("tile-layout: movePane", () => {
+  it("moves a pane from one column to the right of another", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b");
+    l = insertAtEnd(l, "c"); // [a, b, c]
+    const a = findNodeBySessionId(l, "a")!;
+    const c = findNodeBySessionId(l, "c")!;
+    const moved = movePane(l, a.id, c.id, "right");
+    assert.deepEqual(getAllSessionIds(moved), ["b", "c", "a"]);
+  });
+
+  it("stacks a pane on top of another column's pane", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b"); // [a, b]
+    const a = findNodeBySessionId(l, "a")!;
+    const b = findNodeBySessionId(l, "b")!;
+    const moved = movePane(l, a.id, b.id, "top");
+    // Expect root to collapse to a single column that's a vertical stack [a, b]
+    assert.ok(moved.root && moved.root.type === "split" && moved.root.direction === "vertical");
+    if (moved.root.type === "split") {
+      assert.deepEqual(
+        moved.root.children.map((c) => (c.type === "terminal" ? c.sessionId : "?")),
+        ["a", "b"],
+      );
+    }
+  });
+
+  it("reorders within a vertical stack (move pane to top)", () => {
+    let l = createLayoutWithTerminal("a");
+    const a = findNodeBySessionId(l, "a")!;
+    l = splitLeafVertical(l, a.id, "b"); // vertical[a, b]
+    l = splitLeafVertical(l, findNodeBySessionId(l, "b")!.id, "c"); // vertical[a, b, c]
+    const c = findNodeBySessionId(l, "c")!;
+    const a2 = findNodeBySessionId(l, "a")!;
+    const moved = movePane(l, c.id, a2.id, "top");
+    const rs = rootSplit(moved);
+    assert.deepEqual(
+      rs.children.map((cc) => (cc.type === "terminal" ? cc.sessionId : "?")),
+      ["c", "a", "b"],
+    );
+  });
+
+  it("is a no-op when dropping a pane onto itself", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b");
+    const a = findNodeBySessionId(l, "a")!;
+    const before = serializeLayout(l);
+    const after = movePane(l, a.id, a.id, "right");
+    assert.equal(serializeLayout(after), before);
   });
 });
 

@@ -12,12 +12,13 @@ import {
   getFirstTerminal,
   insertAfterColumn,
   insertAtStart,
-  moveColumn,
+  movePane,
   removeNode,
   removeSession,
   resizeSplit,
   serializeLayout,
   splitLeafVertical,
+  type DropZone,
   type TileLayout,
 } from "../../shared/tile-layout";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
@@ -155,12 +156,19 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
 
-  // Drag-and-drop state for column reorder.
+  // Drag-and-drop state for pane reorder (4-way zones).
   const [dragState, setDragState] = useState<{
+    sourcePaneId: string;
     sourceColumnId: string;
-    targetColumnId: string | null;
-    position: "before" | "after";
-    dropX: number | null;
+    targetNodeId: string | null;
+    zone: DropZone;
+    indicator: {
+      top: number;
+      left: number;
+      width: number;
+      height: number;
+      orientation: "vertical" | "horizontal";
+    } | null;
   } | null>(null);
   const dragStateRef = useRef(dragState);
   dragStateRef.current = dragState;
@@ -364,24 +372,97 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     });
   }, []);
 
-  // ── Column reorder via drag-and-drop ────────────────────────────────────
-  const resolveColumnAt = useCallback(
+  // ── Pane reorder via drag-and-drop (4-way zones) ────────────────────────
+  //
+  // For each column, the closest edge to the pointer determines the zone:
+  //   left/right → insert as a new column before/after the target column
+  //   top/bottom → stack at the top/bottom of the target column
+  const resolveDropAt = useCallback(
     (
       clientX: number,
       clientY: number,
-    ): { columnId: string; position: "before" | "after"; dropX: number } | null => {
+    ): {
+      targetNodeId: string;
+      targetColumnId: string;
+      zone: DropZone;
+      indicator: {
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+        orientation: "vertical" | "horizontal";
+      };
+    } | null => {
       if (typeof document === "undefined") return null;
-      const root = document.elementFromPoint(clientX, clientY);
-      const colEl = (root as HTMLElement | null)?.closest("[data-tile-column-id]") as
+      const elAt = document.elementFromPoint(clientX, clientY);
+      const colEl = (elAt as HTMLElement | null)?.closest("[data-tile-column-id]") as
         | HTMLElement
         | null;
       if (!colEl) return null;
-      const columnId = colEl.getAttribute("data-tile-column-id")!;
+      const targetColumnId = colEl.getAttribute("data-tile-column-id")!;
       const rect = colEl.getBoundingClientRect();
-      const position: "before" | "after" =
-        clientX < rect.left + rect.width / 2 ? "before" : "after";
-      const dropX = position === "before" ? rect.left : rect.right;
-      return { columnId, position, dropX };
+
+      // Classify into one of four triangular zones that meet at the center:
+      // top / bottom / left / right. Uses normalized offsets so the zone
+      // boundaries are the diagonals of the column rather than pure pixel
+      // distance (which would bias lateral zones in tall/narrow columns).
+      const nX = (clientX - rect.left) / rect.width - 0.5;
+      const nY = (clientY - rect.top) / rect.height - 0.5;
+      const zone: DropZone =
+        Math.abs(nY) > Math.abs(nX)
+          ? nY < 0
+            ? "top"
+            : "bottom"
+          : nX < 0
+            ? "left"
+            : "right";
+
+      // Resolve the target *pane* under the cursor when stacking so that
+      // top/bottom on a multi-pane stack targets the correct sibling pane
+      // (keeps intra-column reorder predictable).
+      let targetNodeId = targetColumnId;
+      if (zone === "top" || zone === "bottom") {
+        // Look for the pane immediately under the cursor.
+        const paneEl = (elAt as HTMLElement | null)?.closest("[data-tile-pane-id]") as
+          | HTMLElement
+          | null;
+        if (paneEl) targetNodeId = paneEl.getAttribute("data-tile-pane-id") ?? targetColumnId;
+      }
+
+      const indicator =
+        zone === "left"
+          ? {
+              top: rect.top,
+              left: rect.left - 1,
+              width: 3,
+              height: rect.height,
+              orientation: "vertical" as const,
+            }
+          : zone === "right"
+            ? {
+                top: rect.top,
+                left: rect.right - 2,
+                width: 3,
+                height: rect.height,
+                orientation: "vertical" as const,
+              }
+            : zone === "top"
+              ? {
+                  top: rect.top - 1,
+                  left: rect.left,
+                  width: rect.width,
+                  height: 3,
+                  orientation: "horizontal" as const,
+                }
+              : {
+                  top: rect.bottom - 2,
+                  left: rect.left,
+                  width: rect.width,
+                  height: 3,
+                  orientation: "horizontal" as const,
+                };
+
+      return { targetNodeId, targetColumnId, zone, indicator };
     },
     [],
   );
@@ -390,7 +471,13 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     (nodeId: string) => {
       const columnId = findColumnOf(layout, nodeId);
       if (!columnId) return;
-      setDragState({ sourceColumnId: columnId, targetColumnId: null, position: "before", dropX: null });
+      setDragState({
+        sourcePaneId: nodeId,
+        sourceColumnId: columnId,
+        targetNodeId: null,
+        zone: "right",
+        indicator: null,
+      });
     },
     [layout],
   );
@@ -399,28 +486,36 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     (clientX: number, clientY: number) => {
       const current = dragStateRef.current;
       if (!current) return;
-      const hit = resolveColumnAt(clientX, clientY);
-      if (!hit || hit.columnId === current.sourceColumnId) {
-        setDragState({ ...current, targetColumnId: null, dropX: null });
+      const hit = resolveDropAt(clientX, clientY);
+      if (!hit) {
+        setDragState({ ...current, targetNodeId: null, indicator: null });
+        return;
+      }
+      // Don't show indicator for drops that would be a no-op: dropping onto
+      // yourself, or left/right within your own column.
+      const sameColumn = hit.targetColumnId === current.sourceColumnId;
+      const lateral = hit.zone === "left" || hit.zone === "right";
+      const onSelf = hit.targetNodeId === current.sourcePaneId;
+      if (onSelf || (sameColumn && lateral)) {
+        setDragState({ ...current, targetNodeId: null, indicator: null });
         return;
       }
       setDragState({
         ...current,
-        targetColumnId: hit.columnId,
-        position: hit.position,
-        dropX: hit.dropX,
+        targetNodeId: hit.targetNodeId,
+        zone: hit.zone,
+        indicator: hit.indicator,
       });
     },
-    [resolveColumnAt],
+    [resolveDropAt],
   );
 
   const handleDragEnd = useCallback(() => {
     const current = dragStateRef.current;
     setDragState(null);
-    if (!current || !current.targetColumnId) return;
-    if (current.targetColumnId === current.sourceColumnId) return;
+    if (!current || !current.targetNodeId) return;
     setLayout((prev) =>
-      moveColumn(prev, current.sourceColumnId, current.targetColumnId!, current.position),
+      movePane(prev, current.sourcePaneId, current.targetNodeId!, current.zone),
     );
   }, [setLayout]);
 
@@ -710,7 +805,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             node={layout.root!}
             sessions={loaderSessions}
             focusedNodeId={focusedNodeId}
-            dragSourceColumnId={dragState?.sourceColumnId ?? null}
+            dragSourcePaneId={dragState?.sourcePaneId ?? null}
             onFocus={handleFocusNode}
             onClosePane={handleClosePane}
             onResize={handleResize}
@@ -725,10 +820,15 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {dragState?.dropX != null && (
+        {dragState?.indicator && (
           <div
-            className="fixed top-0 bottom-0 w-[3px] bg-[#3b82f6] shadow-[0_0_6px_rgba(59,130,246,0.8)] pointer-events-none z-50"
-            style={{ left: dragState.dropX - 1 }}
+            className="fixed bg-[#3b82f6] shadow-[0_0_6px_rgba(59,130,246,0.8)] pointer-events-none z-50 rounded-sm"
+            style={{
+              top: dragState.indicator.top,
+              left: dragState.indicator.left,
+              width: dragState.indicator.width,
+              height: dragState.indicator.height,
+            }}
           />
         )}
       </div>
