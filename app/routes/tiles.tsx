@@ -5,12 +5,14 @@ import type { Session } from "../../shared/types";
 import {
   createEmptyLayout,
   deserializeLayout,
+  findColumnOf,
   findNodeById,
   findNodeBySessionId,
   getAllSessionIds,
   getFirstTerminal,
   insertAfterColumn,
   insertAtStart,
+  moveColumn,
   removeNode,
   removeSession,
   resizeSplit,
@@ -152,6 +154,16 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
+
+  // Drag-and-drop state for column reorder.
+  const [dragState, setDragState] = useState<{
+    sourceColumnId: string;
+    targetColumnId: string | null;
+    position: "before" | "after";
+    dropX: number | null;
+  } | null>(null);
+  const dragStateRef = useRef(dragState);
+  dragStateRef.current = dragState;
 
   // Per-session font sizes (same scheme as lanes/sessions routes).
   const [fontSizes, setFontSizes] = useState<Map<string, number>>(() => {
@@ -351,6 +363,66 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
       return next;
     });
   }, []);
+
+  // ── Column reorder via drag-and-drop ────────────────────────────────────
+  const resolveColumnAt = useCallback(
+    (
+      clientX: number,
+      clientY: number,
+    ): { columnId: string; position: "before" | "after"; dropX: number } | null => {
+      if (typeof document === "undefined") return null;
+      const root = document.elementFromPoint(clientX, clientY);
+      const colEl = (root as HTMLElement | null)?.closest("[data-tile-column-id]") as
+        | HTMLElement
+        | null;
+      if (!colEl) return null;
+      const columnId = colEl.getAttribute("data-tile-column-id")!;
+      const rect = colEl.getBoundingClientRect();
+      const position: "before" | "after" =
+        clientX < rect.left + rect.width / 2 ? "before" : "after";
+      const dropX = position === "before" ? rect.left : rect.right;
+      return { columnId, position, dropX };
+    },
+    [],
+  );
+
+  const handleDragStart = useCallback(
+    (nodeId: string) => {
+      const columnId = findColumnOf(layout, nodeId);
+      if (!columnId) return;
+      setDragState({ sourceColumnId: columnId, targetColumnId: null, position: "before", dropX: null });
+    },
+    [layout],
+  );
+
+  const handleDragMove = useCallback(
+    (clientX: number, clientY: number) => {
+      const current = dragStateRef.current;
+      if (!current) return;
+      const hit = resolveColumnAt(clientX, clientY);
+      if (!hit || hit.columnId === current.sourceColumnId) {
+        setDragState({ ...current, targetColumnId: null, dropX: null });
+        return;
+      }
+      setDragState({
+        ...current,
+        targetColumnId: hit.columnId,
+        position: hit.position,
+        dropX: hit.dropX,
+      });
+    },
+    [resolveColumnAt],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    const current = dragStateRef.current;
+    setDragState(null);
+    if (!current || !current.targetColumnId) return;
+    if (current.targetColumnId === current.sourceColumnId) return;
+    setLayout((prev) =>
+      moveColumn(prev, current.sourceColumnId, current.targetColumnId!, current.position),
+    );
+  }, [setLayout]);
 
   const handleFontSizeDelta = useCallback((sessionId: string, delta: number) => {
     setFontSizes((prev) => {
@@ -638,6 +710,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             node={layout.root!}
             sessions={loaderSessions}
             focusedNodeId={focusedNodeId}
+            dragSourceColumnId={dragState?.sourceColumnId ?? null}
             onFocus={handleFocusNode}
             onClosePane={handleClosePane}
             onResize={handleResize}
@@ -645,7 +718,17 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             onFontSizeDelta={handleFontSizeDelta}
             columnWidths={columnWidths}
             onColumnWidthChange={handleColumnWidthChange}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragEnd={handleDragEnd}
             isRoot
+          />
+        )}
+
+        {dragState?.dropX != null && (
+          <div
+            className="fixed top-0 bottom-0 w-[3px] bg-[#3b82f6] shadow-[0_0_6px_rgba(59,130,246,0.8)] pointer-events-none z-50"
+            style={{ left: dragState.dropX - 1 }}
           />
         )}
       </div>

@@ -10,6 +10,7 @@ import {
   insertAfterColumn,
   insertAtEnd,
   insertAtStart,
+  moveColumn,
   reconcile,
   removeSession,
   resizeSplit,
@@ -198,6 +199,67 @@ describe("tile-layout: resizeSplit", () => {
     const rs = rootSplit(l);
     const resized = resizeSplit(l, rs.id, [70, 30]);
     assert.deepEqual(rootSplit(resized).sizes, [70, 30]);
+  });
+});
+
+describe("tile-layout: moveColumn", () => {
+  function sessionOrder(layout: ReturnType<typeof rootSplit>): string[] {
+    return layout.children.map((c) =>
+      c.type === "terminal" ? c.sessionId : c.type === "split" ? `split(${c.children.map((cc) => (cc.type === "terminal" ? cc.sessionId : "?")).join(",")})` : "?",
+    );
+  }
+
+  it("moves a column to the right (before target past it)", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b");
+    l = insertAtEnd(l, "c");
+    l = insertAtEnd(l, "d"); // [a, b, c, d]
+    const a = rootSplit(l).children[0];
+    const c = rootSplit(l).children[2];
+    const moved = moveColumn(l, a.id, c.id, "after");
+    assert.deepEqual(sessionOrder(rootSplit(moved)), ["b", "c", "a", "d"]);
+  });
+
+  it("moves a column to the left (before target)", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b");
+    l = insertAtEnd(l, "c"); // [a, b, c]
+    const c = rootSplit(l).children[2];
+    const a = rootSplit(l).children[0];
+    const moved = moveColumn(l, c.id, a.id, "before");
+    assert.deepEqual(sessionOrder(rootSplit(moved)), ["c", "a", "b"]);
+  });
+
+  it("is a no-op when source equals target", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b");
+    const a = rootSplit(l).children[0];
+    const before = serializeLayout(l);
+    const after = moveColumn(l, a.id, a.id, "before");
+    assert.equal(serializeLayout(after), before);
+  });
+
+  it("is a no-op when the layout is a single terminal", () => {
+    const l = createLayoutWithTerminal("a");
+    const before = serializeLayout(l);
+    const after = moveColumn(l, "whatever", "another", "after");
+    assert.equal(serializeLayout(after), before);
+  });
+
+  it("preserves vertical-split columns as whole units", () => {
+    let l = createLayoutWithTerminal("a");
+    l = insertAtEnd(l, "b"); // [a, b]
+    const a = findNodeBySessionId(l, "a")!;
+    l = splitLeafVertical(l, a.id, "a2"); // column 0 becomes v-split[a, a2]
+    l = insertAtEnd(l, "c"); // [v(a,a2), b, c]
+    const col0 = rootSplit(l).children[0];
+    const c = rootSplit(l).children[2];
+    const moved = moveColumn(l, col0.id, c.id, "after");
+    // Expect [b, c, v(a,a2)]
+    const rs = rootSplit(moved);
+    assert.equal(rs.children[0].type, "terminal");
+    assert.equal(rs.children[1].type, "terminal");
+    assert.equal(rs.children[2].type, "split");
   });
 });
 

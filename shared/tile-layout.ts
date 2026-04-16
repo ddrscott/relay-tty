@@ -353,6 +353,43 @@ export function removeSession(layout: TileLayout, sessionId: string): TileLayout
   return node ? removeNode(layout, node.id) : layout;
 }
 
+/**
+ * Move a root-level column before or after another root-level column.
+ * No-op if:
+ *   - the layout has no horizontal root split (nothing to reorder),
+ *   - source and target resolve to the same column,
+ *   - either id isn't a current root-level column.
+ */
+export function moveColumn(
+  layout: TileLayout,
+  sourceColumnId: string,
+  targetColumnId: string,
+  position: "before" | "after",
+): TileLayout {
+  if (!layout.root || layout.root.type !== "split" || layout.root.direction !== "horizontal") {
+    return layout;
+  }
+  if (sourceColumnId === targetColumnId) return layout;
+
+  const root = layout.root;
+  const srcIdx = root.children.findIndex((c) => c.id === sourceColumnId);
+  const tgtIdx = root.children.findIndex((c) => c.id === targetColumnId);
+  if (srcIdx < 0 || tgtIdx < 0) return layout;
+
+  const children = root.children.map(clone);
+  const [moved] = children.splice(srcIdx, 1);
+
+  // After removal, the target index shifts if it was past the source.
+  const tgtAfterRemove = tgtIdx > srcIdx ? tgtIdx - 1 : tgtIdx;
+  const insertAt = position === "before" ? tgtAfterRemove : tgtAfterRemove + 1;
+  children.splice(insertAt, 0, moved);
+
+  return {
+    root: { ...root, children, sizes: equalShares(children.length) },
+    version: layout.version,
+  };
+}
+
 export function resizeSplit(layout: TileLayout, splitId: string, sizes: number[]): TileLayout {
   if (!layout.root) return layout;
 

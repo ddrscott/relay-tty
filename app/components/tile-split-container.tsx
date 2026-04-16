@@ -1,16 +1,17 @@
 import { useCallback, useRef } from "react";
 import type { CSSProperties } from "react";
 import type { TileNode } from "../../shared/tile-layout";
-import { TilePane } from "./tile-pane";
+import { TilePane, type TilePaneDragCallbacks } from "./tile-pane";
 import type { Session } from "../../shared/types";
 
 export const DEFAULT_COLUMN_WIDTH = 640; // ~80 cols at default font size
 export const MIN_COLUMN_WIDTH = 200;
 
-interface TileSplitContainerProps {
+interface TileSplitContainerProps extends TilePaneDragCallbacks {
   node: TileNode;
   sessions: Session[];
   focusedNodeId: string | null;
+  dragSourceColumnId: string | null;
   onFocus: (nodeId: string) => void;
   onClosePane: (nodeId: string) => void;
   onResize: (splitId: string, sizes: number[]) => void;
@@ -25,7 +26,19 @@ interface TileSplitContainerProps {
  *  widths (iTerm-style: each lane has its own width, container overflows and
  *  scrolls horizontally). Vertical splits use percentage-based flex sizing. */
 export function TileSplitContainer(props: TileSplitContainerProps) {
-  const { node, sessions, focusedNodeId, onFocus, onClosePane, getFontSize, onFontSizeDelta } = props;
+  const {
+    node,
+    sessions,
+    focusedNodeId,
+    dragSourceColumnId,
+    onFocus,
+    onClosePane,
+    getFontSize,
+    onFontSizeDelta,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+  } = props;
 
   if (node.type === "terminal") {
     const session = sessions.find((s) => s.id === node.sessionId);
@@ -35,8 +48,12 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
         node={node}
         session={session}
         focused={focusedNodeId === node.id}
+        isDragSource={dragSourceColumnId === node.id}
         onFocus={() => onFocus(node.id)}
         onClose={() => onClosePane(node.id)}
+        onDragStart={onDragStart}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
         fontSize={getFontSize(session.id)}
         onFontSizeDelta={(delta: number) => onFontSizeDelta(session.id, delta)}
       />
@@ -74,10 +91,14 @@ function HorizontalSplit({
     >
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
+        const isDragSource = rest.dragSourceColumnId === child.id;
         return (
           <div
             key={child.id}
-            className="relative flex flex-col shrink-0 h-full"
+            data-tile-column-id={child.id}
+            className={`relative flex flex-col shrink-0 h-full transition-opacity ${
+              isDragSource ? "opacity-40" : ""
+            }`}
             style={{ width: `${width}px`, minWidth: `${width}px` }}
           >
             <TileSplitContainer
