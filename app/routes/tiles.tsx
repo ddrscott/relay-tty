@@ -430,6 +430,11 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
         if (paneEl) targetNodeId = paneEl.getAttribute("data-tile-pane-id") ?? targetColumnId;
       }
 
+      // Vertical zones get a thin bar, since they preview "a new column at
+      // this edge". Horizontal zones get a 25%-tall band that feels like the
+      // pane it'll create — visualizing the space the existing column will
+      // give up to make room for the stacked pane.
+      const stackBand = rect.height * (1 - BOT_BAND); // matches band threshold
       const indicator =
         zone === "left"
           ? {
@@ -449,17 +454,17 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
               }
             : zone === "top"
               ? {
-                  top: rect.top - 1,
+                  top: rect.top,
                   left: rect.left,
                   width: rect.width,
-                  height: 3,
+                  height: stackBand,
                   orientation: "horizontal" as const,
                 }
               : {
-                  top: rect.bottom - 2,
+                  top: rect.top + rect.height - stackBand,
                   left: rect.left,
                   width: rect.width,
-                  height: 3,
+                  height: stackBand,
                   orientation: "horizontal" as const,
                 };
 
@@ -823,12 +828,21 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
 
         {dragState?.indicator && (
           <div
-            className="fixed bg-[#3b82f6] shadow-[0_0_6px_rgba(59,130,246,0.8)] pointer-events-none z-50 rounded-sm"
+            className={
+              dragState.indicator.orientation === "vertical"
+                ? "fixed bg-[#3b82f6] shadow-[0_0_6px_rgba(59,130,246,0.8)] pointer-events-none z-50 rounded-sm"
+                : "fixed pointer-events-none z-50 bg-[#3b82f6]/20 border-[#3b82f6] backdrop-blur-[1px]"
+            }
             style={{
               top: dragState.indicator.top,
               left: dragState.indicator.left,
               width: dragState.indicator.width,
               height: dragState.indicator.height,
+              ...(dragState.indicator.orientation === "horizontal"
+                ? dragState.zone === "top"
+                  ? { borderBottomWidth: 2 }
+                  : { borderTopWidth: 2 }
+                : {}),
             }}
           />
         )}
