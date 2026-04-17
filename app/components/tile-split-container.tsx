@@ -87,17 +87,24 @@ function HorizontalSplit({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep horizontal scroll isolated from xterm: consume wheel events whose
-  // horizontal component dominates (typical during a sideways trackpad swipe)
-  // so the spurious vertical component never reaches the focused terminal
-  // and jitter-scrolls its buffer. Vertical-dominant wheel events (e.g., a
-  // mouse-wheel over a terminal) pass through untouched.
+  // horizontal component clearly dominates (typical during a sideways
+  // trackpad swipe) so the spurious vertical component never reaches the
+  // focused terminal and jitter-scrolls its buffer. Vertical-dominant
+  // wheel events (e.g. a mouse-wheel over a terminal) pass through so
+  // xterm can scroll its buffer normally.
   useEffect(() => {
     if (!isRoot) return;
     const el = scrollRef.current;
     if (!el) return;
 
     function onWheel(e: WheelEvent) {
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      const ax = Math.abs(e.deltaX);
+      const ay = Math.abs(e.deltaY);
+      // Require a meaningful horizontal signal before taking over. This
+      // avoids swallowing the tail of a vertical gesture on trackpads that
+      // briefly report tiny deltaX values, which would otherwise hijack
+      // scrolls the user expects to reach xterm.
+      if (ax > ay * 1.5 && ax > 4) {
         e.preventDefault();
         e.stopPropagation();
         el!.scrollLeft += e.deltaX;
@@ -112,13 +119,9 @@ function HorizontalSplit({
     <div
       ref={scrollRef}
       className={`flex flex-row h-full ${
-        isRoot ? "overflow-x-auto overflow-y-hidden snap-x snap-mandatory" : ""
+        isRoot ? "overflow-x-auto overflow-y-hidden snap-x snap-proximity" : ""
       }`}
-      style={
-        isRoot
-          ? { minHeight: 0, overscrollBehavior: "contain", scrollBehavior: "smooth" }
-          : { minHeight: 0 }
-      }
+      style={isRoot ? { minHeight: 0, overscrollBehavior: "contain" } : { minHeight: 0 }}
     >
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
