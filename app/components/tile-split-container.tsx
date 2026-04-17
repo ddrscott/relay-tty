@@ -86,33 +86,55 @@ function HorizontalSplit({
 }: SplitInnerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Isolate horizontal tile scroll from xterm. Approach matches wiz-term:
-  //   - If the wheel has a meaningful horizontal component (|dx| is at
-  //     least half of |dy|), forward dx to the container manually and
-  //     preventDefault so the browser doesn't double-apply its own
-  //     horizontal scroll on this element.
-  //   - Only stopPropagation when the gesture is clearly horizontal
-  //     (|dx| > |dy|) so that mixed swipes still let xterm receive the
-  //     vertical component for buffer scrollback.
+  // Isolate horizontal tile scroll from xterm with a per-gesture axis lock.
+  // The first meaningful wheel event in a gesture chooses the axis:
+  //   - x-locked: preventDefault + stopPropagation, manually scroll the
+  //     container. xterm is fully bypassed so its buffer never jitters.
+  //   - y-locked: preventDefault only, so the browser won't apply any
+  //     stray horizontal delta to this container; propagation continues
+  //     so xterm's own wheel handler still moves its scrollback.
+  // The lock releases after ~150ms of wheel-idle time, which is longer
+  // than the gap between momentum events on a trackpad.
   useEffect(() => {
     if (!isRoot) return;
     const el = scrollRef.current;
     if (!el) return;
 
+    let axis: "x" | "y" | null = null;
+    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function scheduleReset() {
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        axis = null;
+        resetTimer = null;
+      }, 150);
+    }
+
     function onWheel(e: WheelEvent) {
       const ax = Math.abs(e.deltaX);
       const ay = Math.abs(e.deltaY);
-      if (ax > 0 && ax >= ay * 0.5) {
+      if (ax === 0 && ay === 0) return;
+
+      if (axis === null) {
+        axis = ax > ay ? "x" : "y";
+      }
+      scheduleReset();
+
+      if (axis === "x") {
         e.preventDefault();
+        e.stopPropagation();
         el!.scrollLeft += e.deltaX;
-        if (ax > ay) {
-          e.stopPropagation();
-        }
+      } else {
+        e.preventDefault();
       }
     }
 
     el.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
+    return () => {
+      el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
+      if (resetTimer) clearTimeout(resetTimer);
+    };
   }, [isRoot]);
 
   return (
