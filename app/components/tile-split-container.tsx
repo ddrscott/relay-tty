@@ -86,12 +86,14 @@ function HorizontalSplit({
 }: SplitInnerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Keep horizontal scroll isolated from xterm: consume wheel events whose
-  // horizontal component clearly dominates (typical during a sideways
-  // trackpad swipe) so the spurious vertical component never reaches the
-  // focused terminal and jitter-scrolls its buffer. Vertical-dominant
-  // wheel events (e.g. a mouse-wheel over a terminal) pass through so
-  // xterm can scroll its buffer normally.
+  // Isolate horizontal tile scroll from xterm. Approach matches wiz-term:
+  //   - If the wheel has a meaningful horizontal component (|dx| is at
+  //     least half of |dy|), forward dx to the container manually and
+  //     preventDefault so the browser doesn't double-apply its own
+  //     horizontal scroll on this element.
+  //   - Only stopPropagation when the gesture is clearly horizontal
+  //     (|dx| > |dy|) so that mixed swipes still let xterm receive the
+  //     vertical component for buffer scrollback.
   useEffect(() => {
     if (!isRoot) return;
     const el = scrollRef.current;
@@ -100,14 +102,12 @@ function HorizontalSplit({
     function onWheel(e: WheelEvent) {
       const ax = Math.abs(e.deltaX);
       const ay = Math.abs(e.deltaY);
-      // Require a meaningful horizontal signal before taking over. This
-      // avoids swallowing the tail of a vertical gesture on trackpads that
-      // briefly report tiny deltaX values, which would otherwise hijack
-      // scrolls the user expects to reach xterm.
-      if (ax > ay * 1.5 && ax > 4) {
+      if (ax > 0 && ax >= ay * 0.5) {
         e.preventDefault();
-        e.stopPropagation();
         el!.scrollLeft += e.deltaX;
+        if (ax > ay) {
+          e.stopPropagation();
+        }
       }
     }
 
@@ -118,9 +118,7 @@ function HorizontalSplit({
   return (
     <div
       ref={scrollRef}
-      className={`flex flex-row h-full ${
-        isRoot ? "overflow-x-auto overflow-y-hidden snap-x snap-proximity" : ""
-      }`}
+      className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
       style={isRoot ? { minHeight: 0, overscrollBehavior: "contain" } : { minHeight: 0 }}
     >
       {split.children.map((child) => {
@@ -129,7 +127,7 @@ function HorizontalSplit({
           <div
             key={child.id}
             data-tile-column-id={child.id}
-            className="relative flex flex-col shrink-0 h-full snap-start"
+            className="relative flex flex-col shrink-0 h-full"
             style={{ width: `${width}px`, minWidth: `${width}px` }}
           >
             <TileSplitContainer
