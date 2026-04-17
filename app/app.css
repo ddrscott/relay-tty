@@ -100,6 +100,14 @@ body {
   .toolbar-input::placeholder {
     color: #64748b;
   }
+
+  /* Active/focused session treatment — border + soft glow in the theme's
+     primary color. Applied anywhere the user has "selected" a session
+     card or tile, so the look stays consistent across views. */
+  .focus-ring-primary {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  }
 }
 
 /* Hide hostname/title in session toolbar when desktop sidebar is open (redundant with sidebar header) */

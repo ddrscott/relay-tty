@@ -426,9 +426,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
   return (
     <div
       className={`relative h-full rounded-lg border-2 bg-[#19191f] overflow-hidden cursor-pointer transition-all group flex flex-col ${
-        selected
-          ? "border-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.25)]"
-          : "border-[#1e1e2e] hover:border-[#3d3d5c]"
+        selected ? "focus-ring-primary" : "border-[#1e1e2e] hover:border-[#3d3d5c]"
       }`}
       onClick={handleClick}
     >

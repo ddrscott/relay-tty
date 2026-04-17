@@ -102,9 +102,9 @@ export function TilePane({
     <div
       onPointerDown={handlePanePointerDown}
       data-tile-pane-id={node.id}
-      className={`flex flex-col w-full h-full bg-[#0a0a0f] border ${
-        focused ? "border-[#3b82f6]" : "border-[#2d2d44]"
-      } rounded-md overflow-hidden transition-opacity ${isDragSource ? "opacity-40" : ""}`}
+      className={`flex flex-col w-full h-full bg-[#0a0a0f] border rounded-md overflow-hidden transition-opacity ${
+        focused ? "focus-ring-primary" : "border-[#2d2d44]"
+      } ${isDragSource ? "opacity-40" : ""}`}
     >
       <div
         onPointerDown={handleHeaderPointerDown}
