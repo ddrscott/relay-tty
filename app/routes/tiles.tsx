@@ -540,29 +540,23 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   // Cmd+D / Cmd+Shift+D / Cmd+Shift+N / Cmd+/Cmd-
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Cmd+D / Cmd+Shift+D for splits — Mac-only. Ctrl+D is EOF and must
+      // always reach the focused terminal, so never intercept the Ctrl form.
+      if ((e.key === "D" || e.key === "d") && e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) splitVertical();
+        else splitHorizontal();
+        return;
+      }
+
       if (!(e.metaKey || e.ctrlKey)) return;
 
-      // Cmd+Shift+N → new full-height column.
+      // Cmd+Shift+N / Ctrl+Shift+N → new full-height column.
       if (e.shiftKey && (e.key === "N" || e.key === "n")) {
         e.preventDefault();
         e.stopPropagation();
         newSession();
-        return;
-      }
-
-      // Cmd+Shift+D → split vertical (stack below focused).
-      if (e.shiftKey && (e.key === "D" || e.key === "d")) {
-        e.preventDefault();
-        e.stopPropagation();
-        splitVertical();
-        return;
-      }
-
-      // Cmd+D (no shift) → split horizontal (new column).
-      if (!e.shiftKey && (e.key === "D" || e.key === "d")) {
-        e.preventDefault();
-        e.stopPropagation();
-        splitHorizontal();
         return;
       }
 
