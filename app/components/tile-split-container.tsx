@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import type { TileNode } from "../../shared/tile-layout";
 import { TilePane, type TilePaneDragCallbacks } from "./tile-pane";
@@ -84,10 +84,41 @@ function HorizontalSplit({
   isRoot,
   ...rest
 }: SplitInnerProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Keep horizontal scroll isolated from xterm: consume wheel events whose
+  // horizontal component dominates (typical during a sideways trackpad swipe)
+  // so the spurious vertical component never reaches the focused terminal
+  // and jitter-scrolls its buffer. Vertical-dominant wheel events (e.g., a
+  // mouse-wheel over a terminal) pass through untouched.
+  useEffect(() => {
+    if (!isRoot) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    function onWheel(e: WheelEvent) {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        e.stopPropagation();
+        el!.scrollLeft += e.deltaX;
+      }
+    }
+
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
+  }, [isRoot]);
+
   return (
     <div
-      className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
-      style={{ minHeight: 0 }}
+      ref={scrollRef}
+      className={`flex flex-row h-full ${
+        isRoot ? "overflow-x-auto overflow-y-hidden snap-x snap-mandatory" : ""
+      }`}
+      style={
+        isRoot
+          ? { minHeight: 0, overscrollBehavior: "contain", scrollBehavior: "smooth" }
+          : { minHeight: 0 }
+      }
     >
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
@@ -95,7 +126,7 @@ function HorizontalSplit({
           <div
             key={child.id}
             data-tile-column-id={child.id}
-            className="relative flex flex-col shrink-0 h-full"
+            className="relative flex flex-col shrink-0 h-full snap-start"
             style={{ width: `${width}px`, minWidth: `${width}px` }}
           >
             <TileSplitContainer
