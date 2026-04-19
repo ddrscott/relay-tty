@@ -101,10 +101,16 @@ function HorizontalSplit({
   }, [isRoot]);
 
   // Isolate horizontal tile scroll from xterm with a per-gesture axis lock,
-  // and, on wheel idle, snap the nearest column to viewport center.
-  // We don't use CSS scroll-snap because the browser treats each
-  // programmatic `scrollLeft` update as a "scroll stop" and snaps back on
-  // every wheel tick, which effectively nails the scroll in place.
+  // and snap the nearest column to viewport center as the gesture
+  // decelerates. CSS scroll-snap is avoided because the browser treats
+  // each programmatic scrollLeft update as a "scroll stop" and snaps
+  // back on every wheel tick. Instead:
+  //   - Time the snap trigger by wheel speed: a slow decelerating tail
+  //     schedules the snap sooner (~50ms) so the pull begins while the
+  //     user still has forward motion.
+  //   - Animate scrollLeft with a custom RAF exponential decay so the
+  //     snap blends with the user's momentum instead of looking like
+  //     the browser's short, hard "behavior: smooth" pop at the end.
   useEffect(() => {
     if (!isRoot) return;
     const el = scrollRef.current;
@@ -113,9 +119,27 @@ function HorizontalSplit({
     let axis: "x" | "y" | null = null;
     let axisTimer: ReturnType<typeof setTimeout> | null = null;
     let snapTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapFrame: number | null = null;
 
-    function snapToNearest() {
-      if (!el) return;
+    // How much of the remaining distance to cover on each animation frame.
+    // 0.18 lands in ~10-12 frames (~180ms at 60fps) with a soft tail.
+    const DECAY = 0.18;
+    // Wheel speeds below this (px per event) schedule the snap sooner.
+    const SLOW_SPEED = 8;
+
+    function cancelSnap() {
+      if (snapTimer) {
+        clearTimeout(snapTimer);
+        snapTimer = null;
+      }
+      if (snapFrame !== null) {
+        cancelAnimationFrame(snapFrame);
+        snapFrame = null;
+      }
+    }
+
+    function findNearestCenter(): number | null {
+      if (!el) return null;
       const containerRect = el.getBoundingClientRect();
       const viewportCenter = containerRect.left + containerRect.width / 2;
       const cols = el.querySelectorAll<HTMLElement>("[data-tile-column-id]");
@@ -127,14 +151,32 @@ function HorizontalSplit({
         const dist = Math.abs(colCenter - viewportCenter);
         if (dist < bestDist) {
           bestDist = dist;
-          // Target scrollLeft that places this column's center at viewport
-          // center. Current scrollLeft + (colCenter - viewportCenter) = delta.
           bestLeft = el.scrollLeft + (colCenter - viewportCenter);
         }
       }
-      if (bestLeft != null && Math.abs(bestLeft - el.scrollLeft) > 0.5) {
-        el.scrollTo({ left: bestLeft, behavior: "smooth" });
+      return bestLeft;
+    }
+
+    function animateTo(target: number) {
+      function step() {
+        if (!el) return;
+        const diff = target - el.scrollLeft;
+        if (Math.abs(diff) < 0.5) {
+          el.scrollLeft = target;
+          snapFrame = null;
+          return;
+        }
+        el.scrollLeft += diff * DECAY;
+        snapFrame = requestAnimationFrame(step);
       }
+      snapFrame = requestAnimationFrame(step);
+    }
+
+    function snapNow() {
+      const target = findNearestCenter();
+      if (target == null) return;
+      if (Math.abs(target - el!.scrollLeft) < 0.5) return;
+      animateTo(target);
     }
 
     function scheduleAxisReset() {
@@ -145,12 +187,12 @@ function HorizontalSplit({
       }, 150);
     }
 
-    function scheduleSnap() {
+    function scheduleSnap(delay: number) {
       if (snapTimer) clearTimeout(snapTimer);
       snapTimer = setTimeout(() => {
         snapTimer = null;
-        snapToNearest();
-      }, 120);
+        snapNow();
+      }, delay);
     }
 
     function onWheel(e: WheelEvent) {
@@ -166,8 +208,13 @@ function HorizontalSplit({
       if (axis === "x") {
         e.preventDefault();
         e.stopPropagation();
+        // A new wheel tick is the user still driving the scroll; cancel
+        // any in-flight snap animation so the manual delta lands first.
+        cancelSnap();
         el!.scrollLeft += e.deltaX;
-        scheduleSnap();
+        // Slow tick ⇒ gesture is decelerating; start the pull early so
+        // the snap rides the momentum instead of coming in after a pause.
+        scheduleSnap(ax < SLOW_SPEED ? 40 : 110);
       } else {
         e.preventDefault();
       }
@@ -177,7 +224,7 @@ function HorizontalSplit({
     return () => {
       el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
       if (axisTimer) clearTimeout(axisTimer);
-      if (snapTimer) clearTimeout(snapTimer);
+      cancelSnap();
     };
   }, [isRoot]);
 
