@@ -100,29 +100,57 @@ function HorizontalSplit({
     return () => obs.disconnect();
   }, [isRoot]);
 
-  // Isolate horizontal tile scroll from xterm with a per-gesture axis lock.
-  // The first meaningful wheel event in a gesture chooses the axis:
-  //   - x-locked: preventDefault + stopPropagation, manually scroll the
-  //     container. xterm is fully bypassed so its buffer never jitters.
-  //   - y-locked: preventDefault only, so the browser won't apply any
-  //     stray horizontal delta to this container; propagation continues
-  //     so xterm's own wheel handler still moves its scrollback.
-  // The lock releases after ~150ms of wheel-idle time, which is longer
-  // than the gap between momentum events on a trackpad.
+  // Isolate horizontal tile scroll from xterm with a per-gesture axis lock,
+  // and, on wheel idle, snap the nearest column to viewport center.
+  // We don't use CSS scroll-snap because the browser treats each
+  // programmatic `scrollLeft` update as a "scroll stop" and snaps back on
+  // every wheel tick, which effectively nails the scroll in place.
   useEffect(() => {
     if (!isRoot) return;
     const el = scrollRef.current;
     if (!el) return;
 
     let axis: "x" | "y" | null = null;
-    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+    let axisTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function scheduleReset() {
-      if (resetTimer) clearTimeout(resetTimer);
-      resetTimer = setTimeout(() => {
+    function snapToNearest() {
+      if (!el) return;
+      const containerRect = el.getBoundingClientRect();
+      const viewportCenter = containerRect.left + containerRect.width / 2;
+      const cols = el.querySelectorAll<HTMLElement>("[data-tile-column-id]");
+      let bestLeft: number | null = null;
+      let bestDist = Infinity;
+      for (const colEl of cols) {
+        const r = colEl.getBoundingClientRect();
+        const colCenter = r.left + r.width / 2;
+        const dist = Math.abs(colCenter - viewportCenter);
+        if (dist < bestDist) {
+          bestDist = dist;
+          // Target scrollLeft that places this column's center at viewport
+          // center. Current scrollLeft + (colCenter - viewportCenter) = delta.
+          bestLeft = el.scrollLeft + (colCenter - viewportCenter);
+        }
+      }
+      if (bestLeft != null && Math.abs(bestLeft - el.scrollLeft) > 0.5) {
+        el.scrollTo({ left: bestLeft, behavior: "smooth" });
+      }
+    }
+
+    function scheduleAxisReset() {
+      if (axisTimer) clearTimeout(axisTimer);
+      axisTimer = setTimeout(() => {
         axis = null;
-        resetTimer = null;
+        axisTimer = null;
       }, 150);
+    }
+
+    function scheduleSnap() {
+      if (snapTimer) clearTimeout(snapTimer);
+      snapTimer = setTimeout(() => {
+        snapTimer = null;
+        snapToNearest();
+      }, 120);
     }
 
     function onWheel(e: WheelEvent) {
@@ -133,12 +161,13 @@ function HorizontalSplit({
       if (axis === null) {
         axis = ax > ay ? "x" : "y";
       }
-      scheduleReset();
+      scheduleAxisReset();
 
       if (axis === "x") {
         e.preventDefault();
         e.stopPropagation();
         el!.scrollLeft += e.deltaX;
+        scheduleSnap();
       } else {
         e.preventDefault();
       }
@@ -147,7 +176,8 @@ function HorizontalSplit({
     el.addEventListener("wheel", onWheel, { passive: false, capture: true });
     return () => {
       el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
-      if (resetTimer) clearTimeout(resetTimer);
+      if (axisTimer) clearTimeout(axisTimer);
+      if (snapTimer) clearTimeout(snapTimer);
     };
   }, [isRoot]);
 
@@ -165,11 +195,7 @@ function HorizontalSplit({
     <div
       ref={scrollRef}
       className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
-      style={
-        isRoot
-          ? { minHeight: 0, overscrollBehavior: "contain", scrollSnapType: "x proximity" }
-          : { minHeight: 0 }
-      }
+      style={isRoot ? { minHeight: 0, overscrollBehavior: "contain" } : { minHeight: 0 }}
     >
       {isRoot && leftSpacer > 0 && (
         <div aria-hidden="true" className="shrink-0 h-full" style={{ width: `${leftSpacer}px` }} />
@@ -181,11 +207,7 @@ function HorizontalSplit({
             key={child.id}
             data-tile-column-id={child.id}
             className="relative flex flex-col shrink-0 h-full"
-            style={{
-              width: `${width}px`,
-              minWidth: `${width}px`,
-              scrollSnapAlign: isRoot ? "center" : undefined,
-            }}
+            style={{ width: `${width}px`, minWidth: `${width}px` }}
           >
             <TileSplitContainer
               node={child}
