@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TileNode } from "../../shared/tile-layout";
 import { TilePane, type TilePaneDragCallbacks } from "./tile-pane";
@@ -85,6 +85,20 @@ function HorizontalSplit({
   ...rest
 }: SplitInnerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewportW, setViewportW] = useState(0);
+
+  // Measure the scroll container's width so we can size edge spacers that
+  // let the first and last columns snap to center like a classic carousel.
+  useEffect(() => {
+    if (!isRoot) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportW(el.clientWidth);
+    measure();
+    const obs = new ResizeObserver(measure);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [isRoot]);
 
   // Isolate horizontal tile scroll from xterm with a per-gesture axis lock.
   // The first meaningful wheel event in a gesture chooses the axis:
@@ -137,12 +151,29 @@ function HorizontalSplit({
     };
   }, [isRoot]);
 
+  // Edge spacers so the first and last columns can center-snap. The spacer
+  // width equals (viewport − column width) / 2 so the specific column fits
+  // exactly in the middle. Falls back to 0 before the first measurement.
+  const first = split.children[0];
+  const last = split.children[split.children.length - 1];
+  const firstW = first ? getColumnWidth(columnWidths, first.id) : 0;
+  const lastW = last ? getColumnWidth(columnWidths, last.id) : 0;
+  const leftSpacer = isRoot ? Math.max(0, Math.floor((viewportW - firstW) / 2)) : 0;
+  const rightSpacer = isRoot ? Math.max(0, Math.floor((viewportW - lastW) / 2)) : 0;
+
   return (
     <div
       ref={scrollRef}
       className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
-      style={isRoot ? { minHeight: 0, overscrollBehavior: "contain" } : { minHeight: 0 }}
+      style={
+        isRoot
+          ? { minHeight: 0, overscrollBehavior: "contain", scrollSnapType: "x proximity" }
+          : { minHeight: 0 }
+      }
     >
+      {isRoot && leftSpacer > 0 && (
+        <div aria-hidden="true" className="shrink-0 h-full" style={{ width: `${leftSpacer}px` }} />
+      )}
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
         return (
@@ -150,7 +181,11 @@ function HorizontalSplit({
             key={child.id}
             data-tile-column-id={child.id}
             className="relative flex flex-col shrink-0 h-full"
-            style={{ width: `${width}px`, minWidth: `${width}px` }}
+            style={{
+              width: `${width}px`,
+              minWidth: `${width}px`,
+              scrollSnapAlign: isRoot ? "center" : undefined,
+            }}
           >
             <TileSplitContainer
               node={child}
@@ -165,6 +200,9 @@ function HorizontalSplit({
           </div>
         );
       })}
+      {isRoot && rightSpacer > 0 && (
+        <div aria-hidden="true" className="shrink-0 h-full" style={{ width: `${rightSpacer}px` }} />
+      )}
     </div>
   );
 }
