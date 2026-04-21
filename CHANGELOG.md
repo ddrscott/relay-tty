@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-04-21
+
 ### Added
+- `/tiles` view — iTerm-style tiled workspace with fully interactive terminal panes. Full-height columns with fixed pixel widths; horizontal scroll is a center-snap carousel (native CSS `scroll-snap-type: x mandatory` + `scroll-snap-align: center` + edge padding so the first and last columns center like the middle ones). Cmd+D opens a new column, Cmd+Shift+D stacks a pane below the focused one. Drag a tile header onto another column's left, right, top, or bottom edge to reorder, create a new column, or stack into an existing column. Drop zones show a translucent blue band for stack targets and a thin bar for column-edge targets. Layout, column widths, and dismissed panes persist per browser
+- "New session in this project" button in the session title bar — creates a session in the focused session's cwd without navigating away
+- Shift+Enter inserts a literal newline in Claude Code — uses CSI 13;2u (kitty keyboard protocol) so programs that opt into extended key reporting can distinguish it from submit
 - Cmd+Shift+N / Ctrl+Shift+N keyboard shortcut to create a new session in the current project directory — works across session, grid, lanes, activity, and home views
 - Per-session font sizing — Cmd+=/Cmd+- (desktop) and pinch-to-zoom (touch) adjust font size independently for each session across all views
 - Font size changes send SIGWINCH — terminal columns/rows recompute to fit the fixed container at the new cell size, like iTerm with "Adjust window" disabled
+
+### Fixed
+- Project picker filter input no longer overlaps its icon — `.toolbar-input`'s shorthand padding was outside `@layer components` and overrode per-side Tailwind utilities (`pl-8`, `pr-9`, etc.) on every caller
+- Active tile outline uses the theme's primary green with a soft glow instead of blue, and matches the pattern on grid-terminal selection via a shared `.focus-ring-primary` class
+- Ctrl+D in `/tiles` reaches the terminal as EOF instead of being captured for split (Cmd+D still splits on Mac)
 
 ### Removed
 - Global font size picker from grid and lanes toolbars — replaced by per-session Cmd+/- and pinch-to-zoom
@@ -158,7 +168,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pty-host spawn failures detected immediately via PID liveness checks
 - Mobile carousel touch offset after alt-screen transitions
 
-[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/ddrscott/relay-tty/compare/v1.18.0...v1.19.0
+[1.18.0]: https://github.com/ddrscott/relay-tty/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/ddrscott/relay-tty/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/ddrscott/relay-tty/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/ddrscott/relay-tty/compare/v1.14.0...v1.15.0
