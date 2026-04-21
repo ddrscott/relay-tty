@@ -100,154 +100,42 @@ function HorizontalSplit({
     return () => obs.disconnect();
   }, [isRoot]);
 
-  // Isolate horizontal tile scroll from xterm with a per-gesture axis
-  // lock, and snap the nearest column to viewport center after the
-  // gesture actually ends.
-  //
-  // Trackpad wheel events don't tell us "finger up" — we can only infer
-  // it from absence of events. A slow-but-still-active swipe can emit
-  // events with 30–60ms gaps, so any snap trigger faster than that will
-  // fire mid-gesture and feel like the carousel is fighting the user.
-  // The idle threshold therefore has to sit well past natural wheel
-  // gaps; we tune the *animation* to feel gentle so the brief pause
-  // before snap doesn't read as a hard landing. The decay RAF gives a
-  // soft asymptotic tail that blends into the user's momentum.
-  useEffect(() => {
-    if (!isRoot) return;
-    const el = scrollRef.current;
-    if (!el) return;
+  // Scroll behavior is now fully native, matching Chrome's carousel
+  // demo (https://chrome.dev/carousel/). The browser owns momentum,
+  // axis locking (modern trackpad drivers deliver axis-locked wheel
+  // events at the OS level), and snap timing. We set the CSS below
+  // and stay out of the way.
 
-    let axis: "x" | "y" | null = null;
-    let axisTimer: ReturnType<typeof setTimeout> | null = null;
-    let snapTimer: ReturnType<typeof setTimeout> | null = null;
-    let snapFrame: number | null = null;
-
-    // Each frame covers 18% of the remaining distance (~180ms to land).
-    const DECAY = 0.18;
-    // Idle time after the last wheel event before snapping. Trackpad
-    // momentum tails on macOS cluster inside ~100ms, and active swipes
-    // rarely have gaps this long, so this keeps snap out of the gesture
-    // without feeling sluggish on release.
-    const IDLE_MS = 140;
-
-    function cancelSnap() {
-      if (snapTimer) {
-        clearTimeout(snapTimer);
-        snapTimer = null;
-      }
-      if (snapFrame !== null) {
-        cancelAnimationFrame(snapFrame);
-        snapFrame = null;
-      }
-    }
-
-    function findNearestCenter(): number | null {
-      if (!el) return null;
-      const containerRect = el.getBoundingClientRect();
-      const viewportCenter = containerRect.left + containerRect.width / 2;
-      const cols = el.querySelectorAll<HTMLElement>("[data-tile-column-id]");
-      let bestLeft: number | null = null;
-      let bestDist = Infinity;
-      for (const colEl of cols) {
-        const r = colEl.getBoundingClientRect();
-        const colCenter = r.left + r.width / 2;
-        const dist = Math.abs(colCenter - viewportCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestLeft = el.scrollLeft + (colCenter - viewportCenter);
-        }
-      }
-      return bestLeft;
-    }
-
-    function animateTo(target: number) {
-      function step() {
-        if (!el) return;
-        const diff = target - el.scrollLeft;
-        if (Math.abs(diff) < 0.5) {
-          el.scrollLeft = target;
-          snapFrame = null;
-          return;
-        }
-        el.scrollLeft += diff * DECAY;
-        snapFrame = requestAnimationFrame(step);
-      }
-      snapFrame = requestAnimationFrame(step);
-    }
-
-    function snapNow() {
-      const target = findNearestCenter();
-      if (target == null) return;
-      if (Math.abs(target - el!.scrollLeft) < 0.5) return;
-      animateTo(target);
-    }
-
-    function scheduleAxisReset() {
-      if (axisTimer) clearTimeout(axisTimer);
-      axisTimer = setTimeout(() => {
-        axis = null;
-        axisTimer = null;
-      }, 150);
-    }
-
-    function scheduleSnap() {
-      if (snapTimer) clearTimeout(snapTimer);
-      snapTimer = setTimeout(() => {
-        snapTimer = null;
-        snapNow();
-      }, IDLE_MS);
-    }
-
-    function onWheel(e: WheelEvent) {
-      const ax = Math.abs(e.deltaX);
-      const ay = Math.abs(e.deltaY);
-      if (ax === 0 && ay === 0) return;
-
-      if (axis === null) {
-        axis = ax > ay ? "x" : "y";
-      }
-      scheduleAxisReset();
-
-      if (axis === "x") {
-        e.preventDefault();
-        e.stopPropagation();
-        // Every new tick means the user still has input; cancel any
-        // in-flight snap so the manual delta always wins.
-        cancelSnap();
-        el!.scrollLeft += e.deltaX;
-        scheduleSnap();
-      } else {
-        e.preventDefault();
-      }
-    }
-
-    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => {
-      el.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
-      if (axisTimer) clearTimeout(axisTimer);
-      cancelSnap();
-    };
-  }, [isRoot]);
-
-  // Edge spacers so the first and last columns can center-snap. The spacer
-  // width equals (viewport − column width) / 2 so the specific column fits
-  // exactly in the middle. Falls back to 0 before the first measurement.
+  // Gutters so the first and last columns can center-snap like middle
+  // ones. Each side's padding equals (viewport − edge-column) / 2, set
+  // individually in case the first and last columns have different
+  // widths. scroll-padding-inline on the scroll container tells the
+  // snap engine that the effective snap area matches the padded content,
+  // so snap math aligns with visual center even at the endpoints.
   const first = split.children[0];
   const last = split.children[split.children.length - 1];
   const firstW = first ? getColumnWidth(columnWidths, first.id) : 0;
   const lastW = last ? getColumnWidth(columnWidths, last.id) : 0;
-  const leftSpacer = isRoot ? Math.max(0, Math.floor((viewportW - firstW) / 2)) : 0;
-  const rightSpacer = isRoot ? Math.max(0, Math.floor((viewportW - lastW) / 2)) : 0;
+  const gutterStart = isRoot ? Math.max(0, Math.floor((viewportW - firstW) / 2)) : 0;
+  const gutterEnd = isRoot ? Math.max(0, Math.floor((viewportW - lastW) / 2)) : 0;
+
+  const rootStyle: CSSProperties = {
+    minHeight: 0,
+    overscrollBehavior: "contain",
+    scrollSnapType: "x mandatory",
+    scrollPaddingInlineStart: `${gutterStart}px`,
+    scrollPaddingInlineEnd: `${gutterEnd}px`,
+    paddingInlineStart: `${gutterStart}px`,
+    paddingInlineEnd: `${gutterEnd}px`,
+    scrollBehavior: "smooth",
+  };
 
   return (
     <div
       ref={scrollRef}
       className={`flex flex-row h-full ${isRoot ? "overflow-x-auto overflow-y-hidden" : ""}`}
-      style={isRoot ? { minHeight: 0, overscrollBehavior: "contain" } : { minHeight: 0 }}
+      style={isRoot ? rootStyle : { minHeight: 0 }}
     >
-      {isRoot && leftSpacer > 0 && (
-        <div aria-hidden="true" className="shrink-0 h-full" style={{ width: `${leftSpacer}px` }} />
-      )}
       {split.children.map((child) => {
         const width = getColumnWidth(columnWidths, child.id);
         return (
@@ -255,7 +143,11 @@ function HorizontalSplit({
             key={child.id}
             data-tile-column-id={child.id}
             className="relative flex flex-col shrink-0 h-full"
-            style={{ width: `${width}px`, minWidth: `${width}px` }}
+            style={{
+              width: `${width}px`,
+              minWidth: `${width}px`,
+              scrollSnapAlign: isRoot ? "center" : undefined,
+            }}
           >
             <TileSplitContainer
               node={child}
@@ -270,9 +162,6 @@ function HorizontalSplit({
           </div>
         );
       })}
-      {isRoot && rightSpacer > 0 && (
-        <div aria-hidden="true" className="shrink-0 h-full" style={{ width: `${rightSpacer}px` }} />
-      )}
     </div>
   );
 }
