@@ -18,7 +18,7 @@ import "./app.css";
 export const links: Route.LinksFunction = () => [
   {
     rel: "icon",
-    href: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>",
+    href: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%230a0a0f'/><g fill='none' stroke='%2322c55e' stroke-width='40' stroke-linecap='round' stroke-linejoin='round'><path d='M96 356 L216 236 L96 116'/><path d='M256 396 L416 396'/></g></svg>",
   },
   { rel: "manifest", href: "/manifest.webmanifest" },
   { rel: "apple-touch-icon", href: "/icon-192.svg" },

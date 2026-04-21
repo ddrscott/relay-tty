@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1270px;
+    height: 760px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* subtle grid pattern */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(148,163,184,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .layout {
+    display: flex;
+    align-items: center;
+    gap: 60px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Laptop mockup */
+  .laptop {
+    width: 620px;
+    position: relative;
+  }
+  .laptop-screen {
+    background: #1d232a;
+    border-radius: 12px 12px 0 0;
+    border: 3px solid #374151;
+    padding: 8px;
+    position: relative;
+  }
+  .laptop-screen::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: #374151;
+    border-radius: 50%;
+    position: absolute;
+    top: -1px;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+  .laptop-base {
+    height: 14px;
+    background: linear-gradient(to bottom, #4b5563, #374151);
+    border-radius: 0 0 4px 4px;
+    margin: 0 -10px;
+    position: relative;
+  }
+  .laptop-base::before {
+    content: '';
+    width: 80px;
+    height: 4px;
+    background: #4b5563;
+    border-radius: 0 0 4px 4px;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .laptop-stand {
+    width: 200px;
+    height: 6px;
+    background: linear-gradient(to bottom, #374151, #2d3748);
+    margin: 0 auto;
+    border-radius: 0 0 8px 8px;
+  }
+
+  .terminal {
+    background: #1d232a;
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .terminal-bar {
+    background: #191e24;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .terminal-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green { background: #28c840; }
+  .terminal-title {
+    color: #64748b;
+    font-size: 12px;
+    margin-left: 8px;
+    font-family: -apple-system, sans-serif;
+  }
+  .terminal-body {
+    padding: 12px 16px;
+    color: #e2e8f0;
+  }
+  .prompt { color: #22d3ee; }
+  .command { color: #f8fafc; }
+  .dim { color: #64748b; }
+  .green { color: #4ade80; }
+  .yellow { color: #fbbf24; }
+  .blue { color: #60a5fa; }
+  .magenta { color: #c084fc; }
+  .cyan { color: #22d3ee; }
+
+  /* Phone mockup */
+  .phone {
+    width: 280px;
+    background: #000;
+    border-radius: 40px;
+    padding: 12px;
+    border: 3px solid #374151;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .phone::before {
+    content: '';
+    width: 100px;
+    height: 28px;
+    background: #000;
+    border-radius: 0 0 16px 16px;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+  }
+  .phone-screen {
+    background: #1d232a;
+    border-radius: 28px;
+    overflow: hidden;
+    height: 520px;
+  }
+  .phone-statusbar {
+    padding: 14px 24px 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .phone-statusbar-right {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+  }
+
+  .phone-header {
+    padding: 8px 16px 12px;
+    border-bottom: 1px solid #2d3748;
+  }
+  .phone-header h2 {
+    color: #f8fafc;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .phone-header p {
+    color: #64748b;
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .session-list {
+    padding: 8px;
+  }
+  .session-card {
+    background: #2a323c;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border-left: 3px solid;
+  }
+  .session-card.active { border-left-color: #4ade80; }
+  .session-card.idle { border-left-color: #fbbf24; }
+  .session-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: 'SF Mono', monospace;
+  }
+  .session-meta {
+    color: #94a3b8;
+    font-size: 11px;
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .session-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .status-dot.green { background: #4ade80; }
+  .status-dot.yellow { background: #fbbf24; }
+
+  /* Tagline */
+  .tagline {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    z-index: 2;
+  }
+  .tagline h1 {
+    color: #f8fafc;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .tagline p {
+    color: #94a3b8;
+    font-size: 16px;
+    margin-top: 6px;
+  }
+
+  /* Brand mark */
+  .brand {
+    position: absolute;
+    top: 30px;
+    left: 40px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 2;
+  }
+  .brand-icon {
+    width: 32px;
+    height: 32px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .brand-name {
+    color: #f8fafc;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  /* glow effects */
+  .glow-1 {
+    position: absolute;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(34,211,238,0.08) 0%, transparent 70%);
+    top: -100px;
+    right: 100px;
+    z-index: 0;
+  }
+  .glow-2 {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(139,92,246,0.06) 0%, transparent 70%);
+    bottom: -50px;
+    left: 200px;
+    z-index: 0;
+  }
+</style>
+</head>
+<body>
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+
+  <div class="brand">
+    <svg class="brand-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="96" fill="#0a0a0f"/><g fill="none" stroke="#22c55e" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M96 356 L216 236 L96 116"/><path d="M256 396 L416 396"/></g></svg>
+    <span class="brand-name">Relay TTY</span>
+  </div>
+
+  <div class="layout">
+    <!-- Laptop -->
+    <div class="laptop">
+      <div class="laptop-screen">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">Terminal — relay</span>
+          </div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span><span class="command">relay claude-code --detach</span></div>
+            <div><span class="dim">Session </span><span class="cyan">a1b2c3d4</span><span class="dim"> started</span></div>
+            <div><span class="dim">http://localhost:7680/s/a1b2c3d4</span></div>
+            <div>&nbsp;</div>
+            <div><span class="prompt">$ </span><span class="command">relay server start --tunnel</span></div>
+            <div><span class="green">&#10003;</span> <span class="dim">Tunnel active:</span> <span class="blue">https://mydev.relaytty.com</span></div>
+            <div>&nbsp;</div>
+            <div style="text-align: center; letter-spacing: 2px;">
+              <div><span class="dim">&#9608;&#9608;&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9608;&#9608;</span></div>
+              <div><span class="dim">&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9617;&#9608;</span></div>
+              <div><span class="dim">&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9608;&#9617;&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;</span></div>
+              <div><span class="dim">&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9608;</span></div>
+              <div><span class="dim">&#9608;&#9608;&#9617;&#9617;&#9608;&#9617;&#9608;&#9608;&#9617;&#9608;&#9617;&#9617;&#9608;&#9608;&#9617;&#9608;</span></div>
+            </div>
+            <div style="text-align: center;"><span class="dim">Scan to connect from mobile</span></div>
+            <div>&nbsp;</div>
+            <div><span class="prompt">$ </span><span class="command">relay list</span></div>
+            <div><span class="green">a1b2c3d4</span>  <span class="dim">claude-code</span>    <span class="green">running</span>  <span class="dim">2m ago</span></div>
+            <div><span class="yellow">e5f6a7b8</span>  <span class="dim">npm run dev</span>    <span class="green">running</span>  <span class="dim">15m ago</span></div>
+            <div><span class="blue">c9d0e1f2</span>  <span class="dim">python train.py</span> <span class="yellow">idle</span>     <span class="dim">1h ago</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="laptop-base"></div>
+      <div class="laptop-stand"></div>
+    </div>
+
+    <!-- Phone -->
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="phone-statusbar">
+          <span>9:41</span>
+          <div class="phone-statusbar-right">
+            <span>5G</span>
+            <span>&#128267;</span>
+          </div>
+        </div>
+        <div class="phone-header">
+          <h2>Sessions</h2>
+          <p>mydev.relaytty.com &middot; 3 active</p>
+        </div>
+        <div class="session-list">
+          <div class="session-card active">
+            <div class="session-name">claude-code</div>
+            <div class="session-meta">
+              <span class="session-status"><span class="status-dot green"></span> running</span>
+              <span>a1b2c3d4 &middot; 2m</span>
+            </div>
+          </div>
+          <div class="session-card active">
+            <div class="session-name">npm run dev</div>
+            <div class="session-meta">
+              <span class="session-status"><span class="status-dot green"></span> running</span>
+              <span>e5f6a7b8 &middot; 15m</span>
+            </div>
+          </div>
+          <div class="session-card idle">
+            <div class="session-name">python train.py</div>
+            <div class="session-meta">
+              <span class="session-status"><span class="status-dot yellow"></span> idle</span>
+              <span>c9d0e1f2 &middot; 1h</span>
+            </div>
+          </div>
+
+          <!-- A mini terminal preview -->
+          <div style="background: #191e24; border-radius: 12px; padding: 10px 12px; margin-top: 12px;">
+            <div style="color: #64748b; font-size: 10px; margin-bottom: 6px; font-family: sans-serif;">PREVIEW &middot; claude-code</div>
+            <div style="font-family: 'SF Mono', monospace; font-size: 10px; line-height: 1.6; color: #e2e8f0;">
+              <div><span class="cyan">claude</span> <span class="dim">Implementing auth...</span></div>
+              <div><span class="green">  &#10003;</span> <span class="dim">Created middleware</span></div>
+              <div><span class="green">  &#10003;</span> <span class="dim">Added JWT verify</span></div>
+              <div><span class="yellow">  &#9654;</span> Writing tests...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tagline">
+    <h1>Your terminal, from anywhere</h1>
+    <p>Run commands locally. Check on them from your phone.</p>
+  </div>
+</body>
+</html>
