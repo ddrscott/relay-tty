@@ -24,6 +24,12 @@ interface GridTerminalProps {
   onFontSizeChange?: (delta: number) => void;
   /** Increment to trigger a fit-to-cell RESIZE (used by drag handle in parent) */
   fitToCellTrigger?: number;
+  /**
+   * When provided, file-link clicks are routed to the parent instead of
+   * opening the cell-local viewer. Lets multi-cell routes show one shared
+   * file viewer across all tiles (see useSessionInspect).
+   */
+  onFileLink?: (link: FileLink) => void;
 }
 
 /**
@@ -36,7 +42,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, onFontSizeChange, fitToCellTrigger }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, onFontSizeChange, fitToCellTrigger, onFileLink }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -76,19 +82,29 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
   }, []);
 
   // ── File link viewer state ──
+  // When the parent provides `onFileLink`, we hand the click upstream and
+  // skip the local viewer entirely — the parent (e.g. useSessionInspect)
+  // renders one shared panel across all cells. When no parent handler is
+  // provided, we keep the legacy cell-local behavior so older callers
+  // (e.g. zoomed grid view) keep working.
   const [fileViewerLink, setFileViewerLink] = useState<FileLink | null>(null);
   const [FileViewerComponent, setFileViewerComponent] =
     useState<React.ComponentType<any> | null>(null);
 
+  const onFileLinkRef = useRef(onFileLink);
+  onFileLinkRef.current = onFileLink;
   const handleFileLink = useCallback((link: FileLink) => {
-    setFileViewerLink(link);
+    const external = onFileLinkRef.current;
+    if (external) external(link);
+    else setFileViewerLink(link);
   }, []);
 
   const closeFileViewer = useCallback(() => {
     setFileViewerLink(null);
   }, []);
 
-  // Lazy-load file viewer only when first needed
+  // Lazy-load the cell-local viewer only when we actually render one —
+  // routes that provide their own handler never trigger the import here.
   useEffect(() => {
     if (fileViewerLink && !FileViewerComponent && typeof window !== "undefined") {
       import("./file-viewer-panel").then((mod) => {

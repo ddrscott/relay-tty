@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { TileNode } from "../../shared/tile-layout";
 import { TilePane, type TilePaneDragCallbacks } from "./tile-pane";
 import type { Session } from "../../shared/types";
+import type { FileLink } from "../lib/file-link-provider";
 
 export const DEFAULT_COLUMN_WIDTH = 640; // ~80 cols at default font size
 export const MIN_COLUMN_WIDTH = 200;
@@ -14,11 +15,15 @@ interface TileSplitContainerProps extends TilePaneDragCallbacks {
   dragSourcePaneId: string | null;
   onFocus: (nodeId: string) => void;
   onClosePane: (nodeId: string) => void;
+  onKillSession: (nodeId: string) => void;
+  onFileLink: (sessionId: string, link: FileLink) => void;
   onResize: (splitId: string, sizes: number[]) => void;
   getFontSize: (sessionId: string) => number;
   onFontSizeDelta: (sessionId: string, delta: number) => void;
   columnWidths: Map<string, number>;
   onColumnWidthChange: (nodeId: string, width: number) => void;
+  hostname: string;
+  paneOrder: Map<string, number>;
   isRoot?: boolean;
 }
 
@@ -33,11 +38,15 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
     dragSourcePaneId,
     onFocus,
     onClosePane,
+    onKillSession,
     getFontSize,
     onFontSizeDelta,
     onDragStart,
     onDragMove,
     onDragEnd,
+    onFileLink,
+    hostname,
+    paneOrder,
   } = props;
 
   if (node.type === "terminal") {
@@ -51,11 +60,16 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
         isDragSource={dragSourcePaneId === node.id}
         onFocus={() => onFocus(node.id)}
         onClose={() => onClosePane(node.id)}
+        onKillSession={() => onKillSession(node.id)}
         onDragStart={onDragStart}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         fontSize={getFontSize(session.id)}
         onFontSizeDelta={(delta: number) => onFontSizeDelta(session.id, delta)}
+        onFileLink={(link) => onFileLink(session.id, link)}
+        hostname={hostname}
+        paneIndex={paneOrder.get(session.id) ?? 0}
+        totalPanes={paneOrder.size}
       />
     );
   }
@@ -99,6 +113,33 @@ function HorizontalSplit({
     obs.observe(el);
     return () => obs.disconnect();
   }, [isRoot]);
+
+  // Center the column containing the focused node, like a real carousel.
+  // `auto` on first fire so we don't animate from the default scroll position
+  // at mount; `smooth` after, so clicks and keyboard focus glide into place.
+  const { focusedNodeId } = rest;
+  const didCenterRef = useRef(false);
+  useEffect(() => {
+    if (!isRoot) return;
+    const el = scrollRef.current;
+    if (!el || !focusedNodeId) return;
+    const containing = split.children.find(
+      (c) =>
+        c.id === focusedNodeId ||
+        (c.type === "split" && c.children.some((g) => g.id === focusedNodeId)),
+    );
+    if (!containing) return;
+    const colEl = el.querySelector(
+      `[data-tile-column-id="${containing.id}"]`,
+    ) as HTMLElement | null;
+    if (!colEl) return;
+    colEl.scrollIntoView({
+      behavior: didCenterRef.current ? "smooth" : "auto",
+      inline: "center",
+      block: "nearest",
+    });
+    didCenterRef.current = true;
+  }, [focusedNodeId, isRoot, split.children]);
 
   // Scroll behavior is now fully native, matching Chrome's carousel
   // demo (https://chrome.dev/carousel/). The browser owns momentum,

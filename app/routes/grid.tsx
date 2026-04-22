@@ -6,6 +6,8 @@ import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Maximize, Minimize, Menu } from "lucide-react";
+import { useSessionInspect } from "../hooks/use-session-inspect";
+import type { FileLink } from "../lib/file-link-provider";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
@@ -131,6 +133,7 @@ function GridViewport({
   onUnzoomCell,
   onSessionUpdate,
   onFontSizeChange,
+  onFileLink,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
@@ -144,6 +147,7 @@ function GridViewport({
   onUnzoomCell: () => void;
   onSessionUpdate?: (session: Session) => void;
   onFontSizeChange?: (sessionId: string, delta: number) => void;
+  onFileLink: (sessionId: string) => (link: FileLink) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -358,6 +362,7 @@ function GridViewport({
               onSessionUpdate={onSessionUpdate}
               onFontSizeChange={onFontSizeChange ? (delta: number) => onFontSizeChange(session.id, delta) : undefined}
               fitToCellTrigger={isZoomed ? fitToCellTrigger : undefined}
+              onFileLink={onFileLink(session.id)}
             />
             {/* Drag handles — only on zoomed cells */}
             {isZoomed && (
@@ -442,6 +447,12 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   // Grid cell selection and zoom
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
+
+  // One shared file viewer for all grid cells, same UX as the single view.
+  // Clicking a file-path link in any cell — zoomed or not — opens the
+  // route-level panel. Falls back to the cell-local viewer only when
+  // GridTerminal is used somewhere without this hook (not here).
+  const { makeFileLinkHandler, fileViewerOverlay } = useSessionInspect();
 
   // Dynamic imports for grid and modal components
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -797,8 +808,11 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
           onFontSizeChange={handleFontSizeChange}
+          onFileLink={makeFileLinkHandler}
         />
       )}
+
+      {fileViewerOverlay}
 
       {/* Session modal overlay */}
       {modalSession && SessionModalComponent && (

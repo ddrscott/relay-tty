@@ -5,6 +5,7 @@ import {
   Activity,
   Bell,
   Eraser,
+  EyeOff,
   LogOut,
   MessageSquare,
   Power,
@@ -43,6 +44,8 @@ interface SessionInfoPanelProps {
   onClearScrollback: () => void;
   onKillSession: () => void;
   onShare?: () => void;
+  hideViewModeToggle?: boolean;
+  onRemoveFromLayout?: () => void;
 }
 
 export function SessionInfoPanel({
@@ -65,6 +68,8 @@ export function SessionInfoPanel({
   onClearScrollback,
   onKillSession,
   onShare,
+  hideViewModeToggle,
+  onRemoveFromLayout,
 }: SessionInfoPanelProps) {
   return (
     <div
@@ -96,33 +101,35 @@ export function SessionInfoPanel({
         </div>
 
         {/* View mode selector: xterm / chat */}
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-[#64748b]">View</span>
-          <div className="flex rounded-lg overflow-hidden border border-[#2d2d44]">
-            <NoKbButton
-              className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
-                viewMode === "terminal"
-                  ? "bg-primary text-primary-content"
-                  : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
-              }`}
-              onPress={() => viewMode !== "terminal" && onToggleViewMode()}
-            >
-              <TerminalSquare className="w-3 h-3" />
-              <span>xterm</span>
-            </NoKbButton>
-            <NoKbButton
-              className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
-                viewMode === "chat"
-                  ? "bg-primary text-primary-content"
-                  : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
-              }`}
-              onPress={() => viewMode !== "chat" && onToggleViewMode()}
-            >
-              <MessageSquare className="w-3 h-3" />
-              <span>chat</span>
-            </NoKbButton>
+        {!hideViewModeToggle && (
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[#64748b]">View</span>
+            <div className="flex rounded-lg overflow-hidden border border-[#2d2d44]">
+              <NoKbButton
+                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
+                  viewMode === "terminal"
+                    ? "bg-primary text-primary-content"
+                    : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
+                }`}
+                onPress={() => viewMode !== "terminal" && onToggleViewMode()}
+              >
+                <TerminalSquare className="w-3 h-3" />
+                <span>xterm</span>
+              </NoKbButton>
+              <NoKbButton
+                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono transition-colors ${
+                  viewMode === "chat"
+                    ? "bg-primary text-primary-content"
+                    : "bg-transparent text-[#64748b] hover:text-[#94a3b8]"
+                }`}
+                onPress={() => viewMode !== "chat" && onToggleViewMode()}
+              >
+                <MessageSquare className="w-3 h-3" />
+                <span>chat</span>
+              </NoKbButton>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="border-t border-[#2d2d44] my-1.5" />
 
@@ -272,6 +279,20 @@ export function SessionInfoPanel({
           <Settings className="w-3 h-3" />
           <span>Global settings</span>
         </Link>
+
+        {/* Remove from current view (non-destructive — session keeps running) */}
+        {onRemoveFromLayout && (
+          <>
+            <div className="border-t border-[#2d2d44] my-1.5" />
+            <NoKbButton
+              className="flex items-center gap-1.5 text-[#94a3b8] hover:text-[#e2e8f0] transition-colors w-full"
+              onPress={() => { onClose(); onRemoveFromLayout(); }}
+            >
+              <EyeOff className="w-3 h-3" />
+              <span>Remove from tiles</span>
+            </NoKbButton>
+          </>
+        )}
 
         {/* Close session */}
         {session.status === "running" && (

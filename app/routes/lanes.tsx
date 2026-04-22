@@ -10,6 +10,8 @@ import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
+import { useSessionInspect } from "../hooks/use-session-inspect";
+import type { FileLink } from "../lib/file-link-provider";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -140,6 +142,7 @@ function LanesViewport({
   onUnzoomCell,
   onSessionUpdate,
   onFontSizeChange,
+  onFileLink,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
@@ -155,6 +158,7 @@ function LanesViewport({
   onUnzoomCell: () => void;
   onSessionUpdate?: (session: Session) => void;
   onFontSizeChange?: (sessionId: string, delta: number) => void;
+  onFileLink: (sessionId: string) => (link: FileLink) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -277,6 +281,7 @@ function LanesViewport({
               onUnzoom={onUnzoomCell}
               onSessionUpdate={onSessionUpdate}
               onFontSizeChange={onFontSizeChange ? (delta: number) => onFontSizeChange(session.id, delta) : undefined}
+              onFileLink={onFileLink(session.id)}
             />
           </div>
         ) : (
@@ -341,6 +346,9 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   // Cell selection and zoom
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
+
+  // One shared file viewer for all lane cells, same UX as the single view.
+  const { makeFileLinkHandler, fileViewerOverlay } = useSessionInspect();
 
   // Dynamic imports for grid terminal and modal
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -750,8 +758,11 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
           onFontSizeChange={handleFontSizeChange}
+          onFileLink={makeFileLinkHandler}
         />
       )}
+
+      {fileViewerOverlay}
 
       {/* Session modal overlay */}
       {modalSession && SessionModalComponent && (

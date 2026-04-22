@@ -39,6 +39,8 @@ import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
+import { useSessionInspect } from "../hooks/use-session-inspect";
+import type { FileLink } from "../lib/file-link-provider";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -155,6 +157,17 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
+
+  // File-link inspection shared across all tiles. makeFileLinkHandler
+  // returns a stable callback per sessionId; fileViewerOverlay renders the
+  // slide-in panel when a tile's Terminal emits a link click.
+  const { makeFileLinkHandler, fileViewerOverlay } = useSessionInspect();
+  const handleFileLink = useCallback(
+    (sessionId: string, link: FileLink) => {
+      makeFileLinkHandler(sessionId)(link);
+    },
+    [makeFileLinkHandler],
+  );
 
   // Drag-and-drop state for pane reorder (4-way zones).
   const [dragState, setDragState] = useState<{
@@ -355,6 +368,31 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     },
     [setLayout, persistDismissed],
   );
+
+  // Kill the underlying session AND remove its pane from the tile layout.
+  // The session server will also broadcast its removal, but we drop the tile
+  // immediately so the UI doesn't flash an empty exited pane.
+  const handleKillSession = useCallback(
+    (nodeId: string) => {
+      const node = findNodeById(layout, nodeId);
+      const sessionId = node && node.type === "terminal" ? node.sessionId : null;
+      setLayout((prev) => removeNode(prev, nodeId));
+      if (sessionId) {
+        fetch(`/api/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {
+          // ignore — revalidation will reconcile state
+        });
+      }
+    },
+    [layout, setLayout],
+  );
+
+  // Flat order of panes across the layout, used to render "(idx/total)" in
+  // each pane's menu. Recomputes only when the layout changes.
+  const paneOrder = useMemo(() => {
+    const m = new Map<string, number>();
+    getAllSessionIds(layout).forEach((id, i) => m.set(id, i));
+    return m;
+  }, [layout]);
 
   const handleResize = useCallback(
     (splitId: string, sizes: number[]) => {
@@ -808,6 +846,8 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             dragSourcePaneId={dragState?.sourcePaneId ?? null}
             onFocus={handleFocusNode}
             onClosePane={handleClosePane}
+            onKillSession={handleKillSession}
+            onFileLink={handleFileLink}
             onResize={handleResize}
             getFontSize={getFontSize}
             onFontSizeDelta={handleFontSizeDelta}
@@ -816,6 +856,8 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
+            hostname={hostname}
+            paneOrder={paneOrder}
             isRoot
           />
         )}
@@ -841,6 +883,8 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
           />
         )}
       </div>
+
+      {fileViewerOverlay}
     </main>
   );
 }

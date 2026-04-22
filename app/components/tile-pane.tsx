@@ -1,9 +1,17 @@
-import { useCallback, useRef } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { Terminal } from "./terminal";
 import type { TerminalHandle } from "./terminal";
+import { SessionInfoPanel } from "./session-info-panel";
 import type { Session } from "../../shared/types";
 import type { TerminalNode } from "../../shared/tile-layout";
+import type { FileLink } from "../lib/file-link-provider";
+import {
+  type NotifSettings,
+  getEffectiveNotifSettings,
+  getSessionNotifOverride,
+  setSessionNotifOverride,
+} from "../lib/notif-settings";
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -20,16 +28,20 @@ interface TilePaneProps extends TilePaneDragCallbacks {
   isDragSource: boolean;
   onFocus: () => void;
   onClose: () => void;
+  onKillSession: () => void;
+  onFileLink?: (link: FileLink) => void;
   fontSize: number;
   onFontSizeDelta: (delta: number) => void;
+  hostname: string;
+  paneIndex: number;
+  totalPanes: number;
 }
 
 /**
  * One interactive tile: header + live Terminal. Clicking anywhere focuses
- * this pane. Close button removes it from the layout only — it does not
- * kill the underlying session. Dragging the header moves the containing
- * column among the root-level tiles (drag is handled by the parent via
- * the onDragStart / onDragMove / onDragEnd callbacks).
+ * this pane. The header menu exposes the same controls as the full session
+ * view (font size, clear scrollback, close session, notifications), plus a
+ * non-destructive "Remove from tiles" action that maps to `onClose`.
  */
 export function TilePane({
   node,
@@ -38,19 +50,66 @@ export function TilePane({
   isDragSource,
   onFocus,
   onClose,
+  onKillSession,
+  onFileLink,
   onDragStart,
   onDragMove,
   onDragEnd,
   fontSize,
   onFontSizeDelta,
+  hostname,
+  paneIndex,
+  totalPanes,
 }: TilePaneProps) {
   const terminalRef = useRef<TerminalHandle>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [sessionNotifOverride, setSessionNotifOverrideState] =
+    useState<NotifSettings | null>(() =>
+      typeof window !== "undefined" ? getSessionNotifOverride(session.id) : null,
+    );
+  useEffect(() => {
+    setSessionNotifOverrideState(getSessionNotifOverride(session.id));
+  }, [session.id]);
+
+  const toggleSessionNotif = useCallback(
+    (key: keyof NotifSettings) => {
+      setSessionNotifOverrideState((prev) => {
+        const effective = prev ?? getEffectiveNotifSettings(session.id);
+        const next = { ...effective, [key]: !effective[key] };
+        setSessionNotifOverride(session.id, next);
+        return next;
+      });
+    },
+    [session.id],
+  );
+
+  const clearSessionNotifOverride = useCallback(() => {
+    setSessionNotifOverride(session.id, null);
+    setSessionNotifOverrideState(null);
+  }, [session.id]);
+
+  const effectiveNotif = sessionNotifOverride ?? getEffectiveNotifSettings(session.id);
+
+  // Close menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
 
   const handleHeaderPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
-      // Ignore clicks that originated on controls (close button).
+      // Ignore clicks that originated on controls (menu button / dropdown).
       if ((e.target as HTMLElement).closest("button")) return;
+      if ((e.target as HTMLElement).closest("[data-tile-menu]")) return;
 
       onFocus();
 
@@ -98,6 +157,12 @@ export function TilePane({
   const sessionLabel = session.title || `${session.command} ${session.args.join(" ")}`.trim();
   const exited = session.status !== "running";
 
+  const handleKillSession = useCallback(() => {
+    if (!confirm("Close this session?")) return;
+    setMenuOpen(false);
+    onKillSession();
+  }, [onKillSession]);
+
   return (
     <div
       onPointerDown={handlePanePointerDown}
@@ -128,19 +193,46 @@ export function TilePane({
             {session.cwd}
           </span>
         )}
-        <button
-          type="button"
-          className="p-0.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors shrink-0"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          aria-label="Close tile"
-          title="Remove from layout"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <div className="relative shrink-0" ref={menuRef} data-tile-menu>
+          <button
+            type="button"
+            className="p-0.5 text-[#64748b] hover:text-[#e2e8f0] transition-colors"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onFocus();
+              setMenuOpen((v) => !v);
+            }}
+            aria-label="Tile menu"
+            title="Tile menu"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </button>
+          {menuOpen && (
+            <SessionInfoPanel
+              session={session}
+              hostname={hostname}
+              currentIndex={paneIndex}
+              totalSessions={totalPanes}
+              activeFontSize={fontSize}
+              onSetFontSize={(size) => onFontSizeDelta(size - fontSize)}
+              viewMode="terminal"
+              onToggleViewMode={() => {}}
+              totalBytes={session.totalBytesWritten ?? 0}
+              sessionActive={session.status === "running"}
+              idleDisplay=""
+              effectiveNotif={effectiveNotif}
+              sessionNotifOverride={sessionNotifOverride}
+              onToggleNotif={toggleSessionNotif}
+              onClearNotifOverride={clearSessionNotifOverride}
+              onClose={() => setMenuOpen(false)}
+              onClearScrollback={() => terminalRef.current?.clearScrollback()}
+              onKillSession={handleKillSession}
+              hideViewModeToggle
+              onRemoveFromLayout={onClose}
+            />
+          )}
+        </div>
       </div>
       <div className="flex-1 min-h-0 relative">
         <Terminal
@@ -151,6 +243,7 @@ export function TilePane({
           initialPtyCols={session.cols}
           initialPtyRows={session.rows}
           onFontSizeChange={onFontSizeDelta}
+          onFileLink={onFileLink}
         />
         {exited && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0f]/70 pointer-events-none">
