@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Terminal emit-content parity across `/grid`, `/lanes`, `/tiles` and the single-session view. Clicking a file-path link in any cell opens the same slide-in file viewer you get from `/sessions/:id`; inline images from iTerm2 OSC 1337 accumulate in a floating thumbnail panel; cross-device clipboard sync shows the shared clipboard panel on arrival; text selection auto-copy shows the "Copied" toast; OSC 9 notifications raise a top-center banner and hit the shared server-side notification history so it stays consistent across views. Implemented via a reusable `useSessionInspect` hook
+
 ## [1.19.0] - 2026-04-21
 
 ### Added
