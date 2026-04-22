@@ -3,7 +3,12 @@ import { ClipboardCopy, ClipboardPaste, X } from "lucide-react";
 
 interface ClipboardPanelProps {
   text: string;
-  onPasteToTerminal: (text: string) => void;
+  /**
+   * Optional — when present, a "Paste to terminal" button is shown. Omit
+   * from multi-session views where the clipboard panel doesn't have a
+   * single obvious target terminal.
+   */
+  onPasteToTerminal?: (text: string) => void;
   onClose: () => void;
 }
 
@@ -21,6 +26,7 @@ export function ClipboardPanel({ text, onPasteToTerminal, onClose }: ClipboardPa
   }, [text]);
 
   const handlePaste = useCallback(() => {
+    if (!onPasteToTerminal) return;
     onPasteToTerminal(text);
     onClose();
   }, [text, onPasteToTerminal, onClose]);
@@ -55,15 +61,17 @@ export function ClipboardPanel({ text, onPasteToTerminal, onClose }: ClipboardPa
           <ClipboardCopy className="w-4 h-4" />
           Copy to device
         </button>
-        <button
-          className="btn btn-sm btn-primary flex-1 gap-1.5"
-          onClick={handlePaste}
-          onMouseDown={(e) => e.preventDefault()}
-          tabIndex={-1}
-        >
-          <ClipboardPaste className="w-4 h-4" />
-          Paste to terminal
-        </button>
+        {onPasteToTerminal && (
+          <button
+            className="btn btn-sm btn-primary flex-1 gap-1.5"
+            onClick={handlePaste}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+          >
+            <ClipboardPaste className="w-4 h-4" />
+            Paste to terminal
+          </button>
+        )}
       </div>
     </div>
   );

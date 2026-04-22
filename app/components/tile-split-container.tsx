@@ -16,7 +16,14 @@ interface TileSplitContainerProps extends TilePaneDragCallbacks {
   onFocus: (nodeId: string) => void;
   onClosePane: (nodeId: string) => void;
   onKillSession: (nodeId: string) => void;
-  onFileLink: (sessionId: string, link: FileLink) => void;
+  /** Per-session inspect handlers keyed from useSessionInspect.makeHandlers. */
+  getSessionHandlers: (session: Session) => {
+    onFileLink: (link: FileLink) => void;
+    onImage: (image: { id: string; blobUrl: string }) => void;
+    onClipboard: (text: string) => void;
+    onCopy: () => void;
+    onNotification: (message: string) => void;
+  };
   onResize: (splitId: string, sizes: number[]) => void;
   getFontSize: (sessionId: string) => number;
   onFontSizeDelta: (sessionId: string, delta: number) => void;
@@ -44,7 +51,7 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
     onDragStart,
     onDragMove,
     onDragEnd,
-    onFileLink,
+    getSessionHandlers,
     hostname,
     paneOrder,
   } = props;
@@ -66,7 +73,7 @@ export function TileSplitContainer(props: TileSplitContainerProps) {
         onDragEnd={onDragEnd}
         fontSize={getFontSize(session.id)}
         onFontSizeDelta={(delta: number) => onFontSizeDelta(session.id, delta)}
-        onFileLink={(link) => onFileLink(session.id, link)}
+        {...getSessionHandlers(session)}
         hostname={hostname}
         paneIndex={paneOrder.get(session.id) ?? 0}
         totalPanes={paneOrder.size}

@@ -142,7 +142,7 @@ function LanesViewport({
   onUnzoomCell,
   onSessionUpdate,
   onFontSizeChange,
-  onFileLink,
+  getSessionHandlers,
 }: {
   sessions: Session[];
   selectedCellId: string | null;
@@ -158,7 +158,13 @@ function LanesViewport({
   onUnzoomCell: () => void;
   onSessionUpdate?: (session: Session) => void;
   onFontSizeChange?: (sessionId: string, delta: number) => void;
-  onFileLink: (sessionId: string) => (link: FileLink) => void;
+  getSessionHandlers: (session: Session) => {
+    onFileLink: (link: FileLink) => void;
+    onImage: (image: { id: string; blobUrl: string }) => void;
+    onClipboard: (text: string) => void;
+    onCopy: () => void;
+    onNotification: (message: string) => void;
+  };
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [vpSize, setVpSize] = useState({ w: 1920, h: 900 });
@@ -281,7 +287,7 @@ function LanesViewport({
               onUnzoom={onUnzoomCell}
               onSessionUpdate={onSessionUpdate}
               onFontSizeChange={onFontSizeChange ? (delta: number) => onFontSizeChange(session.id, delta) : undefined}
-              onFileLink={onFileLink(session.id)}
+              {...getSessionHandlers(session)}
             />
           </div>
         ) : (
@@ -347,8 +353,8 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [zoomedCellId, setZoomedCellId] = useState<string | null>(null);
 
-  // One shared file viewer for all lane cells, same UX as the single view.
-  const { makeFileLinkHandler, fileViewerOverlay } = useSessionInspect();
+  // Shared inspect surfaces for all lane cells — same UX as the single view.
+  const { makeHandlers, inspectOverlays } = useSessionInspect();
 
   // Dynamic imports for grid terminal and modal
   const [GridTerminalComponent, setGridTerminalComponent] =
@@ -758,11 +764,11 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           onZoomCell={zoomCell}
           onUnzoomCell={unzoomCell}
           onFontSizeChange={handleFontSizeChange}
-          onFileLink={makeFileLinkHandler}
+          getSessionHandlers={makeHandlers}
         />
       )}
 
-      {fileViewerOverlay}
+      {inspectOverlays}
 
       {/* Session modal overlay */}
       {modalSession && SessionModalComponent && (

@@ -30,6 +30,14 @@ interface GridTerminalProps {
    * file viewer across all tiles (see useSessionInspect).
    */
   onFileLink?: (link: FileLink) => void;
+  /** Inline images from iTerm2 OSC 1337. */
+  onImage?: (image: { id: string; blobUrl: string }) => void;
+  /** Cross-device clipboard sync messages. */
+  onClipboard?: (text: string) => void;
+  /** Fired when a terminal selection is auto-copied to the system clipboard. */
+  onCopy?: () => void;
+  /** OSC 9 notification messages emitted by the PTY. */
+  onNotification?: (message: string) => void;
 }
 
 /**
@@ -42,7 +50,7 @@ interface GridTerminalProps {
  * Clicking a cell selects it — keyboard input routes to that session.
  * An expand button opens the session in the full modal view.
  */
-export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, onFontSizeChange, fitToCellTrigger, onFileLink }: GridTerminalProps) {
+export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, onZoom, onUnzoom, onSessionUpdate, onFontSizeChange, fitToCellTrigger, onFileLink, onImage, onClipboard, onCopy, onNotification }: GridTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
@@ -125,6 +133,10 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,
     onFileLink: handleFileLink,
+    onImage,
+    onClipboard,
+    onCopy,
+    onNotification,
     onFontSizeChange,
   });
 

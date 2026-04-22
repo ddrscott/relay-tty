@@ -40,7 +40,6 @@ import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../compo
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
 import { useSessionInspect } from "../hooks/use-session-inspect";
-import type { FileLink } from "../lib/file-link-provider";
 
 export function meta({ data }: Route.MetaArgs) {
   const hostname = data?.hostname ?? "";
@@ -158,16 +157,10 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [columnWidths, setColumnWidths] = useState<Map<string, number>>(getStoredColumnWidths);
   const dismissedIdsRef = useRef<Set<string>>(new Set(getStoredIdSet(DISMISSED_KEY)));
 
-  // File-link inspection shared across all tiles. makeFileLinkHandler
-  // returns a stable callback per sessionId; fileViewerOverlay renders the
-  // slide-in panel when a tile's Terminal emits a link click.
-  const { makeFileLinkHandler, fileViewerOverlay } = useSessionInspect();
-  const handleFileLink = useCallback(
-    (sessionId: string, link: FileLink) => {
-      makeFileLinkHandler(sessionId)(link);
-    },
-    [makeFileLinkHandler],
-  );
+  // Shared cross-tile inspect surfaces: file viewer, inline images, shared
+  // clipboard, copy toast, notification toast. makeHandlers(session) hands
+  // back a stable callback bundle that drops straight onto <Terminal>.
+  const { makeHandlers, inspectOverlays } = useSessionInspect();
 
   // Drag-and-drop state for pane reorder (4-way zones).
   const [dragState, setDragState] = useState<{
@@ -847,7 +840,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             onFocus={handleFocusNode}
             onClosePane={handleClosePane}
             onKillSession={handleKillSession}
-            onFileLink={handleFileLink}
+            getSessionHandlers={makeHandlers}
             onResize={handleResize}
             getFontSize={getFontSize}
             onFontSizeDelta={handleFontSizeDelta}
@@ -884,7 +877,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {fileViewerOverlay}
+      {inspectOverlays}
     </main>
   );
 }

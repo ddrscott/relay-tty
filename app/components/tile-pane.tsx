@@ -29,7 +29,16 @@ interface TilePaneProps extends TilePaneDragCallbacks {
   onFocus: () => void;
   onClose: () => void;
   onKillSession: () => void;
+  /** Called when the xterm link provider detects a file-path click. */
   onFileLink?: (link: FileLink) => void;
+  /** Called for each inline image (iTerm2 OSC 1337). */
+  onImage?: (image: { id: string; blobUrl: string }) => void;
+  /** Called when a cross-device clipboard sync message arrives. */
+  onClipboard?: (text: string) => void;
+  /** Called when terminal selection is auto-copied to the clipboard. */
+  onCopy?: () => void;
+  /** Called for each OSC 9 notification emitted by the session. */
+  onNotification?: (message: string) => void;
   fontSize: number;
   onFontSizeDelta: (delta: number) => void;
   hostname: string;
@@ -52,6 +61,10 @@ export function TilePane({
   onClose,
   onKillSession,
   onFileLink,
+  onImage,
+  onClipboard,
+  onCopy,
+  onNotification,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -244,6 +257,10 @@ export function TilePane({
           initialPtyRows={session.rows}
           onFontSizeChange={onFontSizeDelta}
           onFileLink={onFileLink}
+          onImage={onImage}
+          onClipboard={onClipboard}
+          onCopy={onCopy}
+          onNotification={onNotification}
         />
         {exited && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0f]/70 pointer-events-none">
