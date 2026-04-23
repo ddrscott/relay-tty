@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import type { PairStore } from "./pair-store.js";
 import { createHash, createHmac } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -8,6 +9,35 @@ import * as cookie from "cookie";
 const PASSWD_FILE = path.join(os.homedir(), ".relay-tty", "passwd");
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
+
+let pairStore: PairStore | null = null;
+
+/**
+ * Register the pair-code store. Called once during server startup.
+ * The auth middleware uses this to verify `relay_grant` cookies.
+ */
+export function setPairStore(store: PairStore): void {
+  pairStore = store;
+}
+
+/**
+ * Extract the session id that a request path targets, if any.
+ * Returns the id for `/sessions/:id`, `/ws/sessions/:id`, and `/api/sessions/:id/*`.
+ */
+function pathSessionId(urlPath: string): string | null {
+  const m1 = urlPath.match(/^\/sessions\/([a-f0-9]+)(?:$|\/)/);
+  if (m1) return m1[1];
+  const m2 = urlPath.match(/^\/ws\/sessions\/([a-f0-9]+)$/);
+  if (m2) return m2[1];
+  const m3 = urlPath.match(/^\/api\/sessions\/([a-f0-9]+)(?:$|\/)/);
+  if (m3) return m3[1];
+  return null;
+}
+
+/** Paths a grant cookie is always allowed to hit, regardless of session-id scoping. */
+function isGrantAllowedOpenPath(urlPath: string): boolean {
+  return urlPath === "/api/pair/logout" || urlPath === "/api/pair/whoami";
+}
 
 /**
  * Check if request originates from localhost.
@@ -308,12 +338,41 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return;
   }
 
-  const cookies = cookie.parse(req.headers.cookie || "");
-  const token = cookies.session;
+  // Allow the public pair entry page and its redeem API through
+  // so the library computer can enter a code without auth.
+  if (req.path === "/pair" || req.path === "/api/pair/redeem") {
+    next();
+    return;
+  }
 
+  const cookies = cookie.parse(req.headers.cookie || "");
+
+  // Primary auth path — owner JWT
+  const token = cookies.session;
   if (token && verifyJwt(token)) {
     next();
     return;
+  }
+
+  // Guest auth path — device pairing grant
+  const grantCookie = cookies.relay_grant;
+  if (grantCookie && pairStore) {
+    const grantId = verifyGrantCookie(grantCookie);
+    if (grantId) {
+      const { sessionId, isValid } = pairStore.verifyGrant(grantId);
+      if (isValid) {
+        if (isGrantAllowedOpenPath(req.path)) {
+          next();
+          return;
+        }
+        const targetId = pathSessionId(req.path);
+        if (targetId && targetId === sessionId) {
+          next();
+          return;
+        }
+        // Grant valid but request targets a different resource — fall through to 401.
+      }
+    }
   }
 
   if (req.path.startsWith("/api/") || req.path.startsWith("/ws/")) {
@@ -322,8 +381,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   // Only block page routes — let assets, modules, and other resources through.
-  // Page routes are clean paths without file extensions (/, /grid, /sessions/abc).
-  // Assets always have extensions (.js, .ts, .css) or use special prefixes (/@, /__).
   const lastSegment = req.path.split("/").pop() || "";
   const isAsset = lastSegment.includes(".") || req.path.startsWith("/@") || req.path.startsWith("/__");
   if (isAsset) {
@@ -342,9 +399,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 }
 
 /**
- * Verify JWT from WebSocket upgrade request cookies.
+ * Verify JWT (or grant cookie) from WebSocket upgrade request cookies.
  */
-export function verifyWsAuth(req: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): boolean {
+export function verifyWsAuth(req: { url?: string; headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): boolean {
   const ip = req.socket.remoteAddress || "";
   const isLocal = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 
@@ -358,8 +415,24 @@ export function verifyWsAuth(req: { headers: Record<string, string | string[] | 
   if (!cookieHeader || typeof cookieHeader !== "string") return false;
 
   const cookies = cookie.parse(cookieHeader);
-  const token = cookies.session;
-  if (!token) return false;
 
-  return verifyJwt(token) !== null;
+  // Owner JWT
+  const token = cookies.session;
+  if (token && verifyJwt(token)) return true;
+
+  // Guest grant — must target the same session id
+  const grantCookie = cookies.relay_grant;
+  if (grantCookie && pairStore && req.url) {
+    const grantId = verifyGrantCookie(grantCookie);
+    if (grantId) {
+      const { sessionId, isValid } = pairStore.verifyGrant(grantId);
+      if (isValid) {
+        const urlPath = req.url.split("?")[0];
+        const wsMatch = urlPath.match(/^\/ws\/sessions\/([a-f0-9]+)$/);
+        if (wsMatch && wsMatch[1] === sessionId) return true;
+      }
+    }
+  }
+
+  return false;
 }
