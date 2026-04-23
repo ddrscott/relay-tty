@@ -60,6 +60,12 @@ async function loadModules(load) {
   app.get("/favicon.ico", (_req, res) => res.status(204).end());
 
   const authModule = await load("auth");
+
+  const pairStoreModule = await load("pair-store");
+  const pairStore = new pairStoreModule.PairStore();
+  const sweepTimer = pairStore.startSweepTimer();
+  authModule.setPairStore(pairStore);
+
   app.use(authModule.authMiddleware);
 
   const notifStoreModule = await load("notification-store");
@@ -69,7 +75,7 @@ async function loadModules(load) {
   const pushStore = new pushStoreModule.PushStore();
 
   const apiModule = await load("api");
-  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore, pushStore }));
+  app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore, pushStore, pairStore }));
 
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
@@ -103,7 +109,7 @@ async function loadModules(load) {
     res.redirect("/");
   });
 
-  return { sessionStore, ptyManager, wsHandler, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir };
+  return { sessionStore, ptyManager, wsHandler, pairStore, sweepTimer, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir };
 }
 
 async function start() {
@@ -156,7 +162,7 @@ async function start() {
     );
   }
 
-  const { wsHandler, verifyWsAuth, generateToken, generateAccessToken } = modules;
+  const { wsHandler, verifyWsAuth, generateToken, generateAccessToken, sweepTimer } = modules;
 
   const httpServer = createServer(app);
 
@@ -228,6 +234,7 @@ async function start() {
   // Clean up server info on shutdown
   for (const sig of ["SIGINT", "SIGTERM"]) {
     process.on(sig, () => {
+      clearInterval(sweepTimer);
       clearServerInfo();
       process.exit(0);
     });

@@ -84,6 +84,7 @@ interface ApiOptions {
   appUrl?: string;
   notificationStore?: NotificationStore;
   pushStore?: PushStore;
+  pairStore?: import("./pair-store.js").PairStore;
 }
 
 export function createApiRouter(
