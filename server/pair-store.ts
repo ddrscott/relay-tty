@@ -143,6 +143,8 @@ export class PairStore {
   }
 
   startSweepTimer(): ReturnType<typeof setInterval> {
-    return setInterval(() => this.sweep(), 60 * 1000);
+    const timer = setInterval(() => this.sweep(), 60 * 1000);
+    timer.unref();
+    return timer;
   }
 }
