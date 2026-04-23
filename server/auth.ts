@@ -258,6 +258,31 @@ export function peekJwtPayload(token: string): JwtPayload | null {
 }
 
 /**
+ * Sign a grant id with HMAC-SHA256 for use as a `relay_grant` cookie value.
+ * Format: `<grantId>.<signature>`. The grant id itself is looked up in PairStore;
+ * this signature only proves the id hasn't been tampered with.
+ */
+export function signGrantCookie(grantId: string): string | null {
+  if (!JWT_SECRET) return null;
+  const sig = createHmac("sha256", JWT_SECRET).update(grantId).digest("base64url");
+  return `${grantId}.${sig}`;
+}
+
+/**
+ * Verify a `relay_grant` cookie value. Returns the grant id on success, null otherwise.
+ */
+export function verifyGrantCookie(cookieValue: string): string | null {
+  if (!JWT_SECRET) return null;
+  const idx = cookieValue.lastIndexOf(".");
+  if (idx < 1) return null;
+  const grantId = cookieValue.slice(0, idx);
+  const sig = cookieValue.slice(idx + 1);
+  const expected = createHmac("sha256", JWT_SECRET).update(grantId).digest("base64url");
+  if (sig !== expected) return null;
+  return grantId;
+}
+
+/**
  * Express middleware: skip auth for localhost, require valid JWT cookie for remote.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
