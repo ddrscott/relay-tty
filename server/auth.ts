@@ -313,6 +313,23 @@ export function verifyGrantCookie(cookieValue: string): string | null {
 }
 
 /**
+ * Determine whether a request is authenticated as the session owner.
+ * A request is "owner" if:
+ *   - it comes from localhost (trusted CLI / same-machine access), OR
+ *   - it presents a valid `session` JWT cookie.
+ *
+ * A `relay_grant` cookie is NOT sufficient for owner status — it only grants
+ * scoped guest access to a single session's read/write operations.
+ */
+export function isOwnerRequest(req: Request): boolean {
+  if (isLocalhost(req)) return true;
+  if (!JWT_SECRET) return true;
+  const cookies = cookie.parse(req.headers.cookie || "");
+  const token = cookies.session;
+  return !!(token && verifyJwt(token));
+}
+
+/**
  * Express middleware: skip auth for localhost, require valid JWT cookie for remote.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {

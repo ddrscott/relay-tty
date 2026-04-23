@@ -15,6 +15,7 @@ import {
   hashPassword,
   signGrantCookie,
   verifyGrantCookie,
+  isOwnerRequest,
 } from "./auth.js";
 import { discoverProjects, readProjectRootsRaw, writeProjectRoots, invalidateProjectCache } from "./projects.js";
 import type {
@@ -209,6 +210,10 @@ export function createApiRouter(
 
   // POST /api/sessions/:id/pair — mint a 6-digit pair code for this session.
   router.post("/sessions/:id/pair", (req, res) => {
+    if (!isOwnerRequest(req)) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
     const session = sessionStore.get(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
@@ -226,6 +231,10 @@ export function createApiRouter(
 
   // DELETE /api/sessions/:id/pair/:code — revoke an unredeemed code.
   router.delete("/sessions/:id/pair/:code", (req, res) => {
+    if (!isOwnerRequest(req)) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
     if (!options.pairStore) {
       res.status(500).json({ error: "Pair store not configured" });
       return;
@@ -280,6 +289,10 @@ export function createApiRouter(
 
   // GET /api/sessions/:id/grants — list active guest grants for a session.
   router.get("/sessions/:id/grants", (req, res) => {
+    if (!isOwnerRequest(req)) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
     if (!options.pairStore) {
       res.json({ grants: [] });
       return;
@@ -289,6 +302,10 @@ export function createApiRouter(
 
   // DELETE /api/sessions/:id/grants/:grantId — kick a guest.
   router.delete("/sessions/:id/grants/:grantId", (req, res) => {
+    if (!isOwnerRequest(req)) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
     if (!options.pairStore) {
       res.status(500).json({ error: "Pair store not configured" });
       return;
@@ -320,6 +337,10 @@ export function createApiRouter(
 
   // DELETE /api/sessions/:id — kill and remove session
   router.delete("/sessions/:id", (req, res) => {
+    if (!isOwnerRequest(req)) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
     const session = sessionStore.get(req.params.id);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
