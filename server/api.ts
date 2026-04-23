@@ -8,7 +8,14 @@ import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import type { NotificationStore } from "./notification-store.js";
 import type { PushStore } from "./push-store.js";
-import { generateShareToken, generatePasswordShareToken, readPasswordHash, hashPassword } from "./auth.js";
+import {
+  generateShareToken,
+  generatePasswordShareToken,
+  readPasswordHash,
+  hashPassword,
+  signGrantCookie,
+  verifyGrantCookie,
+} from "./auth.js";
 import { discoverProjects, readProjectRootsRaw, writeProjectRoots, invalidateProjectCache } from "./projects.js";
 import type {
   CreateSessionRequest,
@@ -198,6 +205,117 @@ export function createApiRouter(
     const url = `${baseUrl}/share/${token}`;
 
     res.json({ token, url, expiresIn: ttl, passwordProtected: usePassword });
+  });
+
+  // POST /api/sessions/:id/pair — mint a 6-digit pair code for this session.
+  router.post("/sessions/:id/pair", (req, res) => {
+    const session = sessionStore.get(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    if (!options.pairStore) {
+      res.status(500).json({ error: "Pair store not configured" });
+      return;
+    }
+    const code = options.pairStore.mintCode(req.params.id, "owner");
+    const baseUrl = options.appUrl
+      || `${req.headers["x-forwarded-proto"] || req.protocol}://${req.headers["x-forwarded-host"] || req.headers.host}`;
+    res.json({ code, expiresIn: 300, pairUrl: `${baseUrl}/pair` });
+  });
+
+  // DELETE /api/sessions/:id/pair/:code — revoke an unredeemed code.
+  router.delete("/sessions/:id/pair/:code", (req, res) => {
+    if (!options.pairStore) {
+      res.status(500).json({ error: "Pair store not configured" });
+      return;
+    }
+    options.pairStore.revokeCode(req.params.code);
+    res.json({ ok: true });
+  });
+
+  // POST /api/pair/redeem — exchange a 6-digit code for a grant cookie.
+  // Public route (exempted by authMiddleware). Rate-limited per-IP inside PairStore.
+  router.post("/pair/redeem", (req, res) => {
+    const code = String(req.body?.code || "");
+    if (!/^\d{6}$/.test(code)) {
+      res.status(400).json({ error: "invalid-code-format" });
+      return;
+    }
+    if (!options.pairStore) {
+      res.status(500).json({ error: "Pair store not configured" });
+      return;
+    }
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const result = options.pairStore.redeemCode(code, ip);
+    if (result.error) {
+      const status = result.error === "rate-limited" ? 429 : 401;
+      res.status(status).json({ error: result.error });
+      return;
+    }
+
+    const signed = signGrantCookie(result.grantId!);
+    if (!signed) {
+      res.status(500).json({ error: "JWT_SECRET not configured" });
+      return;
+    }
+
+    const isSecure = req.secure || req.headers["x-forwarded-proto"] === "https";
+    const securePart = isSecure ? " Secure;" : "";
+    res.setHeader("Set-Cookie", `relay_grant=${signed}; HttpOnly; SameSite=Lax;${securePart} Path=/; Max-Age=${2 * 60 * 60}`);
+    res.json({ sessionUrl: `/sessions/${result.sessionId}` });
+  });
+
+  // POST /api/pair/logout — guest clears their grant cookie and server state.
+  router.post("/pair/logout", (req, res) => {
+    const cookieHeader = req.headers.cookie || "";
+    const m = cookieHeader.match(/(?:^|;\s*)relay_grant=([^;]+)/);
+    if (m && options.pairStore) {
+      const grantId = verifyGrantCookie(decodeURIComponent(m[1]));
+      if (grantId) options.pairStore.revokeGrant(grantId);
+    }
+    res.setHeader("Set-Cookie", "relay_grant=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    res.json({ ok: true });
+  });
+
+  // GET /api/sessions/:id/grants — list active guest grants for a session.
+  router.get("/sessions/:id/grants", (req, res) => {
+    if (!options.pairStore) {
+      res.json({ grants: [] });
+      return;
+    }
+    res.json({ grants: options.pairStore.listGrantsForSession(req.params.id) });
+  });
+
+  // DELETE /api/sessions/:id/grants/:grantId — kick a guest.
+  router.delete("/sessions/:id/grants/:grantId", (req, res) => {
+    if (!options.pairStore) {
+      res.status(500).json({ error: "Pair store not configured" });
+      return;
+    }
+    const removed = options.pairStore.revokeGrant(req.params.grantId);
+    res.json({ ok: removed });
+  });
+
+  // GET /api/pair/whoami — returns info about the current grant cookie.
+  router.get("/pair/whoami", (req, res) => {
+    const cookieHeader = req.headers.cookie || "";
+    const m = cookieHeader.match(/(?:^|;\s*)relay_grant=([^;]+)/);
+    if (!m || !options.pairStore) {
+      res.json({ isGuest: false });
+      return;
+    }
+    const grantId = verifyGrantCookie(decodeURIComponent(m[1]));
+    if (!grantId) {
+      res.json({ isGuest: false });
+      return;
+    }
+    const { sessionId, isValid } = options.pairStore.verifyGrant(grantId);
+    if (!isValid) {
+      res.json({ isGuest: false });
+      return;
+    }
+    res.json({ isGuest: true, sessionId });
   });
 
   // DELETE /api/sessions/:id — kill and remove session

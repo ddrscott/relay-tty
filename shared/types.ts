@@ -92,3 +92,24 @@ export interface Project {
   source: "recent" | "discovered" | "configured";
   lastUsed?: number;
 }
+
+export interface PairCodeResponse {
+  code: string;       // 6-digit string
+  expiresIn: number;  // seconds
+  pairUrl: string;    // absolute URL to the /pair page
+}
+
+export interface PairRedeemResponse {
+  sessionUrl: string; // absolute path like /sessions/abc12345
+}
+
+export interface GrantListEntry {
+  grantId: string;
+  ip: string;
+  issuedAt: number;
+  lastSeen: number;
+}
+
+export interface GrantListResponse {
+  grants: GrantListEntry[];
+}
