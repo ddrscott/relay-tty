@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { PlainInput } from "../components/plain-input";
 
 export function meta() {
   return [{ title: "relay-tty — pair device" }];
@@ -10,7 +11,7 @@ export default function PairPage() {
   const [digits, setDigits] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -41,7 +42,9 @@ export default function PairPage() {
       navigate(data.sessionUrl, { replace: true });
     } catch {
       setError("Network error. Try again.");
+      setDigits("");
       setSubmitting(false);
+      inputRef.current?.focus();
     }
   }, [navigate]);
 
@@ -59,11 +62,9 @@ export default function PairPage() {
         <p className="text-sm text-[#64748b] mb-6">
           Enter the 6-digit code shown on the device that started the session.
         </p>
-        <input
+        <PlainInput
           ref={inputRef}
-          type="text"
           inputMode="numeric"
-          pattern="\d{6}"
           autoComplete="one-time-code"
           value={digits}
           onChange={(e) => onChange(e.target.value)}
