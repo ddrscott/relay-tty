@@ -9,4 +9,5 @@ export default [
   route("settings", "routes/settings.tsx"),
   route("sessions/:id", "routes/sessions.$id.tsx"),
   route("share/:token", "routes/share.$token.tsx"),
+  route("pair", "routes/pair.tsx"),
 ] satisfies RouteConfig;
