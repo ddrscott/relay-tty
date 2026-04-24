@@ -15,6 +15,7 @@ import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
 import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
 import { ShareDialog } from "../components/share-dialog";
+import { PairHostDialog } from "../components/pair-host-dialog";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
 import { SessionPicker } from "../components/session-picker";
@@ -262,6 +263,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const carouselTrackRef = useRef<HTMLDivElement>(null);
   const [scratchpadOpen, setScratchpadOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [pairDialogOpen, setPairDialogOpen] = useState(false);
 
   // ── Reset per-session UI state when switching sessions ──
   // The Terminal component survives (keep-alive), but the route's UI chrome
@@ -1086,6 +1088,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               onClose={() => setInfoOpen(false)}
               onClearScrollback={() => terminalRef.current?.clearScrollback()}
               onShare={() => setShareDialogOpen(true)}
+              onPair={() => setPairDialogOpen(true)}
               onKillSession={async () => {
                 if (!confirm("Kill this session?")) return;
                 await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
@@ -1405,6 +1408,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         <ShareDialog
           sessionId={session.id}
           onClose={() => setShareDialogOpen(false)}
+        />
+      )}
+
+      {/* ── Pair dialog ── */}
+      {pairDialogOpen && (
+        <PairHostDialog
+          sessionId={session.id}
+          onClose={() => setPairDialogOpen(false)}
         />
       )}
 

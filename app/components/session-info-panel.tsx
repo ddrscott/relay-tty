@@ -6,6 +6,7 @@ import {
   Bell,
   Eraser,
   EyeOff,
+  Hash,
   LogOut,
   MessageSquare,
   Power,
@@ -44,6 +45,7 @@ interface SessionInfoPanelProps {
   onClearScrollback: () => void;
   onKillSession: () => void;
   onShare?: () => void;
+  onPair?: () => void;
   hideViewModeToggle?: boolean;
   onRemoveFromLayout?: () => void;
 }
@@ -68,6 +70,7 @@ export function SessionInfoPanel({
   onClearScrollback,
   onKillSession,
   onShare,
+  onPair,
   hideViewModeToggle,
   onRemoveFromLayout,
 }: SessionInfoPanelProps) {
@@ -258,6 +261,15 @@ export function SessionInfoPanel({
           >
             <Share2 className="w-3 h-3" />
             <span>Share session</span>
+          </NoKbButton>
+        )}
+        {onPair && (
+          <NoKbButton
+            className="flex items-center gap-1.5 text-[#3b82f6] hover:text-[#60a5fa] transition-colors w-full"
+            onPress={() => { onClose(); onPair(); }}
+          >
+            <Hash className="w-3 h-3" />
+            <span>Pair Device</span>
           </NoKbButton>
         )}
 
