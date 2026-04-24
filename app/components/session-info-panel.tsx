@@ -43,7 +43,7 @@ interface SessionInfoPanelProps {
   onClearNotifOverride: () => void;
   onClose: () => void;
   onClearScrollback: () => void;
-  onKillSession: () => void;
+  onKillSession?: () => void;
   onShare?: () => void;
   onPair?: () => void;
   hideViewModeToggle?: boolean;
@@ -307,7 +307,7 @@ export function SessionInfoPanel({
         )}
 
         {/* Close session */}
-        {session.status === "running" && (
+        {session.status === "running" && onKillSession && (
           <>
             <div className="border-t border-[#2d2d44] my-1.5" />
             <NoKbButton

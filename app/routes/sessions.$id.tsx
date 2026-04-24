@@ -264,6 +264,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [scratchpadOpen, setScratchpadOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [pairDialogOpen, setPairDialogOpen] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
+
+  useEffect(() => {
+    let stop = false;
+    fetch("/api/pair/whoami")
+      .then((r) => r.json())
+      .then((data) => { if (!stop) setIsGuest(!!data.isGuest); })
+      .catch(() => { /* treat as owner on fetch failure */ });
+    return () => { stop = true; };
+  }, []);
 
   // ── Reset per-session UI state when switching sessions ──
   // The Terminal component survives (keep-alive), but the route's UI chrome
@@ -981,6 +991,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
+        {/* Guest chip — shown when viewing a session via a pair grant */}
+        {isGuest && (
+          <button
+            className="ml-2 text-xs font-mono border border-[#f59e0b] text-[#f59e0b] rounded px-2 py-0.5 hover:bg-[#2a1e0f] shrink-0"
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            onClick={async () => {
+              await fetch("/api/pair/logout", { method: "POST" });
+              window.location.href = "/pair";
+            }}
+          >
+            Guest · log out
+          </button>
+        )}
+
         {/* Layout switcher — desktop only */}
         <div className="hidden lg:block shrink-0">
           <LayoutSwitcher />
@@ -1087,9 +1112,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               onClearNotifOverride={clearSessionNotifOverride}
               onClose={() => setInfoOpen(false)}
               onClearScrollback={() => terminalRef.current?.clearScrollback()}
-              onShare={() => setShareDialogOpen(true)}
-              onPair={() => setPairDialogOpen(true)}
-              onKillSession={async () => {
+              onShare={isGuest ? undefined : () => setShareDialogOpen(true)}
+              onPair={isGuest ? undefined : () => setPairDialogOpen(true)}
+              onKillSession={isGuest ? undefined : async () => {
                 if (!confirm("Kill this session?")) return;
                 await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
                 navigate("/");
