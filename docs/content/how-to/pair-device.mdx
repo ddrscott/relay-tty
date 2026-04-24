@@ -1,0 +1,47 @@
+---
+title: Pair a Device
+---
+
+
+Share a live session with another browser on another device using a one-time 6-digit code. Useful when you want to hand a session off to a library computer, a colleague's laptop, or any other device — without email, QR scanning, or sharing your login.
+
+## What this does
+
+The other device gets **full interactive access** to one session you started. Unlike `relay share` (read-only, view-only), pairing lets the other device type into the terminal.
+
+Guest access is bounded:
+
+- **30-minute idle timeout** — the grant expires after 30 minutes of no activity.
+- **Explicit logout** — the guest can log out at any time. The owner can kick them from the pair dialog.
+- **Scope** — the guest can only see and interact with the one session that was shared. They can't list other sessions, open the file browser on arbitrary paths, or spawn new sessions.
+
+## How to pair
+
+**On the device running the session:**
+
+1. Open the session's info panel.
+2. Tap **Pair Device**.
+3. Read the 6-digit code (e.g. `384 291`). It expires in 5 minutes.
+
+**On the other device:**
+
+1. Go to `/pair` on your relay-tty domain.
+2. Enter the 6-digit code.
+3. The page redirects you straight into the session.
+
+## Managing guests
+
+The pair dialog on the owner's device shows every connected guest with their IP and connection time. Tap the `×` button next to any guest to kick them.
+
+The guest's header shows a **Guest · log out** chip. Tapping it clears the grant cookie on both client and server and returns to the `/pair` page.
+
+## Security notes
+
+- Codes are single-use and expire in 5 minutes.
+- Rate limit: 5 redemption attempts per IP per minute.
+- Grant cookies are HMAC-signed with `JWT_SECRET` and verified server-side on every request.
+- Grants are in-memory — restarting the server logs out all guests (owner sessions survive because they run in separate pty-host processes).
+
+## Related
+
+- [Sharing & QR Codes](/how-to/sharing-qr) — read-only share via JWT-signed URL, includes QR code generation.
