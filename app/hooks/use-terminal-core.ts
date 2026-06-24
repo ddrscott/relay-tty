@@ -1387,10 +1387,22 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           // Server broadcast: a client cleared the scrollback buffer.
           // Clear local xterm display to match, and reflect the reset reported
           // output size immediately so the UI drops toward zero even before the
-          // next SESSION_METRICS frame arrives. byteOffset (RESUME offset) is left
-          // untouched — the server keeps it monotonic and a SYNC follows.
+          // next SESSION_METRICS frame arrives.
           term.clear();
           reportedTotalBytes = 0;
+          // Purge the stale local cache so a later reload / new tab does a clean
+          // (now cheap, post-clear) full replay from the server instead of
+          // replaying the pre-clear ≤10MB buffer — the actual >10s load cost.
+          // This runs on the broadcast-receiver path, so every connected device
+          // drops both its in-memory writer and the shared per-origin IndexedDB
+          // entry, not just the initiator. byteOffset is reset to 0 because the
+          // server reset total_written on clear; the SYNC that follows this
+          // broadcast re-baselines byteOffset to the authoritative offset and a
+          // RESUME(0) reconnect now replays an empty buffer.
+          byteOffset = 0;
+          if (cacheSessionId) deleteCache(cacheSessionId);
+          cacheWriter?.dispose();
+          cacheWriter = cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
           opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: 0 });
           break;
         }
