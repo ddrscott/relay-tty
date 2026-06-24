@@ -1504,6 +1504,22 @@ struct SharedState {
     sparkline: SparklineRing,
 }
 
+impl SharedState {
+    /// Clear scrollback: reset the ring buffer AND the reported output size.
+    ///
+    /// Two distinct counters are involved:
+    /// - `output_buffer.total_written` is the monotonic RESUME/SYNC offset and is
+    ///   intentionally NOT reset (clients depend on it for delta replay).
+    /// - `meta.total_bytes_written` drives the user-visible "output size" reported
+    ///   via SESSION_METRICS; resetting it to 0 makes the reported size drop toward
+    ///   zero after a clear, which is the whole point of the feature.
+    fn clear_scrollback(&mut self) {
+        self.output_buffer.clear();
+        self.meta.total_bytes_written = 0.0;
+        self.meta_dirty = true;
+    }
+}
+
 // ── Main ────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -1968,8 +1984,11 @@ async fn main() {
     tokio::spawn(async move {
         while let Some(()) = clear_rx.recv().await {
             let mut s = state_clear.write().await;
-            s.output_buffer.clear();
+            // Reset ring buffer + reported output size (total_bytes_written -> 0).
+            // output_buffer.total_written stays monotonic for the RESUME/SYNC contract.
+            s.clear_scrollback();
             // Broadcast CLEAR_SCROLLBACK to all clients so they call term.clear()
+            // and reset their displayed output size to zero.
             let clear_msg = vec![WS_MSG_CLEAR_SCROLLBACK];
             let _ = broadcast_tx_clear.send(encode_frame(&clear_msg));
             // Broadcast SYNC with current total_written so all clients update their byte offset
@@ -1977,6 +1996,20 @@ async fn main() {
             let mut sync_msg = vec![WS_MSG_SYNC];
             sync_msg.extend_from_slice(&tw.to_be_bytes());
             let _ = broadcast_tx_clear.send(encode_frame(&sync_msg));
+            // Broadcast a SESSION_METRICS frame immediately so the reported output
+            // size drops to zero even on an idle session (where the periodic metrics
+            // loop would otherwise stay silent). bps values are left as-is.
+            let bps1 = s.meta.bps1;
+            let bps5 = s.meta.bps5;
+            let bps15 = s.meta.bps15;
+            let total = s.meta.total_bytes_written;
+            let mut metrics_msg = Vec::with_capacity(33);
+            metrics_msg.push(WS_MSG_SESSION_METRICS);
+            metrics_msg.extend_from_slice(&bps1.to_be_bytes());
+            metrics_msg.extend_from_slice(&bps5.to_be_bytes());
+            metrics_msg.extend_from_slice(&bps15.to_be_bytes());
+            metrics_msg.extend_from_slice(&total.to_be_bytes());
+            let _ = broadcast_tx_clear.send(encode_frame(&metrics_msg));
         }
     });
 
@@ -4055,5 +4088,100 @@ mod tests {
         assert_eq!(buf.read(), Vec::<u8>::new());
         assert!(!buf.in_alt_screen);
         assert!(buf.alt_buf.is_empty());
+    }
+
+    fn test_shared_state() -> SharedState {
+        let meta = SessionMeta {
+            id: "test1234".into(),
+            command: "bash".into(),
+            args: vec![],
+            cwd: "/tmp".into(),
+            created_at: 1000,
+            last_activity: 1000,
+            status: "running".into(),
+            exit_code: None,
+            exited_at: None,
+            cols: 80,
+            rows: 24,
+            pid: 1234,
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            total_bytes_written: 0.0,
+            last_active_at: "2026-01-01T00:00:00.000Z".into(),
+            bytes_per_second: 0.0,
+            title: None,
+            error: None,
+            bps1: 0.0,
+            bps5: 0.0,
+            bps15: 0.0,
+            foreground_process: None,
+        };
+        SharedState {
+            output_buffer: OutputBuffer::new(1024),
+            meta,
+            meta_dirty: false,
+            session_active: true,
+            exit_code: None,
+            throughput: ThroughputTracker::new(),
+            title: None,
+            last_metrics_nonzero: false,
+            sparkline: SparklineRing::new(),
+        }
+    }
+
+    #[test]
+    fn clear_scrollback_resets_reported_size_but_keeps_resume_offset() {
+        let mut state = test_shared_state();
+
+        // Simulate output: ring buffer grows AND reported size grows in lockstep
+        // (mirrors the write path: output_buffer.write + meta.total_bytes_written +=).
+        let data = b"hundreds of megabytes of output, pretend this is huge";
+        state.output_buffer.write(data);
+        state.meta.total_bytes_written += data.len() as f64;
+
+        assert!(state.meta.total_bytes_written > 0.0);
+        let resume_offset_before = state.output_buffer.total_written;
+        assert!(resume_offset_before > 0.0);
+
+        state.clear_scrollback();
+
+        // Reported output size (drives SESSION_METRICS / UI) must drop to zero.
+        assert_eq!(state.meta.total_bytes_written, 0.0);
+        // Ring buffer contents are gone.
+        assert_eq!(state.output_buffer.read(), Vec::<u8>::new());
+        assert_eq!(state.output_buffer.main_size(), 0);
+        // RESUME/SYNC offset must stay monotonic — NOT reset — so reconnecting
+        // clients with a stale cached offset still reconcile correctly.
+        assert_eq!(state.output_buffer.total_written, resume_offset_before);
+        // Meta is flagged dirty so the JSON snapshot persists the reset size.
+        assert!(state.meta_dirty);
+    }
+
+    #[test]
+    fn clear_scrollback_then_new_output_resumes_coherently() {
+        let mut state = test_shared_state();
+
+        let first = b"old output before clear";
+        state.output_buffer.write(first);
+        state.meta.total_bytes_written += first.len() as f64;
+
+        state.clear_scrollback();
+        let offset_at_clear = state.output_buffer.total_written;
+
+        // New output after the clear.
+        let second = b"fresh output after clear";
+        state.output_buffer.write(second);
+        state.meta.total_bytes_written += second.len() as f64;
+
+        // Reported size reflects only post-clear output.
+        assert_eq!(state.meta.total_bytes_written, second.len() as f64);
+        // A client that resumes from the clear offset gets exactly the new bytes,
+        // and nothing from before the clear (no pre-clear replay).
+        let delta = state.output_buffer.read_from(offset_at_clear).unwrap();
+        assert_eq!(delta, second);
+        // The monotonic offset advanced past the clear point.
+        assert_eq!(
+            state.output_buffer.total_written,
+            offset_at_clear + second.len() as f64
+        );
     }
 }

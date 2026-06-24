@@ -220,6 +220,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let lastServerMessage = 0;
     let byteOffset = 0;
+    // Reported "output size" shown in the UI. This is the server's
+    // meta.total_bytes_written, which the SESSION_METRICS frame carries and which
+    // resets to 0 on CLEAR_SCROLLBACK. It is deliberately SEPARATE from byteOffset
+    // (the monotonic RESUME offset): after a clear, byteOffset stays high so delta
+    // replay still works, while reportedTotalBytes drops toward zero.
+    let reportedTotalBytes = 0;
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
     const scrollState = { momentumActive: false, lastAtBottom: true };
@@ -1227,7 +1233,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
               byteOffset = serverOffset;
             }
             cacheWriter?.setOffset(byteOffset);
-            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: byteOffset });
+            // Baseline the reported size to the resume offset until the first
+            // SESSION_METRICS frame supplies the authoritative post-clear value.
+            reportedTotalBytes = byteOffset;
+            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: reportedTotalBytes });
             // If SYNC arrives and content isn't ready yet, the session has
             // no buffered output (BUFFER_REPLAY was skipped) — show terminal.
             markContentReady();
@@ -1257,6 +1266,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           break;
         case WS_MSG.DATA: {
           byteOffset += payload.length;
+          reportedTotalBytes += payload.length;
           cacheWriter?.append(payload);
           cacheWriter?.setOffset(byteOffset);
 
@@ -1295,7 +1305,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             if (now - lastActivityEmit > 500) {
               lastActivityEmit = now;
               lastActivityActive = true;
-              opts.onActivityUpdate({ isActive: true, totalBytes: byteOffset });
+              opts.onActivityUpdate({ isActive: true, totalBytes: reportedTotalBytes });
             }
           }
           break;
@@ -1325,7 +1335,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           // 1-byte payload: 0x00 = idle, 0x01 = active
           const isActive = payload.length > 0 && payload[0] === 0x01;
           lastActivityActive = isActive;
-          opts.onActivityUpdate?.({ isActive, totalBytes: byteOffset });
+          opts.onActivityUpdate?.({ isActive, totalBytes: reportedTotalBytes });
           break;
         }
         case WS_MSG.SESSION_METRICS: {
@@ -1336,6 +1346,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             const bps5 = mv.getFloat64(8, false);
             const bps15 = mv.getFloat64(16, false);
             const totalBytes = mv.getFloat64(24, false);
+            // Authoritative reported output size from the server (resets on clear).
+            reportedTotalBytes = totalBytes;
             lastActivityActive = bps1 >= 1;
             opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes, bps1, bps5, bps15 });
           }
@@ -1372,9 +1384,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           break;
         }
         case WS_MSG.CLEAR_SCROLLBACK: {
-          // Server broadcast: another client cleared the scrollback buffer.
-          // Clear local xterm display to match.
+          // Server broadcast: a client cleared the scrollback buffer.
+          // Clear local xterm display to match, and reflect the reset reported
+          // output size immediately so the UI drops toward zero even before the
+          // next SESSION_METRICS frame arrives. byteOffset (RESUME offset) is left
+          // untouched — the server keeps it monotonic and a SYNC follows.
           term.clear();
+          reportedTotalBytes = 0;
+          opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: 0 });
           break;
         }
         case WS_MSG.IMAGE: {
