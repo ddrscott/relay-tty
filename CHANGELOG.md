@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-06-24
+
 ### Added
 - `/pair` device-pairing flow — share a live session with another browser using a one-time 6-digit code. The owner opens the session info panel and taps **Pair Device** to mint a 6-digit code (single-use, 5-minute TTL, rate-limited 5 attempts per IP per minute). The other device enters the code at `/pair` and lands in the session as a guest. Guest access is scoped to that one session (can't list others, can't mint codes, can't kill) and expires after 30 minutes of inactivity or explicit logout. Owner sees connected guests and can kick any of them from the pair dialog
 - Terminal emit-content parity across `/grid`, `/lanes`, `/tiles` and the single-session view. Clicking a file-path link in any cell opens the same slide-in file viewer you get from `/sessions/:id`; inline images from iTerm2 OSC 1337 accumulate in a floating thumbnail panel; cross-device clipboard sync shows the shared clipboard panel on arrival; text selection auto-copy shows the "Copied" toast; OSC 9 notifications raise a top-center banner and hit the shared server-side notification history so it stays consistent across views. Implemented via a reusable `useSessionInspect` hook
@@ -175,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pty-host spawn failures detected immediately via PID liveness checks
 - Mobile carousel touch offset after alt-screen transitions
 
-[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/ddrscott/relay-tty/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/ddrscott/relay-tty/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/ddrscott/relay-tty/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/ddrscott/relay-tty/compare/v1.16.0...v1.17.0
