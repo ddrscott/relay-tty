@@ -37,6 +37,8 @@ title: Keyboard Shortcuts
 | Cmd+= / Cmd+- | Increase/decrease font size |
 | Pinch-to-zoom | Increase/decrease font size (touch devices) |
 
+Clearing the scrollback resets both the on-screen buffer **and** the server-side ring buffer for the session, so the reported output size drops back toward zero and the cleared scrollback stays cleared across reconnects and other connected devices. The delta-resume offset is preserved, so reconnecting clients still recover instantly.
+
 Font size changes send SIGWINCH — the terminal columns and rows adjust to fit the viewport at the new font size. Scroll position is preserved.
 
 ## Web UI — Grid & Lanes Views

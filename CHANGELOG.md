@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/pair` device-pairing flow — share a live session with another browser using a one-time 6-digit code. The owner opens the session info panel and taps **Pair Device** to mint a 6-digit code (single-use, 5-minute TTL, rate-limited 5 attempts per IP per minute). The other device enters the code at `/pair` and lands in the session as a guest. Guest access is scoped to that one session (can't list others, can't mint codes, can't kill) and expires after 30 minutes of inactivity or explicit logout. Owner sees connected guests and can kick any of them from the pair dialog
 - Terminal emit-content parity across `/grid`, `/lanes`, `/tiles` and the single-session view. Clicking a file-path link in any cell opens the same slide-in file viewer you get from `/sessions/:id`; inline images from iTerm2 OSC 1337 accumulate in a floating thumbnail panel; cross-device clipboard sync shows the shared clipboard panel on arrival; text selection auto-copy shows the "Copied" toast; OSC 9 notifications raise a top-center banner and hit the shared server-side notification history so it stays consistent across views. Implemented via a reusable `useSessionInspect` hook
 
+### Fixed
+- Clear scrollback now frees the server buffer and purges the browser's cached output — the reported session size drops toward zero and reopening a large session is fast again, instead of replaying 10+ seconds of already-cleared output on every load. Previously it only wiped the on-screen view
+
 ## [1.19.0] - 2026-04-21
 
 ### Added
