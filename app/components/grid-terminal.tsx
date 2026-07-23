@@ -232,16 +232,17 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
 
   // Compute visible cols×rows from the wrapper size and xterm cell dimensions,
   // then send a real RESIZE to the PTY so the running program redraws to fit.
-  const handleFitToCell = useCallback(() => {
+  // Returns true iff a RESIZE was actually sent to the PTY.
+  const handleFitToCell = useCallback((): boolean => {
     const term = termRef.current;
     const wrapper = wrapperRef.current;
-    if (!term || !wrapper) return;
+    if (!term || !wrapper) return false;
 
     // Get character cell dimensions from xterm's render service
     const core = (term as any)._core;
     const cellW = core?._renderService?.dimensions?.css?.cell?.width;
     const cellH = core?._renderService?.dimensions?.css?.cell?.height;
-    if (!cellW || !cellH) return;
+    if (!cellW || !cellH) return false;
 
     const wrapperRect = wrapper.getBoundingClientRect();
     const newCols = Math.max(1, Math.floor(wrapperRect.width / cellW));
@@ -249,7 +250,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
 
     // Skip if PTY is already at these dimensions (avoids unnecessary SIGWINCH
     // on re-expand when the terminal already remembers the right size)
-    if (term.cols === newCols && term.rows === newRows) return;
+    if (term.cols === newCols && term.rows === newRows) return false;
 
     // Send RESIZE to PTY
     sendBinary(encodeResizeMessage(newCols, newRows));
@@ -260,6 +261,7 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     // Update live dimension state so the indicator updates instantly
     setLiveCols(newCols);
     setLiveRows(newRows);
+    return true;
   }, [sendBinary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track zoom transitions — restore relative scroll position when
@@ -361,12 +363,32 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
   // ── SIGWINCH wand toast ──
   const [resizeToast, setResizeToast] = useState(false);
   const resizeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeNudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleResizeWand = useCallback(() => {
-    handleFitToCell();
+    // Fitting to an already-correct size is a no-op (pty-host dedups the
+    // RESIZE, and a same-size SIGWINCH won't repaint a corrupted Ink/TUI
+    // screen). Nudge by one row first so handleFitToCell's fit-back is a
+    // genuinely different geometry — two real redraws, like font size
+    // up/down. Rows, not cols: cols reflow would jumble other devices.
+    const term = termRef.current;
+    let sent = false;
+    if (term) {
+      const { cols, rows } = term;
+      const nudge = rows > 1 ? rows - 1 : rows + 1;
+      sendBinary(encodeResizeMessage(cols, nudge));
+      term.resize(cols, nudge);
+      setLiveRows(nudge);
+      if (resizeNudgeTimer.current) clearTimeout(resizeNudgeTimer.current);
+      resizeNudgeTimer.current = setTimeout(() => handleFitToCell(), 50);
+      sent = true;
+    } else {
+      sent = handleFitToCell();
+    }
+    if (!sent) return; // don't claim "sizing fixed" when nothing was sent
     setResizeToast(true);
     if (resizeToastTimer.current) clearTimeout(resizeToastTimer.current);
     resizeToastTimer.current = setTimeout(() => setResizeToast(false), 1500);
-  }, [handleFitToCell]);
+  }, [handleFitToCell, sendBinary]);
 
   // ── Zoomed toolbar state ──
   const [searchOpen, setSearchOpen] = useState(false);

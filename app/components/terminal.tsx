@@ -199,12 +199,24 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
   // Send RESIZE/SIGWINCH to PTY with current local xterm dimensions.
   const [resizeToast, setResizeToast] = useState(false);
   const resizeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeNudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleResizeToLocal = useCallback(() => {
     const term = termRef.current;
     if (!term) return;
     const { cols, rows } = term;
-    sendBinary(encodeResizeMessage(cols, rows));
-    setPtyDims({ cols, rows });
+    // A same-size RESIZE is dropped by the pty-host dedup (and, even if
+    // delivered, a no-change SIGWINCH won't repair a corrupted Ink/TUI
+    // screen — the frame string is identical so nothing repaints). Nudge
+    // by one row and back to force two genuinely-different geometries, the
+    // way changing font size up then down does. Rows, not cols: narrowing
+    // cols would reflow wrapping on other connected devices.
+    const nudge = rows > 1 ? rows - 1 : rows + 1;
+    sendBinary(encodeResizeMessage(cols, nudge));
+    if (resizeNudgeTimer.current) clearTimeout(resizeNudgeTimer.current);
+    resizeNudgeTimer.current = setTimeout(() => {
+      sendBinary(encodeResizeMessage(cols, rows));
+      setPtyDims({ cols, rows });
+    }, 50);
     // Show brief toast
     setResizeToast(true);
     if (resizeToastTimer.current) clearTimeout(resizeToastTimer.current);
