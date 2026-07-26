@@ -643,12 +643,13 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
       {zoomed && (
         <>
           <button
+            data-zoom-btn
             className="absolute top-10 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#1a1a2e]/90 shadow-lg backdrop-blur-sm border border-[#2d2d44] cursor-pointer hover:bg-[#2d2d44] transition-colors"
             tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchStart={(e) => e.preventDefault()}
-            onTouchEnd={(e) => { e.preventDefault(); handleResizeWand(); }}
-            onClick={handleResizeWand}
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleResizeWand(); }}
+            onClick={(e) => { e.stopPropagation(); handleResizeWand(); }}
             aria-label="Fix text sizing"
           >
             <WandSparkles className="w-4 h-4 text-[#94a3b8]" />
