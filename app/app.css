@@ -184,3 +184,25 @@ body {
 .h-app {
   height: var(--app-h);
 }
+
+/* Terminal link tooltip (OSC 8 + regex URLs). Shows the REAL target URI on
+   hover so a link whose display text lies about its destination is exposed.
+   Positioned absolutely inside Terminal.element; the .xterm-hover class makes
+   xterm treat it as part of the link so mouse events don't fall through. */
+.relay-link-tooltip {
+  position: absolute;
+  z-index: 20;
+  display: none;
+  max-width: min(80vw, 640px);
+  padding: 3px 8px;
+  border: 1px solid #3a3a44;
+  background: #0a0a0f;
+  color: #e2e8f0;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}

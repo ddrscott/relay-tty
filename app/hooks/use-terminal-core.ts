@@ -12,6 +12,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
+import { createTerminalLinkHandler } from "../lib/link-handler";
 import { normalizeSgrColors } from "../lib/sgr-normalize";
 
 // ── Narrow interfaces for xterm.js internals ────────────────────────
@@ -286,6 +287,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
       const useFixedSize = opts.fixedCols != null && opts.fixedRows != null;
 
+      // Shared link handler for OSC 8 hyperlinks (via Terminal.linkHandler) and
+      // regex-detected URLs (via WebLinksAddon). `getElement` is read lazily —
+      // term.element does not exist until term.open() below.
+      const { activate: linkActivate, linkHandler } = createTerminalLinkHandler({
+        getElement: () => term.element,
+        readOnly: opts.readOnly,
+        onFileLink: opts.onFileLink,
+      });
+
       const term = new XTerm({
         fontSize: opts.fontSize ?? 14,
         fontFamily: "ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Noto Sans Mono', monospace",
@@ -316,12 +326,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         disableStdin: opts.readOnly ?? false,
         allowProposedApi: true,
         scrollback: 100_000,
+        // OSC 8 hyperlinks: the scheme allowlist in `activate` gates every URI,
+        // so `allowNonHttpProtocols` (set inside the handler) is safe.
+        linkHandler,
         ...(useFixedSize ? { cols: opts.fixedCols, rows: opts.fixedRows } : {}),
       });
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      term.loadAddon(new WebLinksAddon());
+      // Pass the shared handler so regex-detected URLs get the same security
+      // path (scheme allowlist + anti-spoofing tooltip) as OSC 8 links.
+      term.loadAddon(new WebLinksAddon(linkActivate, linkHandler));
       const unicode11 = new Unicode11Addon();
       term.loadAddon(unicode11);
       term.unicode.activeVersion = "11";
