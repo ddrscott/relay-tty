@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-07-26
+
+### Fixed
+- Resize wand (the text-sizing button) now reliably redraws the running program. It previously sent a same-size RESIZE that the pty-host deduplicated away — and even when delivered, a no-change SIGWINCH can't repaint a corrupted Ink/TUI screen (Claude Code included), since the frame string is identical and nothing repaints. It now nudges the terminal by one row and back, forcing two genuinely different geometries and two real redraws, the way changing font size up then down does. It nudges rows, not columns, so line wrapping on other connected devices isn't reflowed
+- Resize wand no longer pops the mobile virtual keyboard. The button sits inside the grid cell, whose tap handler selects the cell and focuses xterm's hidden textarea; the wand's tap bubbled straight through. Its touch and click handlers now stop propagation so neither the touch nor a synthesized click reaches the cell's select/focus handler
+- The "Text sizing fixed" toast only appears when a resize was actually sent, instead of firing unconditionally
+
 ## [1.20.0] - 2026-06-24
 
 ### Added
