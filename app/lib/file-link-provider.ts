@@ -15,6 +15,8 @@
  * Uses registerLinkProvider API (xterm.js v5).
  */
 
+import { FILE_EXTENSIONS, FILE_PATH_RE, detectFilePaths } from "./file-path-detect";
+
 /** Parsed file link information */
 export interface FileLink {
   /** The file path (relative or absolute) */
@@ -24,57 +26,6 @@ export interface FileLink {
   /** Column number if present (1-based) */
   column?: number;
 }
-
-/** Known file extensions that we recognize as linkable files */
-const FILE_EXTENSIONS = new Set([
-  // Code
-  "ts", "tsx", "js", "jsx", "mjs", "cjs",
-  "py", "pyw", "rb", "rs", "go", "java", "kt", "kts", "scala",
-  "c", "cpp", "cc", "cxx", "h", "hpp", "hxx",
-  "cs", "fs", "fsx",
-  "swift", "m", "mm",
-  "lua", "r", "jl", "ex", "exs", "erl", "hs", "ml", "mli",
-  "php", "pl", "pm",
-  "zig", "nim", "v", "d",
-  // Web
-  "html", "htm", "css", "scss", "less", "sass",
-  "vue", "svelte", "astro",
-  // Config / data
-  "json", "yaml", "yml", "toml", "xml", "ini", "cfg", "conf",
-  "env", "lock", "editorconfig", "prettierrc", "eslintrc",
-  // Shell
-  "sh", "bash", "zsh", "fish",
-  // Docs
-  "md", "markdown", "mdx", "rst", "txt", "adoc",
-  // Other
-  "sql", "graphql", "gql", "proto",
-  "dockerfile", "makefile", "cmake",
-  "tf", "hcl",
-  // Binary / viewable
-  "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp",
-  "pdf",
-  "mp4", "webm", "mov", "avi",
-  "mp3", "wav", "ogg", "flac", "m4a",
-  "csv", "tsv",
-  "log",
-]);
-
-/**
- * Regex that matches file paths in terminal output.
- *
- * Matches patterns like:
- *   src/components/terminal.tsx:42:10
- *   ./app/lib/foo.ts:5
- *   /Users/scott/code/bar.py
- *   ../config.yaml
- *
- * The path must contain at least one `/` or `\` (to avoid matching random words),
- * OR start with `./` or `../`, OR be a bare filename with a known extension.
- *
- * Optionally followed by `:line` and `:column`.
- */
-const FILE_PATH_RE =
-  /(?:(?:\.\.?\/|\/)[^\s:'"`\])}>,;!]+\.[a-zA-Z0-9]+|[a-zA-Z0-9_\-.]+(?:\/[a-zA-Z0-9_\-.]+)+\.[a-zA-Z0-9]+)(?::(\d+))?(?::(\d+))?/g;
 
 /**
  * Regex that matches markdown-style [text](path) links in terminal output.
@@ -218,15 +169,112 @@ function reconstructSoftWrappedPath(
   return best;
 }
 
+// ── Server-side existence gate ──────────────────────────────────────
+// Heuristic path detection is intentionally aggressive (bare filenames like
+// `package.json`), which produces false positives for JS-ecosystem product
+// names that read as `word.js` (`Node.js`, `Vue.js`, `Next.js`). To avoid
+// underlining junk, a detected path is only turned into a link once the server
+// confirms it resolves to a real file within the session cwd.
+//
+// Results are cached per (sessionId, path) with a short TTL so xterm's repeated
+// per-line `provideLinks` calls on hover don't cause a network storm, while
+// still letting newly-created files become linkable within a few seconds.
+
+interface ExistenceEntry {
+  exists: boolean;
+  ts: number;
+}
+
+/** Cache keyed by `${sessionId}\0${path}`. Module-level so it survives across provideLinks calls. */
+const existenceCache = new Map<string, ExistenceEntry>();
+/** In-flight requests keyed the same way, to dedupe concurrent lookups. */
+const existenceInflight = new Map<string, Promise<boolean>>();
+/** Cache freshness window (ms). Short enough that new files appear quickly. */
+const EXISTENCE_TTL_MS = 30_000;
+
+function cacheKey(sessionId: string, p: string): string {
+  return `${sessionId}\0${p}`;
+}
+
+/**
+ * Resolve existence for a set of candidate paths, using the cache and a single
+ * batched request for the misses. Returns a map of path → exists.
+ */
+async function checkExistence(
+  sessionId: string,
+  paths: string[],
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  const now = Date.now();
+  const misses: string[] = [];
+
+  for (const p of paths) {
+    if (result.has(p)) continue;
+    const key = cacheKey(sessionId, p);
+    const cached = existenceCache.get(key);
+    if (cached && now - cached.ts < EXISTENCE_TTL_MS) {
+      result.set(p, cached.exists);
+    } else if (existenceInflight.has(key)) {
+      // Another provideLinks call is already fetching this path.
+      result.set(p, await existenceInflight.get(key)!);
+    } else {
+      misses.push(p);
+    }
+  }
+
+  if (misses.length > 0) {
+    // Register a shared promise per missing path so overlapping calls dedupe.
+    let resolveBatch!: (m: Map<string, boolean>) => void;
+    const batch = new Promise<Map<string, boolean>>((r) => (resolveBatch = r));
+    for (const p of misses) {
+      existenceInflight.set(cacheKey(sessionId, p), batch.then((m) => m.get(p) ?? false));
+    }
+
+    const fetched = new Map<string, boolean>();
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/exists`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: misses }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          results?: { path: string; exists: boolean; isFile: boolean }[];
+        };
+        for (const r of data.results ?? []) {
+          fetched.set(r.path, !!r.exists && !!r.isFile);
+        }
+      }
+    } catch {
+      // Network error — treat all misses as non-existent (no underline).
+    }
+
+    const ts = Date.now();
+    for (const p of misses) {
+      const exists = fetched.get(p) ?? false;
+      existenceCache.set(cacheKey(sessionId, p), { exists, ts });
+      result.set(p, exists);
+      existenceInflight.delete(cacheKey(sessionId, p));
+    }
+    resolveBatch(fetched);
+  }
+
+  return result;
+}
+
 /**
  * Create an xterm.js ILinkProvider for file paths.
  *
  * @param term - xterm.js Terminal instance
  * @param onActivate - callback when a file link is clicked
+ * @param sessionId - session id used to existence-gate heuristic paths against
+ *   the session cwd. When omitted (e.g. share sessions with no API access), all
+ *   detected paths are linked without a server round-trip (legacy behavior).
  */
 export function createFileLinkProvider(
   term: any,
-  onActivate: (link: FileLink) => void
+  onActivate: (link: FileLink) => void,
+  sessionId?: string | null,
 ): any {
   return {
     provideLinks(bufferLineNumber: number, callback: (links: any[] | undefined) => void) {
@@ -240,44 +288,26 @@ export function createFileLinkProvider(
       // Join all lines in this wrap group so paths spanning multiple
       // rows are matched as a single string.
       const { text, lineCols, firstRow } = collectWrapGroup(buffer, bufferLineNumber);
-      const links: any[] = [];
+      // Markdown links (explicit intent) are always returned. Heuristic
+      // file-path links are held in `pendingLinks` so they can be gated on
+      // server-confirmed existence before being underlined.
+      const readyLinks: any[] = [];
+      const pendingLinks: { link: any; path: string }[] = [];
       const matchedRanges: { start: number; end: number }[] = [];
 
-      FILE_PATH_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
+      for (const detected of detectFilePaths(text)) {
+        const filePath = detected.path;
+        const lineNum = detected.line;
+        const colNum = detected.column;
+        const fullMatch = detected.matchText;
 
-      while ((match = FILE_PATH_RE.exec(text)) !== null) {
-        const fullMatch = match[0];
-        const lineNum = match[1] ? parseInt(match[1], 10) : undefined;
-        const colNum = match[2] ? parseInt(match[2], 10) : undefined;
-
-        // Extract just the file path part (before :line:col)
-        let filePath = fullMatch;
-        if (colNum !== undefined && lineNum !== undefined) {
-          filePath = fullMatch.replace(`:${match[1]}:${match[2]}`, "");
-        } else if (lineNum !== undefined) {
-          filePath = fullMatch.replace(`:${match[1]}`, "");
-        }
-
-        // Check the file extension is one we recognize
-        const dotIdx = filePath.lastIndexOf(".");
-        if (dotIdx === -1) continue;
-        const ext = filePath.slice(dotIdx + 1).toLowerCase();
-        if (!FILE_EXTENSIONS.has(ext)) continue;
-
-        // Clean trailing punctuation that might have been captured
-        const cleaned = filePath.replace(/[,;)\]}>]+$/, "");
-        if (cleaned !== filePath) {
-          filePath = cleaned;
-        }
-
-        const startCoord = offsetToCoord(match.index, lineCols, firstRow);
-        const endCoord = offsetToCoord(match.index + fullMatch.length, lineCols, firstRow);
+        const startCoord = offsetToCoord(detected.index, lineCols, firstRow);
+        const endCoord = offsetToCoord(detected.index + fullMatch.length, lineCols, firstRow);
 
         // Only return links that touch the queried line
         if (startCoord.y > bufferLineNumber || endCoord.y < bufferLineNumber) continue;
 
-        matchedRanges.push({ start: match.index, end: match.index + fullMatch.length });
+        matchedRanges.push({ start: detected.index, end: detected.index + fullMatch.length });
 
         // Capture for closure
         const capturedPath = filePath;
@@ -286,28 +316,32 @@ export function createFileLinkProvider(
         const capturedStartRow = startCoord.y;
         const capturedStartCol = startCoord.x;
 
-        links.push({
-          range: {
-            start: startCoord,
-            end: endCoord,
+        pendingLinks.push({
+          path: filePath,
+          link: {
+            range: {
+              start: startCoord,
+              end: endCoord,
+            },
+            text: fullMatch,
+            activate(_event: MouseEvent, _text: string) {
+              // At click time, try to reconstruct paths that were
+              // soft-wrapped by the program across multiple lines
+              const resolved = reconstructSoftWrappedPath(
+                buffer, term.cols,
+                capturedPath, capturedStartRow, capturedStartCol,
+              );
+              onActivate({ path: resolved, line: capturedLineNum, column: capturedColNum });
+            },
+            hover(_event: MouseEvent, _text: string) {},
+            leave(_event: MouseEvent, _text: string) {},
           },
-          text: fullMatch,
-          activate(_event: MouseEvent, _text: string) {
-            // At click time, try to reconstruct paths that were
-            // soft-wrapped by the program across multiple lines
-            const resolved = reconstructSoftWrappedPath(
-              buffer, term.cols,
-              capturedPath, capturedStartRow, capturedStartCol,
-            );
-            onActivate({ path: resolved, line: capturedLineNum, column: capturedColNum });
-          },
-          hover(_event: MouseEvent, _text: string) {},
-          leave(_event: MouseEvent, _text: string) {},
         });
       }
 
       // Second pass: markdown-style [text](path) links
       MARKDOWN_LINK_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
       while ((match = MARKDOWN_LINK_RE.exec(text)) !== null) {
         const fullMatch = match[0];
         const targetPath = match[2];
@@ -330,7 +364,7 @@ export function createFileLinkProvider(
 
         if (startCoord.y > bufferLineNumber || endCoord.y < bufferLineNumber) continue;
 
-        links.push({
+        readyLinks.push({
           range: {
             start: startCoord,
             end: endCoord,
@@ -344,7 +378,28 @@ export function createFileLinkProvider(
         });
       }
 
-      callback(links.length > 0 ? links : undefined);
+      // Without a sessionId we cannot existence-check — fall back to linking
+      // every detected path (legacy behavior, e.g. share sessions).
+      if (!sessionId || pendingLinks.length === 0) {
+        const all = [...readyLinks, ...pendingLinks.map((p) => p.link)];
+        callback(all.length > 0 ? all : undefined);
+        return;
+      }
+
+      // Existence-gate the heuristic paths, then underline only confirmed files.
+      const uniquePaths = Array.from(new Set(pendingLinks.map((p) => p.path)));
+      checkExistence(sessionId, uniquePaths)
+        .then((existsMap) => {
+          const gated = pendingLinks
+            .filter((p) => existsMap.get(p.path))
+            .map((p) => p.link);
+          const all = [...readyLinks, ...gated];
+          callback(all.length > 0 ? all : undefined);
+        })
+        .catch(() => {
+          // On unexpected failure, still surface markdown links.
+          callback(readyLinks.length > 0 ? readyLinks : undefined);
+        });
     },
   };
 }

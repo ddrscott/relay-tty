@@ -431,6 +431,70 @@ export function createApiRouter(
     }
   });
 
+  // POST /api/sessions/:id/exists — lightweight existence check used to gate
+  // clickable terminal file-path links. Body: { paths: string[] }.
+  //
+  // Each path is resolved exactly like the file-serving route below:
+  //   - A path starting with "/" is treated as absolute (equivalent to ?abs=1).
+  //   - Otherwise it is resolved relative to session.cwd and MUST stay within
+  //     realpath(session.cwd) (same traversal guard as the file route).
+  // Returns { results: [{ path, exists, isFile }] }. Never reads file contents.
+  router.post("/sessions/:id/exists", (req, res) => {
+    const session = sessionStore.get(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    const { paths } = req.body as { paths?: unknown };
+    if (!Array.isArray(paths)) {
+      res.status(400).json({ error: "paths array required" });
+      return;
+    }
+
+    const sessionCwd = session.cwd;
+    let realCwd: string | null = null;
+    try {
+      realCwd = fs.realpathSync(sessionCwd);
+    } catch {
+      realCwd = null;
+    }
+
+    // Cap the batch so a single request can't fan out into unbounded stat() calls.
+    const MAX_PATHS = 100;
+    const miss = { path: "", exists: false, isFile: false };
+
+    const results = paths.slice(0, MAX_PATHS).map((p) => {
+      if (typeof p !== "string" || !p) return { ...miss, path: String(p) };
+
+      const isAbsolute = p.startsWith("/");
+      let real: string;
+      try {
+        const resolved = isAbsolute ? path.resolve("/", p) : path.resolve(sessionCwd, p);
+        real = fs.realpathSync(resolved);
+      } catch {
+        return { path: p, exists: false, isFile: false };
+      }
+
+      // Traversal guard: relative paths must stay within realpath(cwd).
+      if (!isAbsolute) {
+        if (!realCwd) return { path: p, exists: false, isFile: false };
+        if (!real.startsWith(realCwd + path.sep) && real !== realCwd) {
+          return { path: p, exists: false, isFile: false };
+        }
+      }
+
+      try {
+        const stat = fs.statSync(real);
+        return { path: p, exists: true, isFile: stat.isFile() };
+      } catch {
+        return { path: p, exists: false, isFile: false };
+      }
+    });
+
+    res.json({ results });
+  });
+
   // GET /api/sessions/:id/files/* — serve files relative to session CWD or absolute path.
   // When ?abs=1 query param is set, treats the wildcard path as an absolute filesystem path.
   // Without ?abs, restricts to session CWD (legacy behavior for terminal link clicks).

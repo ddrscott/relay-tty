@@ -23,7 +23,7 @@ Links in the terminal are clickable in the full terminal view:
 - **OSC 8 hyperlinks** — tools that emit explicit hyperlinks (`ls --hyperlink=auto`, ripgrep, many build tools, Claude Code) render as clickable links. Because the tool declares the exact target, these are more reliable than pattern-matching.
 - **Plain URLs** — `http://` / `https://` links detected in output open in a new browser tab.
 - **`mailto:` links** — open your mail client.
-- **File paths** — clickable file paths (and `file://` links) open in the in-app syntax-highlighted viewer, resolved on the machine running the session — not your browser. Line and column numbers (`foo.ts:42:10`, `file://…/foo.ts#42:10`) jump to that location.
+- **File paths** — clickable file paths (and `file://` links) open in the in-app syntax-highlighted viewer, resolved on the machine running the session — not your browser. This includes slash paths (`src/app.ts`), dot-relative and absolute paths, and **bare filenames** an agent mentions (`package.json`, `README.md`). Line and column numbers (`foo.ts:42:10`, `file://…/foo.ts#42:10`) jump to that location. To avoid false underlines (e.g. `Node.js`), a detected path is only made clickable once the server confirms the file actually exists in the session's working directory.
 
 Hovering a link shows its **real destination** so a link whose display text differs from its target is easy to spot. For safety, only `http`, `https`, `mailto`, and `file` schemes are ever opened — other schemes (such as `javascript:`) are ignored. Gallery thumbnails are passive: their links are not clickable.
 

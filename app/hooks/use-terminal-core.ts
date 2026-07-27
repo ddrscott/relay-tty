@@ -388,9 +388,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         requestAnimationFrame(() => fitAddon.fit());
       }
 
-      // Register file path link provider (clickable file paths in terminal output)
+      // Register file path link provider (clickable file paths in terminal output).
+      // Pass the session id so heuristic paths (bare filenames like `package.json`)
+      // are existence-gated against the session cwd before being underlined.
       if (opts.onFileLink) {
-        term.registerLinkProvider(createFileLinkProvider(term, opts.onFileLink));
+        term.registerLinkProvider(createFileLinkProvider(term, opts.onFileLink, cacheSessionId));
       }
 
       if (!opts.readOnly) {
