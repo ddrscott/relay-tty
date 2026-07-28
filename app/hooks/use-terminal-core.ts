@@ -11,7 +11,7 @@ import type { WebglAddon } from "@xterm/addon-webgl";
 import type { SearchAddon } from "@xterm/addon-search";
 import { WS_MSG, type Session } from "../../shared/types";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
-import { createFileLinkProvider, type FileLink } from "../lib/file-link-provider";
+import { createFileLinkProvider, type FileLink, type FileLinkProvider } from "../lib/file-link-provider";
 import { createTerminalLinkHandler } from "../lib/link-handler";
 import { normalizeSgrColors } from "../lib/sgr-normalize";
 
@@ -391,8 +391,12 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // Register file path link provider (clickable file paths in terminal output).
       // Pass the session id so heuristic paths (bare filenames like `package.json`)
       // are existence-gated against the session cwd before being underlined.
+      // Keep the provider handle so the touch tap handler can share its
+      // detection path via `hitTest` (tap-on-link beats keyboard focus).
+      let fileLinkProvider: FileLinkProvider | null = null;
       if (opts.onFileLink) {
-        term.registerLinkProvider(createFileLinkProvider(term, opts.onFileLink, cacheSessionId));
+        fileLinkProvider = createFileLinkProvider(term, opts.onFileLink, cacheSessionId);
+        term.registerLinkProvider(fileLinkProvider);
       }
 
       if (!opts.readOnly) {
@@ -401,7 +405,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState, (msg: Uint8Array) => {
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
-      });
+      }, fileLinkProvider);
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
       const iosStyle = document.createElement("style");
@@ -734,7 +738,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     // ── Pixel-smooth touch scrolling with momentum ──────────────────
 
-    function setupTouchScrolling(term: Terminal, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }, sendWs: (msg: Uint8Array) => void) {
+    function setupTouchScrolling(term: Terminal, container: HTMLElement, fontSize: number, scrollState: { momentumActive: boolean }, sendWs: (msg: Uint8Array) => void, fileLinkProvider: FileLinkProvider | null) {
       const screen = container.querySelector(".xterm-screen") as HTMLElement;
       const xtermEl = container.querySelector(".xterm") as HTMLElement;
       if (!screen || !xtermEl) return;
@@ -1063,11 +1067,27 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           return;
         }
 
-        // Scrollback mode: handle tap focus
+        // Scrollback mode: handle tap.
         if (isTap) {
-          // Focus xterm's hidden textarea so iOS shows the virtual keyboard.
-          // Our capture-phase stopPropagation prevents xterm's own touchstart
-          // handler from running, so the textarea never gets focused natively.
+          // Tap-on-link takes priority over focus. Hit-test the tapped cell
+          // against the SAME detection path the link provider uses. If a file
+          // link is there, activate it and return WITHOUT focusing the textarea
+          // — focusing is what raises the virtual keyboard, which reflowed the
+          // layout and forced the old "tap twice" behavior.
+          const touch = e.changedTouches[0];
+          const cell = getCellFromPoint(touch.clientX, touch.clientY);
+          // Map the 1-based viewport row to a 1-based buffer line number.
+          const bufferY = term.buffer.active.viewportY + cell.row;
+          const link = fileLinkProvider?.hitTest(cell.col, bufferY);
+          if (link && opts.onFileLink) {
+            opts.onFileLink(link);
+            return; // suppress focus → no keyboard, opens on first tap
+          }
+
+          // No link under the tap: focus xterm's hidden textarea so iOS shows
+          // the virtual keyboard. Our capture-phase stopPropagation prevents
+          // xterm's own touchstart handler from running, so the textarea never
+          // gets focused natively.
           const textarea = container.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
           if (textarea) textarea.focus({ preventScroll: true });
           opts.onTap?.();

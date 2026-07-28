@@ -27,6 +27,49 @@ export interface FileLink {
   column?: number;
 }
 
+/** 1-based xterm buffer coordinate. */
+interface Coord {
+  x: number;
+  y: number;
+}
+
+/** Inclusive-start, exclusive-end link range in 1-based buffer coords. */
+interface LinkRange {
+  start: Coord;
+  end: Coord;
+}
+
+/**
+ * The xterm.js link provider returned by {@link createFileLinkProvider}, plus a
+ * synchronous `hitTest` used by the mobile tap handler so tap-to-open and
+ * hover-to-underline share ONE detection path.
+ */
+export interface FileLinkProvider {
+  provideLinks(bufferLineNumber: number, callback: (links: any[] | undefined) => void): void;
+  /**
+   * Synchronous hit-test for a 1-based buffer cell `(x, y)`. Returns the
+   * {@link FileLink} to activate if a detected file link covers that cell, else
+   * null. Optimistic: never performs a network existence check (so the tap is
+   * never blocked), but suppresses heuristic paths the existence cache already
+   * knows are missing.
+   */
+  hitTest(x: number, y: number): FileLink | null;
+}
+
+/**
+ * Test whether a 1-based buffer cell `(x, y)` falls within `range`.
+ * `start` is inclusive, `end` is exclusive (one cell past the last character),
+ * matching how {@link offsetToCoord} maps the end offset. Handles ranges that
+ * span multiple buffer rows (wrapped / soft-wrapped paths).
+ */
+function pointInRange(x: number, y: number, range: LinkRange): boolean {
+  const { start, end } = range;
+  if (y < start.y || y > end.y) return false;
+  if (y === start.y && x < start.x) return false;
+  if (y === end.y && x >= end.x) return false;
+  return true;
+}
+
 /**
  * Regex that matches markdown-style [text](path) links in terminal output.
  *
@@ -197,6 +240,22 @@ function cacheKey(sessionId: string, p: string): string {
 }
 
 /**
+ * Synchronous, non-blocking peek at the existence cache. Returns:
+ *   - `true`  — the path is a confirmed real file (fresh cache hit),
+ *   - `false` — the path was confirmed missing (fresh cache hit),
+ *   - `undefined` — unknown (never checked, or stale).
+ *
+ * Used by the mobile tap hit-test to suppress known-missing paths WITHOUT
+ * blocking the tap on a network round-trip. Never triggers a fetch.
+ */
+function peekExistence(sessionId: string, p: string): boolean | undefined {
+  const entry = existenceCache.get(cacheKey(sessionId, p));
+  if (!entry) return undefined;
+  if (Date.now() - entry.ts >= EXISTENCE_TTL_MS) return undefined;
+  return entry.exists;
+}
+
+/**
  * Resolve existence for a set of candidate paths, using the cache and a single
  * batched request for the misses. Returns a map of path → exists.
  */
@@ -275,124 +334,139 @@ export function createFileLinkProvider(
   term: any,
   onActivate: (link: FileLink) => void,
   sessionId?: string | null,
-): any {
+): FileLinkProvider {
+  /**
+   * A single detected link candidate for a wrap group. `gatePath` is the
+   * heuristic path to existence-gate before underlining (null for markdown
+   * links, which carry explicit intent and are always ready). `resolve()`
+   * produces the {@link FileLink} to activate, including soft-wrap
+   * reconstruction for heuristic paths — computed lazily so the reconstruction
+   * (which walks the buffer) only runs on activation, not on every hover.
+   */
+  interface RawLink {
+    range: LinkRange;
+    text: string;
+    gatePath: string | null;
+    resolve: () => FileLink;
+  }
+
+  /**
+   * Detect every file link in the wrap group containing `bufferLineNumber`.
+   * This is the ONE detection path shared by `provideLinks` (hover underline)
+   * and `hitTest` (mobile tap) — the regex is never duplicated.
+   */
+  function collectRawLinks(bufferLineNumber: number): RawLink[] {
+    const buffer = term.buffer.active;
+    const line = buffer.getLine(bufferLineNumber - 1);
+    if (!line) return [];
+
+    // Join all lines in this wrap group so paths spanning multiple rows are
+    // matched as a single string.
+    const { text, lineCols, firstRow } = collectWrapGroup(buffer, bufferLineNumber);
+    const raws: RawLink[] = [];
+    const matchedRanges: { start: number; end: number }[] = [];
+
+    // First pass: heuristic file paths (existence-gated downstream).
+    for (const detected of detectFilePaths(text)) {
+      const startCoord = offsetToCoord(detected.index, lineCols, firstRow);
+      const endCoord = offsetToCoord(detected.index + detected.matchText.length, lineCols, firstRow);
+      matchedRanges.push({ start: detected.index, end: detected.index + detected.matchText.length });
+
+      const capturedPath = detected.path;
+      const capturedLineNum = detected.line;
+      const capturedColNum = detected.column;
+      const capturedStartRow = startCoord.y;
+      const capturedStartCol = startCoord.x;
+
+      raws.push({
+        range: { start: startCoord, end: endCoord },
+        text: detected.matchText,
+        gatePath: detected.path,
+        resolve() {
+          // At activation time, try to reconstruct paths that were soft-wrapped
+          // by the program across multiple lines.
+          const resolved = reconstructSoftWrappedPath(
+            buffer, term.cols,
+            capturedPath, capturedStartRow, capturedStartCol,
+          );
+          return { path: resolved, line: capturedLineNum, column: capturedColNum };
+        },
+      });
+    }
+
+    // Second pass: markdown-style [text](path) links (explicit intent).
+    MARKDOWN_LINK_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = MARKDOWN_LINK_RE.exec(text)) !== null) {
+      const fullMatch = match[0];
+      const targetPath = match[2];
+
+      const dotIdx = targetPath.lastIndexOf(".");
+      if (dotIdx === -1) continue;
+      const ext = targetPath.slice(dotIdx + 1).toLowerCase();
+      if (!FILE_EXTENSIONS.has(ext)) continue;
+
+      const startOff = match.index;
+      const endOff = match.index + fullMatch.length;
+
+      const overlaps = matchedRanges.some((r) => startOff < r.end && endOff > r.start);
+      if (overlaps) continue;
+
+      raws.push({
+        range: {
+          start: offsetToCoord(startOff, lineCols, firstRow),
+          end: offsetToCoord(endOff, lineCols, firstRow),
+        },
+        text: fullMatch,
+        gatePath: null,
+        resolve() {
+          return { path: targetPath };
+        },
+      });
+    }
+
+    return raws;
+  }
+
   return {
     provideLinks(bufferLineNumber: number, callback: (links: any[] | undefined) => void) {
-      const buffer = term.buffer.active;
-      const line = buffer.getLine(bufferLineNumber - 1);
-      if (!line) {
+      // Only surface links that touch the queried line (a wrap group may
+      // include links belonging to adjacent rows).
+      const raws = collectRawLinks(bufferLineNumber).filter(
+        (r) => !(r.range.start.y > bufferLineNumber || r.range.end.y < bufferLineNumber),
+      );
+      if (raws.length === 0) {
         callback(undefined);
         return;
       }
 
-      // Join all lines in this wrap group so paths spanning multiple
-      // rows are matched as a single string.
-      const { text, lineCols, firstRow } = collectWrapGroup(buffer, bufferLineNumber);
-      // Markdown links (explicit intent) are always returned. Heuristic
-      // file-path links are held in `pendingLinks` so they can be gated on
-      // server-confirmed existence before being underlined.
-      const readyLinks: any[] = [];
-      const pendingLinks: { link: any; path: string }[] = [];
-      const matchedRanges: { start: number; end: number }[] = [];
+      const toXtermLink = (raw: RawLink) => ({
+        range: raw.range,
+        text: raw.text,
+        activate(_event: MouseEvent, _text: string) {
+          onActivate(raw.resolve());
+        },
+        hover(_event: MouseEvent, _text: string) {},
+        leave(_event: MouseEvent, _text: string) {},
+      });
 
-      for (const detected of detectFilePaths(text)) {
-        const filePath = detected.path;
-        const lineNum = detected.line;
-        const colNum = detected.column;
-        const fullMatch = detected.matchText;
-
-        const startCoord = offsetToCoord(detected.index, lineCols, firstRow);
-        const endCoord = offsetToCoord(detected.index + fullMatch.length, lineCols, firstRow);
-
-        // Only return links that touch the queried line
-        if (startCoord.y > bufferLineNumber || endCoord.y < bufferLineNumber) continue;
-
-        matchedRanges.push({ start: detected.index, end: detected.index + fullMatch.length });
-
-        // Capture for closure
-        const capturedPath = filePath;
-        const capturedLineNum = lineNum;
-        const capturedColNum = colNum;
-        const capturedStartRow = startCoord.y;
-        const capturedStartCol = startCoord.x;
-
-        pendingLinks.push({
-          path: filePath,
-          link: {
-            range: {
-              start: startCoord,
-              end: endCoord,
-            },
-            text: fullMatch,
-            activate(_event: MouseEvent, _text: string) {
-              // At click time, try to reconstruct paths that were
-              // soft-wrapped by the program across multiple lines
-              const resolved = reconstructSoftWrappedPath(
-                buffer, term.cols,
-                capturedPath, capturedStartRow, capturedStartCol,
-              );
-              onActivate({ path: resolved, line: capturedLineNum, column: capturedColNum });
-            },
-            hover(_event: MouseEvent, _text: string) {},
-            leave(_event: MouseEvent, _text: string) {},
-          },
-        });
-      }
-
-      // Second pass: markdown-style [text](path) links
-      MARKDOWN_LINK_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = MARKDOWN_LINK_RE.exec(text)) !== null) {
-        const fullMatch = match[0];
-        const targetPath = match[2];
-
-        const dotIdx = targetPath.lastIndexOf(".");
-        if (dotIdx === -1) continue;
-        const ext = targetPath.slice(dotIdx + 1).toLowerCase();
-        if (!FILE_EXTENSIONS.has(ext)) continue;
-
-        const startOff = match.index;
-        const endOff = match.index + fullMatch.length;
-
-        const overlaps = matchedRanges.some(
-          (r) => startOff < r.end && endOff > r.start
-        );
-        if (overlaps) continue;
-
-        const startCoord = offsetToCoord(startOff, lineCols, firstRow);
-        const endCoord = offsetToCoord(endOff, lineCols, firstRow);
-
-        if (startCoord.y > bufferLineNumber || endCoord.y < bufferLineNumber) continue;
-
-        readyLinks.push({
-          range: {
-            start: startCoord,
-            end: endCoord,
-          },
-          text: fullMatch,
-          activate(_event: MouseEvent, _text: string) {
-            onActivate({ path: targetPath });
-          },
-          hover(_event: MouseEvent, _text: string) {},
-          leave(_event: MouseEvent, _text: string) {},
-        });
-      }
+      // Markdown links (explicit intent) are always returned. Heuristic paths
+      // are gated on server-confirmed existence before being underlined.
+      const readyLinks = raws.filter((r) => r.gatePath === null).map(toXtermLink);
+      const pending = raws.filter((r) => r.gatePath !== null);
 
       // Without a sessionId we cannot existence-check — fall back to linking
       // every detected path (legacy behavior, e.g. share sessions).
-      if (!sessionId || pendingLinks.length === 0) {
-        const all = [...readyLinks, ...pendingLinks.map((p) => p.link)];
+      if (!sessionId || pending.length === 0) {
+        const all = [...readyLinks, ...pending.map(toXtermLink)];
         callback(all.length > 0 ? all : undefined);
         return;
       }
 
-      // Existence-gate the heuristic paths, then underline only confirmed files.
-      const uniquePaths = Array.from(new Set(pendingLinks.map((p) => p.path)));
+      const uniquePaths = Array.from(new Set(pending.map((p) => p.gatePath!)));
       checkExistence(sessionId, uniquePaths)
         .then((existsMap) => {
-          const gated = pendingLinks
-            .filter((p) => existsMap.get(p.path))
-            .map((p) => p.link);
+          const gated = pending.filter((p) => existsMap.get(p.gatePath!)).map(toXtermLink);
           const all = [...readyLinks, ...gated];
           callback(all.length > 0 ? all : undefined);
         })
@@ -400,6 +474,20 @@ export function createFileLinkProvider(
           // On unexpected failure, still surface markdown links.
           callback(readyLinks.length > 0 ? readyLinks : undefined);
         });
+    },
+
+    hitTest(x: number, y: number): FileLink | null {
+      for (const raw of collectRawLinks(y)) {
+        if (!pointInRange(x, y, raw.range)) continue;
+        // Optimistic activation: only suppress a heuristic path if the existence
+        // cache DEFINITIVELY (and freshly) knows it is missing. Unknown paths
+        // are activated without blocking — the file viewer will 404 if wrong.
+        if (raw.gatePath !== null && sessionId && peekExistence(sessionId, raw.gatePath) === false) {
+          continue;
+        }
+        return raw.resolve();
+      }
+      return null;
     },
   };
 }
