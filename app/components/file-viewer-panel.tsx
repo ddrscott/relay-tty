@@ -378,12 +378,71 @@ export interface StandaloneFileViewerProps {
   onClose: () => void;
 }
 
+// sessionStorage key + clamp bounds for the resizable side panel width.
+// One global width shared across all files/sessions (not per-session).
+const FILE_VIEWER_WIDTH_KEY = "relay:fileViewerWidth";
+const FILE_VIEWER_MIN_WIDTH = 320; // px
+
+/** Max width is 80% of the current viewport. */
+function fileViewerMaxWidth(): number {
+  return window.innerWidth * 0.8;
+}
+
+/** Clamp a candidate width to [min, 80vw]. */
+function clampFileViewerWidth(w: number): number {
+  return Math.round(Math.max(FILE_VIEWER_MIN_WIDTH, Math.min(w, fileViewerMaxWidth())));
+}
+
+/**
+ * Default desktop width when nothing is stored — mirrors the previous
+ * responsive Tailwind widths (sm:50% / md:45% / lg:40%) so the panel opens
+ * at a familiar size for each breakpoint.
+ */
+function defaultFileViewerWidth(): number {
+  const vw = window.innerWidth;
+  let frac = 0.5;
+  if (vw >= 1024) frac = 0.4;
+  else if (vw >= 768) frac = 0.45;
+  return clampFileViewerWidth(vw * frac);
+}
+
 /**
  * Slide-in side panel for viewing files opened from terminal link clicks.
  * Wraps FileViewerPanel with escape-to-close and click-outside-to-close behavior.
+ * On desktop (sm+) the left border is a drag handle that resizes the panel;
+ * the chosen width persists in sessionStorage. On mobile it stays full-width.
  */
-export function StandaloneFileViewer({ sessionId, filePath, line, column, onClose }: StandaloneFileViewerProps) {
+export function StandaloneFileViewer({ sessionId, filePath, line, onClose }: StandaloneFileViewerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Desktop = sm breakpoint (≥640px). Initialized synchronously to avoid a
+  // hydration/first-paint flash between w-full and the pixel width.
+  const [isDesktop, setIsDesktop] = useState<boolean>(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches,
+  );
+
+  // Persisted (global) panel width in px, used only on desktop.
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    const stored = sessionStorage.getItem(FILE_VIEWER_WIDTH_KEY);
+    if (stored) {
+      const n = parseFloat(stored);
+      if (!isNaN(n)) return clampFileViewerWidth(n);
+    }
+    return defaultFileViewerWidth();
+  });
+
+  // Track viewport breakpoint changes so the drag handle appears/disappears
+  // and the width re-clamps to the (possibly smaller) 80vw cap.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const update = () => {
+      setIsDesktop(mq.matches);
+      if (mq.matches) setWidth((w) => clampFileViewerWidth(w));
+    };
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Close on Escape key
   useEffect(() => {
@@ -397,6 +456,43 @@ export function StandaloneFileViewer({ sessionId, filePath, line, column, onClos
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  // Left-border drag to resize. Dragging left (decreasing clientX) widens the
+  // right-anchored panel. Window listeners keep the drag smooth even if the
+  // pointer outruns the handle; body user-select is suppressed while dragging.
+  const onResizeStart = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDesktop) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = width;
+      let latest = startWidth;
+
+      const prevUserSelect = document.body.style.userSelect;
+      const prevCursor = document.body.style.cursor;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+
+      const onMove = (ev: PointerEvent) => {
+        latest = clampFileViewerWidth(startWidth + (startX - ev.clientX));
+        setWidth(latest);
+      };
+      const onUp = () => {
+        document.body.style.userSelect = prevUserSelect;
+        document.body.style.cursor = prevCursor;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        try {
+          sessionStorage.setItem(FILE_VIEWER_WIDTH_KEY, String(latest));
+        } catch {
+          /* sessionStorage unavailable — width simply won't persist */
+        }
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [isDesktop, width],
+  );
+
   // Click-outside is handled by the backdrop div's onClick
 
   return (
@@ -407,9 +503,20 @@ export function StandaloneFileViewer({ sessionId, filePath, line, column, onClos
       <div
         ref={panelRef}
         className="absolute inset-y-0 right-0 z-10 flex flex-col bg-[#0f0f1a] border-l border-[#2d2d44] shadow-2xl
-          w-full sm:w-[50%] md:w-[45%] lg:w-[40%] max-w-2xl
-          animate-slide-in-right"
+          w-full animate-slide-in-right"
+        style={isDesktop ? { width: `${width}px`, maxWidth: "80vw" } : undefined}
       >
+        {/* Left-edge resize handle (desktop only) */}
+        {isDesktop && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize file viewer"
+            onPointerDown={onResizeStart}
+            className="absolute inset-y-0 left-0 z-20 w-1.5 -ml-0.5 cursor-col-resize touch-none
+              bg-transparent transition-colors hover:bg-[#E85D00]/60 active:bg-[#E85D00]"
+          />
+        )}
         <FileViewerPanel
           sessionId={sessionId}
           filePath={filePath}
