@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-07-30
+
+### Added
+- Clickable links in terminal output. OSC 8 hyperlinks (`ls --hyperlink`, ripgrep, Claude Code) and regex-detected URLs are now actionable through a single `ILinkHandler` shared with the web-links addon. `activate()` enforces a strict scheme allowlist — `http`/`https`/`mailto` open in a new tab, `file://` is parsed and handed to the existing file-viewer plumbing (resolved on the pty-host, not the browser), and every other scheme, `javascript:` above all, is refused. Hovering shows an anti-spoofing tooltip with the real target URI, so the link text can't lie about where it goes. Read-only and gallery-thumbnail terminals never open links or steal focus. No pty-host changes were needed — OSC 8 already passed through untouched
+- Bare filenames in terminal output are now linked, not just slash-, dot-, or root-relative paths. Agents constantly emit `package.json`, `README.md`, `foo.tsx:12:5`, which rendered colored but dead. Detection moved into a shared `file-path-detect.ts` module (regex + extension allowlist) with slash paths still winning over bare names. Because a bare name is a guess, heuristic matches are gated on a new `POST /api/sessions/:id/exists` batch check before they're underlined — it reuses the file route's realpath traversal guard and never reads file contents. A per-(session, path) TTL cache plus in-flight dedupe keeps hovering from causing a network storm. This is what kills the `Node.js` / `Vue.js` false positives
+- The slide-in file viewer is resizable on desktop by dragging its left edge. Width is clamped to `[320px, 80vw]`, persisted in `sessionStorage`, and restored on next open. The old `max-w-2xl` cap is gone, so wide files can actually be read. Mobile stays full-width with no handle
+
+### Fixed
+- Mobile tap-on-link now opens the file on the *first* tap without raising the virtual keyboard. The scrollback-mode tap handler used to focus xterm's hidden textarea unconditionally, and capture-phase `stopPropagation` kept xterm from activating the link itself — so the link only opened via the synthesized click *after* the keyboard reflow moved it, which is the "tap twice" bug. A tap now hit-tests the cell first: if a file link covers it, the viewer opens and the textarea is never focused. Non-link taps behave exactly as before, and mouse-mode (TUI) taps and momentum scrolling are untouched. Hit-testing shares one detection path with link rendering, so the path regex can't drift between them
+
 ## [1.20.1] - 2026-07-26
 
 ### Fixed
@@ -184,7 +194,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pty-host spawn failures detected immediately via PID liveness checks
 - Mobile carousel touch offset after alt-screen transitions
 
-[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.20.0...HEAD
+[Unreleased]: https://github.com/ddrscott/relay-tty/compare/v1.21.0...HEAD
+[1.21.0]: https://github.com/ddrscott/relay-tty/compare/v1.20.1...v1.21.0
+[1.20.1]: https://github.com/ddrscott/relay-tty/compare/v1.20.0...v1.20.1
 [1.20.0]: https://github.com/ddrscott/relay-tty/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/ddrscott/relay-tty/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/ddrscott/relay-tty/compare/v1.17.0...v1.18.0
