@@ -235,6 +235,75 @@ fn handshake_resume_zero_gets_full_replay() {
 }
 
 #[test]
+fn handshake_resume_with_tail_limit_clamps_full_replay() {
+    // Emit ~50KB (seq 1 9999), then request only a 4KB tail via the 16-byte
+    // RESUME form. The replay must be clamped to the tail while SYNC still
+    // carries the authoritative total_written offset.
+    let handle = spawn_pty_host("/bin/sh", &["-c", "seq 1 9999 && sleep 3"])
+        .expect("failed to spawn");
+
+    // Wait for seq to finish so the buffer holds well over the limit
+    std::thread::sleep(Duration::from_millis(800));
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    let limit = 4096.0;
+    client
+        .send_resume_limited(0.0, limit)
+        .expect("send_resume_limited failed");
+
+    let frames = client.collect_frames(Duration::from_secs(2));
+    let types: Vec<u8> = frames.iter().map(|f| f.msg_type).collect();
+
+    // Collect (and decompress) replay payloads only
+    let mut replay = Vec::new();
+    for frame in &frames {
+        match frame.msg_type {
+            WS_MSG_BUFFER_REPLAY => replay.extend_from_slice(&frame.data),
+            WS_MSG_BUFFER_REPLAY_GZ => {
+                use flate2::read::GzDecoder;
+                use std::io::Read;
+                let mut decoder = GzDecoder::new(&frame.data[..]);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed).ok();
+                replay.extend_from_slice(&decompressed);
+            }
+            _ => {}
+        }
+    }
+
+    assert!(!replay.is_empty(), "Expected replay data, got types: {:?}", types);
+    assert!(
+        replay.len() <= limit as usize,
+        "Replay should be clamped to {} bytes, got {}",
+        limit,
+        replay.len()
+    );
+
+    let text = String::from_utf8_lossy(&replay);
+    // The tail must contain the end of the output...
+    assert!(text.contains("9999"), "Expected tail to contain last line");
+    // ...but not the middle (a 4KB tail of ~50KB reaches back only ~600 lines)
+    assert!(
+        !text.contains("5000"),
+        "Clamped replay unexpectedly contains early content"
+    );
+
+    // SYNC must still carry the authoritative total offset (unclamped)
+    let sync_frame = frames
+        .iter()
+        .filter(|f| f.msg_type == WS_MSG_SYNC)
+        .last()
+        .expect("no SYNC frame");
+    let total = f64::from_be_bytes(sync_frame.data[..8].try_into().unwrap());
+    assert!(
+        total > limit,
+        "SYNC offset should be total_written ({} > {})",
+        total,
+        limit
+    );
+}
+
+#[test]
 fn handshake_resume_valid_offset_gets_delta() {
     let handle = spawn_pty_host("/bin/sh", &["-c", "echo part1 && sleep 0.3 && echo part2 && sleep 2"])
         .expect("failed to spawn");

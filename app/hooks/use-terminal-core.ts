@@ -160,6 +160,12 @@ export interface TerminalCoreOpts {
   active?: boolean;
   /** xterm.js scrollback lines. Default 100_000. Gallery thumbnails pass a small cap to bound heap. */
   scrollback?: number;
+  /**
+   * Clamp full buffer replay to the last N bytes (16-byte RESUME form).
+   * Gallery thumbnails pass 256KB so 50 cells don't pull 50 full 10MB buffers.
+   * Delta replay (valid reconnect offset) is never clamped. Unset = full replay.
+   */
+  maxReplayBytes?: number;
 }
 
 export interface TerminalCoreRef {
@@ -1180,10 +1186,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         setStatus("connected");
         lastServerMessage = Date.now();
 
-        // RESUME must be sent before RESIZE to arrive within the 100ms handshake window
-        const resumeMsg = new Uint8Array(9);
+        // RESUME must be sent before RESIZE to arrive within the 100ms handshake window.
+        // With maxReplayBytes set, use the 16-byte payload form: the pty-host
+        // clamps full replays to the last N bytes (thumbnails don't need 10MB).
+        const wantsTailLimit = (opts.maxReplayBytes ?? 0) > 0;
+        const resumeMsg = new Uint8Array(wantsTailLimit ? 17 : 9);
         resumeMsg[0] = WS_MSG.RESUME;
-        new DataView(resumeMsg.buffer).setFloat64(1, byteOffset, false);
+        const resumeView = new DataView(resumeMsg.buffer);
+        resumeView.setFloat64(1, byteOffset, false);
+        if (wantsTailLimit) {
+          resumeView.setFloat64(9, opts.maxReplayBytes!, false);
+        }
         ws.send(resumeMsg);
 
         // Auto-RESIZE happens after SYNC (see handleWsMessage) when the

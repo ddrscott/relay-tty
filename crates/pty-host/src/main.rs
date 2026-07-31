@@ -2344,25 +2344,67 @@ async fn read_first_message(
     }
 }
 
-async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, data: &[u8]) {
+/// Parse a RESUME payload.
+///
+/// - 8 bytes: `[offset f64 BE]` — legacy form, no tail limit (max_replay_bytes = 0.0).
+/// - 16 bytes: `[offset f64 BE][max_replay_bytes f64 BE]` — when the server would
+///   send a full replay, clamp it to the last `max_replay_bytes` bytes.
+///
+/// Returns `None` if the payload is malformed (< 8 bytes).
+fn parse_resume(data: &[u8]) -> Option<(f64, f64)> {
     if data.len() < 8 {
+        return None;
+    }
+    let offset = f64::from_be_bytes(data[..8].try_into().unwrap());
+    let max_replay_bytes = if data.len() >= 16 {
+        f64::from_be_bytes(data[8..16].try_into().unwrap())
+    } else {
+        0.0
+    };
+    Some((offset, max_replay_bytes))
+}
+
+/// Clamp full-replay data to the last `max_bytes` bytes.
+///
+/// After slicing the tail, skip forward past the first `\n` so the replay does
+/// not start mid-escape-sequence or mid-UTF-8 (same idea as
+/// `OutputBuffer::sanitize_start` on ring wrap). If the tail contains no `\n`,
+/// return it as-is. `max_bytes <= 0` or a buffer already within the limit means
+/// no clamping.
+fn clamp_replay_tail(data: &[u8], max_bytes: f64) -> &[u8] {
+    if max_bytes <= 0.0 || !max_bytes.is_finite() {
+        return data;
+    }
+    let max = max_bytes as usize;
+    if data.len() <= max {
+        return data;
+    }
+    let tail = &data[data.len() - max..];
+    match tail.iter().position(|&b| b == b'\n') {
+        Some(pos) => &tail[pos + 1..],
+        None => tail,
+    }
+}
+
+async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, data: &[u8]) {
+    let Some((client_offset, max_replay_bytes)) = parse_resume(data) else {
         // Malformed RESUME -- send full replay
         send_full_replay(writer, state).await;
         return;
-    }
-
-    let client_offset = f64::from_be_bytes(data[..8].try_into().unwrap());
+    };
 
     let s = state.read().await;
     if client_offset <= 0.0 {
-        // First connect -- full replay
+        // First connect -- full replay, clamped to the requested tail (if any)
         let buf_data = s.output_buffer.read();
         drop(s);
-        send_replay(writer, state, &buf_data).await;
+        send_replay(writer, state, clamp_replay_tail(&buf_data, max_replay_bytes)).await;
     } else {
         // Try delta replay
         match s.output_buffer.read_from(client_offset) {
             Some(delta) => {
+                // Deltas are never clamped -- truncating a delta would corrupt
+                // the byte-offset contract (client already has bytes up to offset).
                 drop(s);
                 send_replay(writer, state, &delta).await;
             }
@@ -2371,7 +2413,7 @@ async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, 
                 let buf_data = s.output_buffer.read();
                 drop(s);
                 send_cache_reset(writer).await;
-                send_replay(writer, state, &buf_data).await;
+                send_replay(writer, state, clamp_replay_tail(&buf_data, max_replay_bytes)).await;
             }
         }
     }
@@ -2640,6 +2682,76 @@ mod tests {
         // Write enough to push beyond the buffer
         buf.write(b"second write that overwrites everything!!!");
         assert!(buf.read_from(early_offset).is_none());
+    }
+
+    // ── RESUME parsing & tail-limited replay ────────────────────────
+
+    #[test]
+    fn parse_resume_legacy_8_byte() {
+        let data = 1234.5f64.to_be_bytes();
+        let (offset, max) = parse_resume(&data).unwrap();
+        assert_eq!(offset, 1234.5);
+        assert_eq!(max, 0.0); // no limit — full-replay behavior unchanged
+    }
+
+    #[test]
+    fn parse_resume_16_byte_with_limit() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0.0f64.to_be_bytes());
+        data.extend_from_slice(&(256.0 * 1024.0f64).to_be_bytes());
+        let (offset, max) = parse_resume(&data).unwrap();
+        assert_eq!(offset, 0.0);
+        assert_eq!(max, 262144.0);
+    }
+
+    #[test]
+    fn parse_resume_malformed_returns_none() {
+        assert!(parse_resume(&[]).is_none());
+        assert!(parse_resume(&[0u8; 7]).is_none());
+    }
+
+    #[test]
+    fn clamp_replay_tail_no_limit_returns_all() {
+        let data = b"line one\nline two\n";
+        assert_eq!(clamp_replay_tail(data, 0.0), data);
+        assert_eq!(clamp_replay_tail(data, -1.0), data);
+    }
+
+    #[test]
+    fn clamp_replay_tail_within_limit_returns_all() {
+        let data = b"short\n";
+        assert_eq!(clamp_replay_tail(data, 1024.0), data);
+        assert_eq!(clamp_replay_tail(data, data.len() as f64), data);
+    }
+
+    #[test]
+    fn clamp_replay_tail_clamps_and_starts_after_newline() {
+        // 3 lines of 10 bytes each; limit 25 slices mid-line-1,
+        // then skips to the start of line 2.
+        let data = b"aaaaaaaaa\nbbbbbbbbb\nccccccccc\n";
+        let tail = clamp_replay_tail(data, 25.0);
+        assert_eq!(tail, b"bbbbbbbbb\nccccccccc\n");
+        assert!(tail.len() <= 25);
+    }
+
+    #[test]
+    fn clamp_replay_tail_no_newline_sends_slice_as_is() {
+        let data = vec![b'x'; 100];
+        let tail = clamp_replay_tail(&data, 40.0);
+        assert_eq!(tail.len(), 40);
+        assert!(tail.iter().all(|&b| b == b'x'));
+    }
+
+    #[test]
+    fn clamp_replay_tail_delta_contract_note() {
+        // Delta replay never goes through clamp_replay_tail (see handle_resume) —
+        // this documents that read_from output is used verbatim.
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"first chunk ");
+        let offset = buf.total_written;
+        buf.write(b"second chunk");
+        let delta = buf.read_from(offset).unwrap();
+        assert_eq!(delta, b"second chunk"); // full delta, no truncation
     }
 
     #[test]

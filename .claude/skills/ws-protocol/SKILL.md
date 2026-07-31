@@ -69,6 +69,16 @@ When adding a new message type, assign the next available byte value and documen
 4. pty-host sends: `RESIZE` -> `BUFFER_REPLAY(delta)` -> `SYNC(totalWritten)`.
 5. Browser appends delta to xterm **without** `term.reset()` or `syncAndScroll()`. Preserves the user's scroll position.
 
+### Tail-Limited Replay (16-byte RESUME)
+
+RESUME has an optional 16-byte form: `[offset f64 BE][maxReplayBytes f64 BE]`. When `maxReplayBytes > 0` and the server would send a FULL replay (offset <= 0 or overwritten), pty-host clamps the replay to the last `maxReplayBytes` bytes via `clamp_replay_tail()` -- the tail starts after the first `\n` so it never begins mid-escape-sequence (same idea as `sanitize_start()`).
+
+- **Delta replays are NEVER clamped** -- truncating a delta would corrupt the byte-offset contract.
+- **SYNC semantics unchanged** -- SYNC always carries the authoritative `total_written`, so delta resume works after a clamped replay.
+- The 8-byte form and the 100ms-timeout path (CLI) behave exactly as before.
+- Client opt-in: `maxReplayBytes` in `TerminalCoreOpts` (`use-terminal-core.ts`); `GridTerminal` passes `256 * 1024` so 50 gallery cells don't each pull a full 10MB buffer.
+- The bridge (`ws-handler.ts`) forwards RESUME opaquely in both normal and read-only paths -- no server change needed for the longer payload.
+
 ### 100ms RESUME Window
 
 pty-host waits up to `RESUME_TIMEOUT_MS` (100ms) for the first message. If no RESUME arrives (CLI clients that predate the protocol), it falls back to full replay. Do not increase this timeout -- it adds latency to every new connection.

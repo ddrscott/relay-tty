@@ -38,7 +38,10 @@ export const WS_MSG = {
   TITLE: 0x04,
   /** Server→client: OSC 9 notification text [UTF-8]. */
   NOTIFICATION: 0x05,
-  /** Client→server: resume from byte offset [8B float64]. */
+  /** Client→server: resume from byte offset [8B float64], optionally followed by
+   * a tail limit [8B float64 maxReplayBytes] (16B total). When set (> 0), full
+   * replays are clamped to the last maxReplayBytes bytes; delta replays are
+   * never clamped. 8-byte form = legacy full behavior. */
   RESUME: 0x10,
   /** Server→client: current total byte offset [8B float64]. */
   SYNC: 0x11,

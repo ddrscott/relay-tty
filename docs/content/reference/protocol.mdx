@@ -22,7 +22,7 @@ In both cases, the first byte of the payload is the message type.
 | `0x03` | server→client | `BUFFER_REPLAY` | Raw output buffer (on connect) |
 | `0x04` | server→client | `TITLE` | UTF-8 string (from OSC 0/2 escape) |
 | `0x05` | server→client | `NOTIFICATION` | UTF-8 string (from OSC 9 escape) |
-| `0x10` | client→server | `RESUME` | float64 BE: byte offset to resume from |
+| `0x10` | client→server | `RESUME` | float64 BE: byte offset to resume from; optional second float64 BE: max replay bytes (tail limit for full replay) |
 | `0x11` | server→client | `SYNC` | float64 BE: current total byte offset |
 | `0x12` | server→client | `SESSION_STATE` | 1 byte: `0x00` = idle, `0x01` = active |
 | `0x13` | server→client | `BUFFER_REPLAY_GZ` | gzip-compressed output buffer (on connect) |
@@ -56,6 +56,10 @@ Client                          pty-host
 ```
 
 If the requested offset is before the buffer start (data was overwritten in the ring buffer), pty-host sends a full replay instead.
+
+### Tail-limited replay
+
+`RESUME` accepts an optional 16-byte form: `[offset float64 BE][maxReplayBytes float64 BE]`. When `maxReplayBytes > 0` and the server would send a **full** replay (offset ≤ 0 or overwritten), the replayed data is clamped to the last `maxReplayBytes` bytes, starting after the first newline in the tail so it never begins mid-escape-sequence. Delta replays are never clamped, and `SYNC` always carries the authoritative total offset — so delta resume keeps working after a clamped replay. The 8-byte form behaves exactly as before. Gallery thumbnails use this with a 256KB limit to avoid pulling full 10MB buffers for every cell.
 
 ### Ongoing session
 

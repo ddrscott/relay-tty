@@ -133,6 +133,10 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     // (100K lines x 50 cells would be multi-GB). The full session view /
     // expand modal uses the Terminal component with full scrollback.
     scrollback: 2000,
+    // Thumbnails only need the visible screen plus modest context — request
+    // a 256KB tail instead of the full (up to 10MB) buffer replay. Pairs
+    // with the 2000-line scrollback cap above.
+    maxReplayBytes: 256 * 1024,
     fixedCols: session.cols,
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,

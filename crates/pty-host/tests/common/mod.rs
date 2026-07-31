@@ -104,6 +104,16 @@ impl SocketClient {
         self.send_frame(WS_MSG_RESUME, &offset.to_be_bytes())
     }
 
+    /// Send a 16-byte RESUME frame with a byte offset and a tail limit.
+    /// When the server would send a full replay, it clamps the data to the
+    /// last `max_replay_bytes` bytes.
+    pub fn send_resume_limited(&mut self, offset: f64, max_replay_bytes: f64) -> io::Result<()> {
+        let mut data = Vec::with_capacity(16);
+        data.extend_from_slice(&offset.to_be_bytes());
+        data.extend_from_slice(&max_replay_bytes.to_be_bytes());
+        self.send_frame(WS_MSG_RESUME, &data)
+    }
+
     /// Send a RESIZE frame.
     pub fn send_resize(&mut self, cols: u16, rows: u16) -> io::Result<()> {
         let mut data = Vec::with_capacity(4);

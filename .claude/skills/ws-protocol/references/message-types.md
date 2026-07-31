@@ -14,7 +14,7 @@ Constants are defined in `shared/types.ts` (`WS_MSG`) and `crates/pty-host/src/m
 | `0x03` | `BUFFER_REPLAY` | server->client | Raw terminal output bytes | Full or delta buffer replay on connect/reconnect. Uncompressed |
 | `0x04` | `TITLE` | server->client | UTF-8 string | Terminal title from OSC 0/2 escape sequence |
 | `0x05` | `NOTIFICATION` | server->client | UTF-8 string | Notification from OSC 9 escape sequence |
-| `0x10` | `RESUME` | client->server | `[byteOffset: float64 BE]` (8 bytes) | Request delta replay from byte offset. Offset=0 means first connect (full replay) |
+| `0x10` | `RESUME` | client->server | `[byteOffset: float64 BE]` (8 bytes) or `[byteOffset: float64 BE][maxReplayBytes: float64 BE]` (16 bytes) | Request delta replay from byte offset. Offset=0 means first connect (full replay). Optional 16-byte form clamps FULL replays to the last maxReplayBytes bytes (gallery thumbnails send 256KB); delta replays are never clamped |
 | `0x11` | `SYNC` | server->client | `[totalWritten: float64 BE]` (8 bytes) | Current total byte offset. Sent after BUFFER_REPLAY. SYNC(0.0) signals cache invalidation |
 | `0x12` | `SESSION_STATE` | server->client | `[state: uint8]` (1 byte) | `0x00` = idle, `0x01` = active. Sent on connect and on state transitions |
 | `0x13` | `BUFFER_REPLAY_GZ` | server->client | Gzip-compressed terminal output bytes | Same as BUFFER_REPLAY but gzip-compressed. Used when buffer > 4096 bytes and compression saves space |
