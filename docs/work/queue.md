@@ -5,7 +5,7 @@
 - [x] Gallery perf: tail-limited buffer replay — extend RESUME with optional max_replay_bytes; grid cells request 256KB tails ([details](tail-limited-replay.md))
 - [x] Gallery perf: WebGL context budget manager — deterministic top-8 by activity instead of context-loss roulette ([details](webgl-context-budget.md))
 - [x] Gallery perf: disable IndexedDB buffer cache for gallery cells ([details](grid-cache-policy.md))
-- [-] Gallery perf: shared frame-budgeted write scheduler replacing 50 per-cell throttle timers ([details](shared-write-scheduler.md))
+- [x] Gallery perf: shared frame-budgeted write scheduler replacing 50 per-cell throttle timers ([details](shared-write-scheduler.md))
 - [x] Web app: make the file viewer/editor sidebar resizable via left-border drag, persisting width in sessionStorage ([details](file-viewer-resizable-sidebar.md))
 - [x] Mobile: tap-on-link must beat xterm focus so the link opens on first tap (no keyboard) ([details](tap-link-priority-mobile.md))
 - [x] Broaden terminal file-path detection (bare filenames) + server existence-gate ([details](clickable-path-detection.md))

@@ -16,6 +16,7 @@ import { createTerminalLinkHandler } from "../lib/link-handler";
 import { normalizeSgrColors } from "../lib/sgr-normalize";
 import { perfRegistry } from "../lib/perf-registry";
 import { webglBudget } from "../lib/webgl-budget";
+import { registerThrottledWriter, type ScheduledWriter } from "../lib/write-scheduler";
 
 // ── Narrow interfaces for xterm.js internals ────────────────────────
 // xterm v5 _core access is required for scroll hacks (momentum scrolling,
@@ -293,11 +294,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     // Wrapper div for xterm's DOM — persists in pool across unmounts
     let xtermWrapper: HTMLDivElement | null = null;
 
-    // Throttle: accumulate DATA writes and flush at throttleFps
+    // Throttle: accumulate DATA writes; the shared write scheduler
+    // (app/lib/write-scheduler.ts) flushes each cell at most every
+    // throttleInterval within a global per-frame budget — one rAF loop for
+    // all gallery cells instead of one setTimeout per cell.
     const throttleInterval = opts.throttleFps ? Math.floor(1000 / opts.throttleFps) : 0;
     let throttleBuffer: Uint8Array[] = [];
-    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastFlush = 0;
+    let throttleWriter: ScheduledWriter | null = null;
 
     // Track whether initial content (cache or first BUFFER_REPLAY) has been
     // written to xterm. Until this is true the container stays invisible so
@@ -1401,7 +1404,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         case WS_MSG.DATA: {
           byteOffset += payload.length;
           reportedTotalBytes += payload.length;
-          perfRegistry.bytesWritten += payload.length; // perf HUD throughput
           cacheWriter?.append(payload);
           cacheWriter?.setOffset(byteOffset);
 
@@ -1416,21 +1418,20 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             }
           }
 
-          // Throttled rendering for grid cells
+          // Throttled rendering for grid cells: accumulate and mark dirty in
+          // the shared scheduler, which flushes within a per-frame budget.
+          // The scheduler feeds perfRegistry.bytesWritten at flush time (bytes
+          // actually written to xterm); the unthrottled path counts on arrival.
           if (throttleInterval > 0) {
             throttleBuffer.push(payload);
-            const now = Date.now();
-            if (now - lastFlush >= throttleInterval) {
-              flushThrottleBuffer(term);
-              lastFlush = now;
-            } else if (!throttleTimer) {
-              throttleTimer = setTimeout(() => {
-                throttleTimer = null;
-                flushThrottleBuffer(term);
-                lastFlush = Date.now();
-              }, throttleInterval - (now - lastFlush));
+            // Lazy registration covers both init paths (fresh init and pool
+            // reattach) and keeps idle cells out of the scheduler entirely.
+            if (!throttleWriter) {
+              throttleWriter = registerThrottledWriter(() => flushThrottleBuffer(term), throttleInterval);
             }
+            throttleWriter.markDirty();
           } else {
+            perfRegistry.bytesWritten += payload.length; // perf HUD throughput
             if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
               term.write(payload, () => term.scrollToBottom());
             } else {
@@ -1577,9 +1578,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
     }
 
-    function flushThrottleBuffer(term: Terminal) {
-      if (throttleBuffer.length === 0) return;
-      // Merge all buffered chunks into a single write
+    /** Merge all buffered chunks into a single in-order write. Returns the
+     *  byte count written (0 if nothing pending) for scheduler accounting. */
+    function flushThrottleBuffer(term: Terminal): number {
+      if (throttleBuffer.length === 0) return 0;
       const total = throttleBuffer.reduce((sum, c) => sum + c.length, 0);
       const merged = new Uint8Array(total);
       let off = 0;
@@ -1589,6 +1591,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }
       throttleBuffer = [];
       term.write(merged);
+      return total;
     }
 
     function handleBufferReplay(term: Terminal, payload: Uint8Array) {
@@ -1822,7 +1825,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       if (webglBudgeted) webglBudget.unregister(opts.wsPath);
       if (retryTimer) clearTimeout(retryTimer);
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-      if (throttleTimer) clearTimeout(throttleTimer);
+      // Unregister from the shared write scheduler — flushes any remaining
+      // pending bytes first (byteOffset already advanced when DATA arrived).
+      throttleWriter?.unregister();
+      throttleWriter = null;
       if (heightDebounce) clearTimeout(heightDebounce);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("online", onOnline);
