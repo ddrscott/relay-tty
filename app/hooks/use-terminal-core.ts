@@ -168,6 +168,16 @@ export interface TerminalCoreOpts {
    */
   maxReplayBytes?: number;
   /**
+   * IndexedDB buffer caching. Default true (main session view, tiles).
+   * Gallery cells pass false: 50 BufferCacheWriters each flushing a multi-MB
+   * concatenated buffer + structured clone every second is constant hidden
+   * main-thread jank, and a thumbnail's tail-limited view of the buffer
+   * would poison the shared per-session cache offset used by the main view.
+   * With cache disabled, byteOffset starts at 0 and RESUME(0) does a
+   * full/tail replay — SYNC baselining is unchanged.
+   */
+  cache?: boolean;
+  /**
    * WebGL renderer policy. 'always' (default) loads a WebglAddon at init —
    * main session view, tiles, share view. 'budgeted' registers with the
    * shared webgl-budget module instead: contexts are granted to the top-N
@@ -304,8 +314,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
 
     // Extract session ID from wsPath for buffer caching (only for /ws/sessions/<id>)
+    // cacheSessionId is also used by the file link provider, so it is resolved
+    // even when caching is disabled.
     const sessionIdMatch = opts.wsPath.match(/^\/ws\/sessions\/([^/?]+)/);
     const cacheSessionId = sessionIdMatch?.[1] ?? null;
+    const cacheEnabled = opts.cache !== false;
     let cacheWriter: BufferCacheWriter | null = null;
 
     // ── xterm.js setup ──────────────────────────────────────────────
@@ -555,7 +568,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // so that RESUME sends the correct offset and avoids interleaving.
       // The terminal container is kept invisible during this write so the
       // user never sees rapid-scroll flashing on session switch.
-      if (cacheSessionId) {
+      // Skipped entirely when caching is disabled (gallery cells): no
+      // loadCache read, no BufferCacheWriter — zero IndexedDB traffic.
+      if (cacheSessionId && cacheEnabled) {
         try {
           const cached = await loadCache(cacheSessionId);
           if (cached && cached.buffer.length > 0 && !disposed) {
@@ -1339,11 +1354,15 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
             const view = new DataView(payload.buffer, payload.byteOffset);
             const serverOffset = view.getFloat64(0, false);
             if (serverOffset === 0 && byteOffset > 0) {
-              // Server says our cached offset is stale — discard cache
+              // Server says our cached offset is stale — discard cache.
+              // With caching disabled (gallery cells) only the in-memory
+              // offset resets: a thumbnail's expired offset says nothing
+              // about the shared IndexedDB entry the main view owns, so
+              // deleting it here could kill a still-valid cache.
               byteOffset = 0;
-              if (cacheSessionId) deleteCache(cacheSessionId);
+              if (cacheEnabled && cacheSessionId) deleteCache(cacheSessionId);
               cacheWriter?.dispose();
-              cacheWriter = cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+              cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
             } else {
               byteOffset = serverOffset;
             }
@@ -1526,10 +1545,14 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           // server reset total_written on clear; the SYNC that follows this
           // broadcast re-baselines byteOffset to the authoritative offset and a
           // RESUME(0) reconnect now replays an empty buffer.
+          // The shared-cache delete stays UNCONDITIONAL: a clear broadcast is
+          // authoritative for every connected client, so even a cache-disabled
+          // gallery cell purges the shared per-session IndexedDB entry. Only
+          // the writer reconstruction is gated on cacheEnabled.
           byteOffset = 0;
           if (cacheSessionId) deleteCache(cacheSessionId);
           cacheWriter?.dispose();
-          cacheWriter = cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+          cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
           opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: 0 });
           break;
         }

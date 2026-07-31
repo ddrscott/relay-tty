@@ -142,6 +142,12 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     // a 256KB tail instead of the full (up to 10MB) buffer replay. Pairs
     // with the 2000-line scrollback cap above.
     maxReplayBytes: 256 * 1024,
+    // No IndexedDB buffer cache for gallery cells: 50 writers flushing
+    // multi-MB buffers every second is constant main-thread jank, the
+    // 256KB-tail replay makes first paint fast without it, and a
+    // tail-view writer would poison the shared per-session cache the
+    // main session view relies on.
+    cache: false,
     fixedCols: session.cols,
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,
