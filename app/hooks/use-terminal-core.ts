@@ -14,6 +14,7 @@ import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink, type FileLinkProvider } from "../lib/file-link-provider";
 import { createTerminalLinkHandler } from "../lib/link-handler";
 import { normalizeSgrColors } from "../lib/sgr-normalize";
+import { perfRegistry } from "../lib/perf-registry";
 
 // ── Narrow interfaces for xterm.js internals ────────────────────────
 // xterm v5 _core access is required for scroll hacks (momentum scrolling,
@@ -105,6 +106,7 @@ function poolEvict() {
     if (!oldestKey) break;
     const entry = terminalPool.get(oldestKey)!;
     terminalPool.delete(oldestKey);
+    if (entry.webgl) perfRegistry.webgl.delete(entry.webgl);
     try { entry.webgl?.dispose(); } catch {}
     entry.term.dispose();
     entry.cacheWriter?.dispose();
@@ -215,6 +217,9 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     if (!containerRef.current) return;
 
     let disposed = false;
+    // Perf HUD: one token per mounted terminal instance (cell count).
+    const perfToken = {};
+    perfRegistry.terms.add(perfToken);
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 1000;
     const MAX_RETRY_DELAY = 15000;
@@ -351,9 +356,13 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // Context loss is handled gracefully (falls back to canvas)
       try {
         const webgl = new WebglAddon();
-        webgl.onContextLoss(() => { webgl.dispose(); });
+        webgl.onContextLoss(() => {
+          perfRegistry.webgl.delete(webgl); // perf HUD: renderer fell back to DOM
+          webgl.dispose();
+        });
         term.loadAddon(webgl);
         webglRef.current = webgl;
+        perfRegistry.webgl.add(webgl); // perf HUD: WebGL renderer active
       } catch {
         // WebGL unavailable — falls back to default canvas renderer
       }
@@ -1304,6 +1313,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         case WS_MSG.DATA: {
           byteOffset += payload.length;
           reportedTotalBytes += payload.length;
+          perfRegistry.bytesWritten += payload.length; // perf HUD throughput
           cacheWriter?.append(payload);
           cacheWriter?.setOffset(byteOffset);
 
@@ -1702,6 +1712,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
 
     return () => {
       disposed = true;
+      perfRegistry.terms.delete(perfToken);
       if (retryTimer) clearTimeout(retryTimer);
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
       if (throttleTimer) clearTimeout(throttleTimer);
@@ -1737,6 +1748,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         searchAddonRef.current = null;
       } else {
         // Normal dispose (read-only terminals, or no xterm initialized)
+        if (webglRef.current) perfRegistry.webgl.delete(webglRef.current);
         try { webglRef.current?.dispose(); } catch {}
         webglRef.current = null;
         termRef.current?.dispose();

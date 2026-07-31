@@ -11,6 +11,7 @@ import type { FileLink } from "../lib/file-link-provider";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -841,6 +842,9 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
           relaytty.com
         </a>
       </footer>
+
+      {/* Dev perf HUD — hidden unless ?perf=1 or Ctrl+Shift+` */}
+      <PerfHud />
     </main>
   );
 }

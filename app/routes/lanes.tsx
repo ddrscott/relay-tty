@@ -9,6 +9,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu 
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { useSessionInspect } from "../hooks/use-session-inspect";
 import type { FileLink } from "../lib/file-link-provider";
@@ -792,6 +793,9 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
           relaytty.com
         </a>
       </footer>
+
+      {/* Dev perf HUD — hidden unless ?perf=1 or Ctrl+Shift+` */}
+      <PerfHud />
     </main>
   );
 }
