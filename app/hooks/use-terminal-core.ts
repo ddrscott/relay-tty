@@ -158,6 +158,8 @@ export interface TerminalCoreOpts {
   fixedRows?: number;
   /** Whether this terminal is the active/visible one. Controls resize observer and input. Default true. */
   active?: boolean;
+  /** xterm.js scrollback lines. Default 100_000. Gallery thumbnails pass a small cap to bound heap. */
+  scrollback?: number;
 }
 
 export interface TerminalCoreRef {
@@ -330,7 +332,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         cursorBlink: !opts.readOnly,
         disableStdin: opts.readOnly ?? false,
         allowProposedApi: true,
-        scrollback: 100_000,
+        scrollback: opts.scrollback ?? 100_000,
         // OSC 8 hyperlinks: the scheme allowlist in `activate` gates every URI,
         // so `allowNonHttpProtocols` (set inside the handler) is safe.
         linkHandler,

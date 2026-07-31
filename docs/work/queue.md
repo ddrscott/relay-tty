@@ -1,7 +1,7 @@
 # Work Queue
 
 - [x] Gallery perf: dev-only perf HUD for grid/lanes — frame time, cell count, WebGL/DOM renderer mix, write bytes/s ([details](perf-hud.md))
-- [-] Gallery perf: cap scrollback for grid/lanes thumbnail terminals to 2000 lines ([details](grid-scrollback-cap.md))
+- [x] Gallery perf: cap scrollback for grid/lanes thumbnail terminals to 2000 lines ([details](grid-scrollback-cap.md))
 - [ ] Gallery perf: tail-limited buffer replay — extend RESUME with optional max_replay_bytes; grid cells request 256KB tails ([details](tail-limited-replay.md))
 - [ ] Gallery perf: WebGL context budget manager — deterministic top-8 by activity instead of context-loss roulette ([details](webgl-context-budget.md))
 - [ ] Gallery perf: disable IndexedDB buffer cache for gallery cells ([details](grid-cache-policy.md))

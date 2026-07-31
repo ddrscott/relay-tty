@@ -129,6 +129,10 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
     fontSize,
     readOnly: true,
     throttleFps: 8,
+    // Thumbnails are passive observers — cap scrollback to bound xterm heap
+    // (100K lines x 50 cells would be multi-GB). The full session view /
+    // expand modal uses the Terminal component with full scrollback.
+    scrollback: 2000,
     fixedCols: session.cols,
     fixedRows: session.rows,
     onSessionUpdate: handleSessionUpdate,
