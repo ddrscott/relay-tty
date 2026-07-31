@@ -15,6 +15,7 @@ import { createFileLinkProvider, type FileLink, type FileLinkProvider } from "..
 import { createTerminalLinkHandler } from "../lib/link-handler";
 import { normalizeSgrColors } from "../lib/sgr-normalize";
 import { perfRegistry } from "../lib/perf-registry";
+import { webglBudget } from "../lib/webgl-budget";
 
 // ── Narrow interfaces for xterm.js internals ────────────────────────
 // xterm v5 _core access is required for scroll hacks (momentum scrolling,
@@ -166,6 +167,15 @@ export interface TerminalCoreOpts {
    * Delta replay (valid reconnect offset) is never clamped. Unset = full replay.
    */
   maxReplayBytes?: number;
+  /**
+   * WebGL renderer policy. 'always' (default) loads a WebglAddon at init —
+   * main session view, tiles, share view. 'budgeted' registers with the
+   * shared webgl-budget module instead: contexts are granted to the top-N
+   * most recently active gallery cells (browsers cap ~16 WebGL contexts per
+   * page) and the rest run on the DOM renderer deterministically, instead of
+   * random context-loss eviction.
+   */
+  webglMode?: "always" | "budgeted";
 }
 
 export interface TerminalCoreRef {
@@ -190,6 +200,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   // True during buffer replay — suppresses onData forwarding so xterm's
   // CPR/DA responses to replayed DSR queries don't leak to the PTY as stdin.
   const replayingRef = useRef(false);
+
+  // Desired WebGL pin state for budgeted mode (selected/zoomed gallery cell).
+  // Held in a ref because budget registration happens after async xterm init —
+  // a pin request arriving before registration is applied at register time.
+  const webglPinnedRef = useRef(false);
+  const wsPathForPin = opts.wsPath;
+  const setWebglPinned = useCallback((pinned: boolean) => {
+    webglPinnedRef.current = pinned;
+    webglBudget.setPinned(wsPathForPin, pinned);
+  }, [wsPathForPin]);
 
   // Track active state via ref so the ResizeObserver (inside the main effect)
   // can read it without being in the effect's dependency array.
@@ -242,6 +262,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     let reportedTotalBytes = 0;
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
+    const webglBudgeted = opts.webglMode === "budgeted";
+    let lastWebglActivityBump = 0; // throttle DATA-driven budget priority bumps
     const scrollState = { momentumActive: false, lastAtBottom: true };
 
     // Centralized atBottom check — only fires callback when value changes.
@@ -360,19 +382,51 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       containerRef.current!.appendChild(xtermWrapper);
       term.open(xtermWrapper);
 
-      // WebGL renderer — must be loaded after term.open()
-      // Context loss is handled gracefully (falls back to canvas)
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
-          perfRegistry.webgl.delete(webgl); // perf HUD: renderer fell back to DOM
-          webgl.dispose();
+      // WebGL renderer — must be loaded after term.open().
+      // 'always' mode loads it right here (main/tiles/share views).
+      // 'budgeted' mode (gallery cells) defers to the webgl-budget module,
+      // which grants/revokes contexts by recent activity so the browser's
+      // ~16-context cap never randomly evicts (see app/lib/webgl-budget.ts).
+      const loadWebglAddon = () => {
+        if (disposed || webglRef.current) return;
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            perfRegistry.webgl.delete(webgl); // perf HUD: renderer fell back to DOM
+            webgl.dispose();
+            if (webglRef.current === webgl) webglRef.current = null;
+            // Free the budget slot — the next rebalance tick re-grants.
+            if (webglBudgeted) webglBudget.contextLost(opts.wsPath);
+          });
+          term.loadAddon(webgl);
+          webglRef.current = webgl;
+          perfRegistry.webgl.add(webgl); // perf HUD: WebGL renderer active
+        } catch {
+          // WebGL unavailable — falls back to default canvas renderer
+        }
+      };
+
+      if (webglBudgeted) {
+        webglBudget.register(opts.wsPath, {
+          acquire: () => {
+            loadWebglAddon();
+            // Late WebGL load (after search decorations / DOM-rendered rows
+            // exist) can leave stale visuals — force a full repaint. This
+            // does not scroll or resize (gallery SIGWINCH policy).
+            try { term.refresh(0, term.rows - 1); } catch {}
+          },
+          release: () => {
+            const webgl = webglRef.current;
+            if (!webgl) return;
+            perfRegistry.webgl.delete(webgl);
+            try { webgl.dispose(); } catch {}
+            webglRef.current = null;
+          },
         });
-        term.loadAddon(webgl);
-        webglRef.current = webgl;
-        perfRegistry.webgl.add(webgl); // perf HUD: WebGL renderer active
-      } catch {
-        // WebGL unavailable — falls back to default canvas renderer
+        // Apply a pin that arrived before registration (cell mounted selected).
+        if (webglPinnedRef.current) webglBudget.setPinned(opts.wsPath, true);
+      } else {
+        loadWebglAddon();
       }
 
       // Search addon — loaded after WebGL for correct decoration rendering
@@ -1332,6 +1386,17 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           cacheWriter?.append(payload);
           cacheWriter?.setOffset(byteOffset);
 
+          // Budgeted WebGL: recent activity is the priority signal. Bump at
+          // most once per second — bumpActivity never rebalances, but there's
+          // no reason to touch the registry per DATA frame.
+          if (webglBudgeted) {
+            const bumpNow = Date.now();
+            if (bumpNow - lastWebglActivityBump > 1000) {
+              lastWebglActivityBump = bumpNow;
+              webglBudget.bumpActivity(opts.wsPath);
+            }
+          }
+
           // Throttled rendering for grid cells
           if (throttleInterval > 0) {
             throttleBuffer.push(payload);
@@ -1728,6 +1793,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     return () => {
       disposed = true;
       perfRegistry.terms.delete(perfToken);
+      // Budgeted cells free their slot for other cells. unregister does NOT
+      // dispose the addon — the dispose branch below owns that (budgeted
+      // cells are readOnly gallery cells, which are never pooled).
+      if (webglBudgeted) webglBudget.unregister(opts.wsPath);
       if (retryTimer) clearTimeout(retryTimer);
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
       if (throttleTimer) clearTimeout(throttleTimer);
@@ -1794,5 +1863,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef };
+  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef, setWebglPinned };
 }

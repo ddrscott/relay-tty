@@ -124,11 +124,16 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
   // Fixed cols/rows — terminal always renders at PTY dimensions.
   // readOnly prevents RESIZE messages. CSS scale handles visual fit.
   // Thumbnails shrink via CSS transform: scale().
-  const { termRef, searchAddonRef, status, contentReady, termReady, sendBinary, replayingRef } = useTerminalCore(containerRef, {
+  const { termRef, searchAddonRef, status, contentReady, termReady, sendBinary, replayingRef, setWebglPinned } = useTerminalCore(containerRef, {
     wsPath: `/ws/sessions/${session.id}`,
     fontSize,
     readOnly: true,
     throttleFps: 8,
+    // Gallery cells share a deterministic WebGL context budget (top-N by
+    // recent activity) instead of all loading WebGL and letting the browser
+    // randomly evict contexts past its ~16-per-page cap. Revoked cells fall
+    // back to the DOM renderer — near-zero cost while idle.
+    webglMode: "budgeted",
     // Thumbnails are passive observers — cap scrollback to bound xterm heap
     // (100K lines x 50 cells would be multi-GB). The full session view /
     // expand modal uses the Terminal component with full scrollback.
@@ -188,6 +193,12 @@ export function GridTerminal({ session, selected, zoomed, fontSize, onSelect, on
 
   // Wire up keyboard input when selected (sendResize: false — grid manages RESIZE explicitly)
   useTerminalInput({ termRef, sendBinary, replayingRef, enabled: selected, sendResize: false, termReady });
+
+  // Pin the WebGL budget to the cell the user is engaging with — selected or
+  // zoomed cells always render on WebGL, regardless of output activity.
+  useEffect(() => {
+    setWebglPinned(selected || !!zoomed);
+  }, [selected, zoomed, setWebglPinned]);
 
   // Toggle stdin/cursor and focus when selection changes
   useEffect(() => {
