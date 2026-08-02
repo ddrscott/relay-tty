@@ -1,4 +1,4 @@
 {
   "title": "Explanation",
-  "pages": ["index", "architecture", "vs-tmux-ssh", "session-lifecycle", "security-model"]
+  "pages": ["index", "architecture", "vs-tmux-ssh", "raw-bytes-vs-smart-clients", "session-lifecycle", "security-model"]
 }

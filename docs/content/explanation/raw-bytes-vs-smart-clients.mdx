@@ -1,0 +1,74 @@
+---
+title: Raw Bytes vs Smart Clients
+description: Why relay-tty streams raw VT bytes instead of server-side parsed terminal state, and how that compares to libghostty-based multiplexers.
+---
+
+In July 2026, Mitchell Hashimoto (HashiCorp co-founder, Ghostty author) announced
+[Superlogical](https://mitchellh.com/writing/superlogical), a server-side terminal
+multiplexer built on [libghostty](https://mitchellh.com/writing/libghostty-is-coming).
+Its architecture raises a design question every terminal relay has to answer: **where
+does the terminal state live?** This page records relay-tty's answer, and why.
+
+## Two architectures
+
+**Smart-client / server-state (Superlogical, libghostty):** the server parses the VT
+stream and maintains the authoritative terminal grid. Clients receive structured state
+(cells, deltas) rather than escape sequences. Every client must be a "very smart,
+high-functioning, compliant client" — typically built on the same library as the
+server. In exchange, scrolling, selection, and rendering are fully local and
+round-trip-free.
+
+**Raw byte stream (relay-tty, tmux-over-SSH):** the server relays the raw VT byte
+stream and the client parses it. Any terminal emulator is a valid client.
+
+## Where relay-tty stands
+
+relay-tty already shares most of the smart-client model's goals — it just reaches
+them without giving up the raw-byte protocol:
+
+| Property | Superlogical (reported) | relay-tty |
+|----------|------------------------|-----------|
+| Session state survives disconnects | Server-side sessions | Detached pty-host processes + 10MB ring buffer |
+| Scrolling / selection are local | libghostty client | xterm.js with local 100K-line scrollback |
+| No redundant retransmission | Structured state sync | `RESUME`/`SYNC` offset-based delta replay |
+| Terminal state parsed on the | Server | Client (xterm.js) |
+| Dumb clients supported | No — compliant clients only | Yes — `relay attach` is a raw TTY passthrough |
+
+The one genuine architectural difference is the last two rows: relay-tty ships escape
+sequences and lets xterm.js interpret them; a libghostty-style multiplexer interprets
+them on the server and ships grid state.
+
+## The decision (August 2026)
+
+**relay-tty keeps the raw byte stream as its base protocol.** No server-side terminal
+state model is being adopted at this time. Reasons:
+
+1. **Dumb clients are a feature.** `relay attach` works from any terminal emulator
+   precisely because the protocol is just bytes. Structured state sync would require
+   every client to embed the server's terminal model — killing CLI attach and any
+   future thin client.
+2. **One terminal model, not two.** The browser client is xterm.js. Adding a second,
+   server-side parser (libghostty, alacritty_terminal) creates two implementations
+   that can disagree on edge cases. For the interactive path, the client's parser is
+   authoritative and there is nothing to reconcile.
+3. **No version coupling.** With raw bytes, server and client can upgrade
+   independently. Structured state ties the wire format to a specific terminal
+   model version.
+4. **The UX wins are already in hand.** The pain points the smart-client model
+   exists to fix — scrollback, selection, mobile scrolling — are solved in relay-tty
+   client-side (see [Architecture](/explanation/architecture)).
+
+## What would reopen this
+
+The decision is about the *base protocol*, not a ban on server-side parsing. A
+read-only, parsed-state overlay could earn its way in for specific features:
+
+- **Gallery thumbnails** — a server-side grid snapshot (plain text or HTML) would
+  replace per-cell xterm.js instances and decouple thumbnail size from PTY size
+  entirely, making gallery views passive observers by construction.
+- **Search and text extraction** — querying session content without a client replay.
+- **Reference implementation** — libghostty-vt's fuzzed OSC/DCS parser is the
+  standard to measure any hand-rolled VT scanning (like `AltScreenScanner`) against.
+
+Any such overlay would sit beside the raw stream, never replace it, and would wait
+for libghostty-vt's API to stabilize (it is explicitly unstable as of mid-2026).
