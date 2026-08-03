@@ -13,3 +13,4 @@
 - [x] Clear scrollback must purge the client IndexedDB cache to fix slow reloads ([details](clear-scrollback-purge-client-cache.md))
 - [x] Clear scrollback must free the server-side pty-host output buffer ([details](clear-scrollback-frees-server-buffer.md))
 - [x] Session picker: scroll active session into view on open — stop defaulting to top of list ([details](session-picker-scroll-to-active.md))
+- [-] Gallery project filter: recency filter header — toggle + configurable duration hides stale sessions and stale projects ([details](gallery-recency-filter.md))
