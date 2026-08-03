@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
-import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
 import { useSessionInspect } from "../hooks/use-session-inspect";
@@ -150,6 +150,7 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   const [sortDir, setSortDir] = useState<SortDir>(getStoredSortDir);
   const [showInactive, setShowInactive] = useState(getStoredShowInactive);
   const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
+  const [recencyFilter, setRecencyFilter] = useState<RecencyFilter>(getStoredRecencyFilter);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [layout, setLayoutState] = useState<TileLayout>(getStoredLayout);
@@ -203,9 +204,10 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
     let filtered = showInactive
       ? loaderSessions
       : loaderSessions.filter((s) => s.status === "running");
+    filtered = filterByRecency(filtered, recencyFilter);
     filtered = filterByProject(filtered, projectFilter);
     return sortSessions(filtered, sortKey, sortDir);
-  }, [loaderSessions, showInactive, projectFilter, sortKey, sortDir]);
+  }, [loaderSessions, showInactive, projectFilter, recencyFilter, sortKey, sortDir]);
 
   // Reconcile the persisted layout with the current session list:
   //   - drop sessions no longer on the server (or no longer eligible)
@@ -769,6 +771,8 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
             sessions={loaderSessions}
             selectedCwds={projectFilter}
             onSelectionChange={setProjectFilterPersist}
+            recency={recencyFilter}
+            onRecencyChange={setRecencyFilter}
           />
 
           <button

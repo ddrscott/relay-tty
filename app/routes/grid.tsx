@@ -10,7 +10,7 @@ import { useSessionInspect } from "../hooks/use-session-inspect";
 import type { FileLink } from "../lib/file-link-provider";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
-import { ProjectFilter, getStoredProjectFilter, filterByProject } from "../components/project-filter";
+import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
 import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
@@ -427,6 +427,7 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
     return map;
   });
   const [projectFilter, setProjectFilter] = useState<string[]>(getStoredProjectFilter);
+  const [recencyFilter, setRecencyFilter] = useState<RecencyFilter>(getStoredRecencyFilter);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -487,9 +488,10 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
   // Filter sessions: optionally hide inactive/exited, then by project CWD
   const gridSessions = useMemo(() => {
     let filtered = showInactive ? sessions : sessions.filter((s) => s.status === "running");
+    filtered = filterByRecency(filtered, recencyFilter);
     filtered = filterByProject(filtered, projectFilter);
     return filtered;
-  }, [sessions, showInactive, projectFilter]);
+  }, [sessions, showInactive, projectFilter, recencyFilter]);
 
   // Snapshot: recompute sort order only when sort key/dir changes, not on data updates.
   // New sessions append to end; removed sessions are filtered out.
@@ -743,6 +745,8 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
             sessions={sessions}
             selectedCwds={projectFilter}
             onSelectionChange={setProjectFilter}
+            recency={recencyFilter}
+            onRecencyChange={setRecencyFilter}
           />
 
           {/* Fullscreen toggle */}

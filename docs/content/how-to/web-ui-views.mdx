@@ -49,6 +49,18 @@ A tiled overview showing live terminal thumbnails for all sessions. Each cell re
 1. **Grid toolbar** — sort sessions, toggle inactive, filter by project, create new sessions
 2. **Live terminal cells** — each cell renders real terminal output, scaled to fit
 
+### Project filter and recency
+
+The project filter dropdown narrows the gallery to selected working directories. At the top of the dropdown, a **Recent only** toggle hides sessions whose last activity is older than a configurable window (default `24h`). The duration accepts values like `30m`, `2h`, or `7d` — press Enter or click away to apply; invalid values fall back to the default.
+
+When the recency filter is on:
+
+- Gallery cells only show sessions active within the window.
+- Projects with no recent sessions disappear from the dropdown list, keeping it short. Your project selection is preserved — hidden projects reappear when the toggle turns off.
+- The filter button shows a clock indicator (and a `Recent 24h`-style label when no projects are selected) so it's obvious why sessions are hidden.
+
+Both the toggle and the duration persist across reloads, and apply to the Grid, Lanes, and Tiles views alike.
+
 - Thumbnails update in real-time
 - Click a cell to select it for keyboard input
 - Double-click a cell (or click the expand icon) to zoom it to full size
