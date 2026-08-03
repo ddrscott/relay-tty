@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { SessionGroup } from "../lib/session-groups";
 import { CopyableId } from "./copyable-id";
 
@@ -8,8 +9,29 @@ interface SessionPickerProps {
 }
 
 export function SessionPicker({ groups, activeSessionId, onSelect }: SessionPickerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeRowRef = useRef<HTMLButtonElement>(null);
+
+  // On open, position the scroll container so the active session's row is
+  // near-centered. Scroll only — no focus() (mobile keyboard) and no
+  // scrollIntoView (which can also scroll ancestor containers/the page).
+  // Manual scrollTop math is scoped to the dropdown; the browser clamps it,
+  // so rows near the top degrade gracefully to scrollTop 0.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const row = activeRowRef.current;
+    if (!container || !row) return;
+    // container is `position: absolute`, so it is row.offsetParent —
+    // offsetTop is relative to the scrollable container itself.
+    container.scrollTop =
+      row.offsetTop - container.clientHeight / 2 + row.clientHeight / 2;
+  }, []);
+
   return (
-    <div className="absolute top-full left-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64">
+    <div
+      ref={containerRef}
+      className="absolute top-full left-0 mt-1 z-30 bg-[#1a1a2e] border border-[#2d2d44] rounded-lg shadow-xl max-h-72 overflow-y-auto min-w-64"
+    >
       {groups.map((group, gi) => (
         <div key={group.cwd}>
           {gi > 0 && (
@@ -25,6 +47,7 @@ export function SessionPicker({ groups, activeSessionId, onSelect }: SessionPick
           {group.sessions.map((s) => (
             <button
               key={s.id}
+              ref={s.id === activeSessionId ? activeRowRef : undefined}
               className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-[#0f0f1a] transition-colors ${
                 s.id === activeSessionId ? "bg-[#0f0f1a]" : ""
               } ${s.status === "exited" ? "opacity-50" : ""}`}
