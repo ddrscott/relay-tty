@@ -73,8 +73,6 @@ interface FileBrowserProps {
   initialPath: string;
   onClose: () => void;
   onNavigate?: (path: string) => void;
-  onUploadFile?: (file: File) => void;
-  uploading?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -134,7 +132,7 @@ function abbreviateHome(segments: string[]): { homePath: string | null; displayS
 
 // ── Main component ──────────────────────────────────────────────────────
 
-export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUploadFile, uploading }: FileBrowserProps) {
+export function FileBrowser({ sessionId, initialPath, onClose, onNavigate }: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,6 +147,9 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
   const [viewingFile, setViewingFile] = useState<string | null>(null); // absolute path
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: DirEntry } | null>(null);
   const [uploadDir, setUploadDir] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const uploadNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -352,6 +353,53 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
       e.preventDefault();
       longPressFired.current = false;
     }
+  }, []);
+
+  // Upload files into the directory currently being browsed, then refresh
+  // the listing so the new files are visible (long-press / right-click a
+  // file to copy its path).
+  const handleUpload = useCallback(async (files: File[]) => {
+    setUploading(true);
+    let lastName: string | null = null;
+    let failures = 0;
+    for (const file of files) {
+      try {
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: {
+            "X-Filename": file.name,
+            "X-Upload-Dir": encodeURIComponent(currentPath),
+          },
+          body: file,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        const { name } = await res.json();
+        lastName = name ?? file.name;
+      } catch (err: any) {
+        console.error("Upload failed:", err.message);
+        failures++;
+      }
+    }
+    setUploading(false);
+    if (uploadNoticeTimer.current) clearTimeout(uploadNoticeTimer.current);
+    setUploadNotice(
+      failures > 0
+        ? `Upload failed (${failures} of ${files.length})`
+        : files.length === 1
+          ? `Uploaded ${lastName}`
+          : `Uploaded ${files.length} files`,
+    );
+    uploadNoticeTimer.current = setTimeout(() => setUploadNotice(null), 3000);
+    if (failures < files.length) {
+      fetchDir(currentPath, filterToggles.recursive);
+    }
+  }, [currentPath, fetchDir, filterToggles.recursive]);
+
+  useEffect(() => () => {
+    if (uploadNoticeTimer.current) clearTimeout(uploadNoticeTimer.current);
   }, []);
 
   // Copy path to clipboard
@@ -598,35 +646,33 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
 
         {!searchOpen && <div className="flex-1" />}
 
-        {/* Upload button */}
-        {onUploadFile && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUploadFile(file);
-                if (fileInputRef.current) fileInputRef.current.value = "";
-              }}
-            />
-            <button
-              className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
-              onClick={() => fileInputRef.current?.click()}
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Upload file"
-              disabled={uploading}
-            >
-              {uploading ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : (
-                <Upload className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </>
-        )}
+        {/* Upload button — uploads into the directory being browsed */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) handleUpload(Array.from(files));
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+        />
+        <button
+          className="btn btn-ghost btn-xs text-[#64748b] hover:text-[#e2e8f0]"
+          onClick={() => fileInputRef.current?.click()}
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          aria-label="Upload files to this folder"
+          title="Upload files to this folder"
+          disabled={uploading}
+        >
+          {uploading ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <Upload className="w-3.5 h-3.5" />
+          )}
+        </button>
 
         {/* Refresh */}
         <button
@@ -705,7 +751,9 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate, onUpl
 
       {/* Status bar */}
       <div className="flex items-center justify-between px-3 py-1 border-t border-[#1e1e2e] text-xs text-[#64748b] shrink-0">
-        <span>{visibleEntries.length} item{visibleEntries.length !== 1 ? "s" : ""}</span>
+        <span className={uploadNotice?.startsWith("Upload failed") ? "text-[#ef4444]" : uploadNotice ? "text-[#22c55e]" : ""}>
+          {uploadNotice ?? `${visibleEntries.length} item${visibleEntries.length !== 1 ? "s" : ""}`}
+        </span>
         <span className="font-mono truncate max-w-[60%] text-right">{currentPath}</span>
       </div>
 

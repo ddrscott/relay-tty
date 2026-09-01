@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, memo, type TouchEvent } from "react";
+import { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, memo, type TouchEvent } from "react";
 import {
   ClipboardCopy,
   CornerDownLeft,
@@ -30,7 +30,12 @@ interface SessionMobileToolbarProps {
   onScratchpadClose: () => void;
 }
 
-export const SessionMobileToolbar = memo(function SessionMobileToolbar({
+export interface SessionMobileToolbarHandle {
+  /** Append text to the scratchpad input (used by upload to insert file paths). */
+  insertScratchpadText: (text: string) => void;
+}
+
+export const SessionMobileToolbar = memo(forwardRef<SessionMobileToolbarHandle, SessionMobileToolbarProps>(function SessionMobileToolbar({
   ctrlOn,
   altOn,
   onCtrlToggle,
@@ -45,7 +50,7 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
   onClipboardToggle,
   scratchpadOpen,
   onScratchpadClose,
-}: SessionMobileToolbarProps) {
+}: SessionMobileToolbarProps, ref) {
   const padRef = useRef<HTMLTextAreaElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [padText, setPadText] = useState("");
@@ -149,6 +154,13 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     if (padRef.current) padRef.current.style.height = "";
     padRef.current?.focus({ preventScroll: true });
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    insertScratchpadText: (text: string) => {
+      setPadText((prev) => (prev && !prev.endsWith(" ") ? `${prev} ${text}` : prev + text));
+      padRef.current?.focus({ preventScroll: true });
+    },
+  }), []);
 
   // Focus scratchpad textarea when opened; reset expander when closed
   useEffect(() => {
@@ -406,4 +418,4 @@ export const SessionMobileToolbar = memo(function SessionMobileToolbar({
     )}
     </>
   );
-});
+}));

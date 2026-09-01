@@ -370,7 +370,9 @@ export default function Settings() {
             Upload Directory
           </h2>
           <p className="text-xs font-mono text-[#64748b] mb-3">
-            Where uploaded files are saved. The file path is inserted into the terminal after upload.
+            Where files from the session upload button, drag-and-drop, and image paste are saved.
+            The file path is inserted into the terminal after upload. The file browser's upload
+            button ignores this and uploads into the folder being viewed.
           </p>
 
           {uploadDirLoading ? (

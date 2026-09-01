@@ -13,7 +13,7 @@ import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
 import { SessionInfoPanel } from "../components/session-info-panel";
-import { SessionMobileToolbar } from "../components/session-mobile-toolbar";
+import { SessionMobileToolbar, type SessionMobileToolbarHandle } from "../components/session-mobile-toolbar";
 import { ShareDialog } from "../components/share-dialog";
 import { PairHostDialog } from "../components/pair-host-dialog";
 import { SessionTextViewer } from "../components/session-text-viewer";
@@ -663,7 +663,15 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const handleUpload = useCallback(async (file: File) => {
+  // Track scratchpad state in a ref so the stable upload callbacks can
+  // route uploaded paths to the scratchpad input when it's open.
+  const mobileToolbarRef = useRef<SessionMobileToolbarHandle>(null);
+  const scratchpadOpenRef = useRef(scratchpadOpen);
+  scratchpadOpenRef.current = scratchpadOpen;
+
+  /** Upload a single file to the configured upload directory. Returns the
+   * saved absolute path, or null on failure. Shows a confirmation toast. */
+  const uploadOne = useCallback(async (file: File): Promise<string | null> => {
     setUploading(true);
     try {
       const res = await fetch("/api/upload", {
@@ -676,19 +684,16 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         throw new Error(err.error || `HTTP ${res.status}`);
       }
       const { path: filePath, name: uploadedName } = await res.json();
-      // Insert file path into terminal
-      const handle = terminalRef.current ?? chatRef.current;
-      if (handle && filePath) {
-        handle.sendText(filePath);
-      }
       // Show brief upload confirmation toast
       if (uploadedName) {
         if (notifToastTimer.current) clearTimeout(notifToastTimer.current);
         setNotifToast(`Uploaded ${uploadedName}`);
         notifToastTimer.current = setTimeout(() => setNotifToast(null), 3000);
       }
+      return filePath ?? null;
     } catch (err: any) {
       console.error("Upload failed:", err.message);
+      return null;
     } finally {
       setUploading(false);
       // Reset input so the same file can be re-uploaded
@@ -696,17 +701,36 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
+  /** Upload files then insert their paths (space-separated) into the
+   * scratchpad input if it's open, otherwise into the terminal. */
+  const uploadAndInsert = useCallback(async (files: File[]) => {
+    const paths: string[] = [];
+    for (const file of files) {
+      const p = await uploadOne(file);
+      if (p) paths.push(p);
+    }
+    if (paths.length === 0) return;
+    const text = paths.join(" ");
+    if (scratchpadOpenRef.current && mobileToolbarRef.current) {
+      mobileToolbarRef.current.insertScratchpadText(text);
+    } else {
+      // Trailing space (Terminal/iTerm drag-drop convention) keeps
+      // consecutive uploads and follow-up typing separated.
+      (terminalRef.current ?? chatRef.current)?.sendText(text + " ");
+    }
+  }, [uploadOne]);
+
   const onFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleUpload(file);
-  }, [handleUpload]);
+    const files = e.target.files;
+    if (files && files.length > 0) uploadAndInsert(Array.from(files));
+  }, [uploadAndInsert]);
 
   // ── Clipboard image paste ──
   // Intercept paste events containing image data (screenshots, copied images).
   // Convert to a File with a timestamped name and upload via the existing
-  // handleUpload flow. Text-only pastes fall through to xterm's normal handler.
-  const handleUploadRef = useRef(handleUpload);
-  handleUploadRef.current = handleUpload;
+  // upload flow. Text-only pastes fall through to xterm's normal handler.
+  const uploadAndInsertRef = useRef(uploadAndInsert);
+  uploadAndInsertRef.current = uploadAndInsert;
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
@@ -745,7 +769,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       const filename = `paste-${ts}${ext}`;
 
       const file = new File([blob], filename, { type: blob.type });
-      handleUploadRef.current(file);
+      uploadAndInsertRef.current([file]);
     }
 
     document.addEventListener("paste", onPaste, { capture: true });
@@ -785,17 +809,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     const files = e.dataTransfer.files;
     if (!files || files.length === 0) return;
 
-    // Upload all dropped files; paths will be inserted space-separated
-    // by uploading sequentially so sendText calls go in order
-    for (let i = 0; i < files.length; i++) {
-      if (i > 0) {
-        // Insert a space separator before subsequent paths
-        const handle = terminalRef.current ?? chatRef.current;
-        if (handle) handle.sendText(" ");
-      }
-      await handleUpload(files[i]);
-    }
-  }, [handleUpload]);
+    // Upload all dropped files; paths are inserted space-separated
+    await uploadAndInsert(Array.from(files));
+  }, [uploadAndInsert]);
 
   const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
 
@@ -1066,13 +1082,31 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           <Search className="w-4 h-4" />
         </button>
 
-        {/* File manager */}
+        {/* Upload files — paths are pasted into the terminal (or scratchpad if open) */}
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
           onChange={onFileInputChange}
         />
+        <button
+          className="btn btn-ghost btn-xs shrink-0 text-[#64748b] hover:text-[#e2e8f0]"
+          onClick={() => fileInputRef.current?.click()}
+          onMouseDown={(e) => e.preventDefault()}
+          tabIndex={-1}
+          disabled={uploading}
+          aria-label="Upload files"
+          title="Upload files — path is pasted into the terminal"
+        >
+          {uploading ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <Upload className="w-4 h-4" />
+          )}
+        </button>
+
+        {/* File manager */}
         <button
           className={`btn btn-ghost btn-xs shrink-0 ${fileBrowserOpen ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
           onClick={() => { setFileBrowserOpen(v => !v); setSearchOpen(false); }}
@@ -1390,6 +1424,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       {isMobile && !fileBrowserOpen && (
         <SessionMobileToolbar
           key={activeId}
+          ref={mobileToolbarRef}
           ctrlOn={ctrlOn}
           altOn={altOn}
           onCtrlToggle={toggleCtrl}
@@ -1468,8 +1503,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
             setFileBrowserOpen(false);
           }}
           onNavigate={(path: string) => { fileBrowserPathRef.current = path; }}
-          onUploadFile={handleUpload}
-          uploading={uploading}
         />
       )}
     </main>

@@ -705,6 +705,9 @@ export function createApiRouter(
 
   // POST /api/upload — upload a file to the configured upload directory
   // Accepts raw binary body with filename in X-Filename header.
+  // Optional X-Upload-Dir header (URI-encoded absolute path, ~ allowed)
+  // overrides the destination — used by the file browser to upload into
+  // the directory currently being viewed.
   // Max 100 MB.
   router.post("/upload", (req, res) => {
     const filename = req.headers["x-filename"];
@@ -720,7 +723,25 @@ export function createApiRouter(
       return;
     }
 
-    const uploadDir = readUploadDir();
+    let uploadDir = readUploadDir();
+    const dirHeader = req.headers["x-upload-dir"];
+    if (dirHeader && typeof dirHeader === "string") {
+      let target: string;
+      try {
+        target = decodeURIComponent(dirHeader);
+      } catch {
+        res.status(400).json({ error: "Invalid X-Upload-Dir encoding" });
+        return;
+      }
+      if (target.startsWith("~")) {
+        target = path.join(os.homedir(), target.slice(1));
+      }
+      if (!path.isAbsolute(target)) {
+        res.status(400).json({ error: "X-Upload-Dir must be an absolute path" });
+        return;
+      }
+      uploadDir = path.normalize(target);
+    }
     fs.mkdirSync(uploadDir, { recursive: true });
 
     // Deduplicate: if file exists, add a short random suffix
