@@ -14,6 +14,20 @@ export function displayPath(cwd: string): string {
   return cwd.replace(/^\/Users\/[^/]+/, "~");
 }
 
+/** Name sort key. Leading non-alphanumeric characters are stripped because
+ * AI tools animate a spinner glyph at the start of the terminal title
+ * (⠋⠙⠹…/✳) — a volatile prefix would reorder rows on every frame. */
+function nameKey(s: Session): string {
+  const raw = s.title || `${s.command} ${s.args.join(" ")}`;
+  return raw.toLowerCase().replace(/^[^\p{L}\p{N}]+/u, "");
+}
+
+/** Final tie-breaker so every sort is a total order — without it, ties fall
+ * back to input order, which shifts as the server list revalidates. */
+function tieBreak(a: Session, b: Session): number {
+  return b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+}
+
 /** Sort sessions by the given key and direction. Returns a new sorted array. */
 export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir = "desc"): Session[] {
   const sorted = [...sessions];
@@ -23,21 +37,17 @@ export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir = "
       return sorted.sort((a, b) => {
         const aTime = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : a.lastActivity;
         const bTime = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : b.lastActivity;
-        return (bTime - aTime) * flip;
+        return (bTime - aTime) * flip || tieBreak(a, b);
       });
     case "created":
-      return sorted.sort((a, b) => (b.createdAt - a.createdAt) * flip);
+      return sorted.sort((a, b) => (b.createdAt - a.createdAt) * flip || a.id.localeCompare(b.id));
     case "active":
       return sorted.sort((a, b) => {
         if (a.status !== b.status) return (a.status === "running" ? -1 : 1) * flip;
-        return ((b.bytesPerSecond ?? 0) - (a.bytesPerSecond ?? 0)) * flip;
+        return ((b.bytesPerSecond ?? 0) - (a.bytesPerSecond ?? 0)) * flip || tieBreak(a, b);
       });
     case "name":
-      return sorted.sort((a, b) => {
-        const aName = (a.title || `${a.command} ${a.args.join(" ")}`).toLowerCase();
-        const bName = (b.title || `${b.command} ${b.args.join(" ")}`).toLowerCase();
-        return aName.localeCompare(bName) * flip;
-      });
+      return sorted.sort((a, b) => nameKey(a).localeCompare(nameKey(b)) * flip || tieBreak(a, b));
   }
 }
 

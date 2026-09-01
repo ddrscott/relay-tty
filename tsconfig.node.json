@@ -19,6 +19,7 @@
     }
   },
   "include": [
+    "app/lib/session-groups.ts",
     "cli/**/*.ts",
     "server/**/*.ts",
     "service/**/*.ts",
