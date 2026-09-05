@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- HTML files open rendered in the file viewer, matching how markdown already behaves, with a toolbar toggle back to the highlighted source. The page renders in a sandboxed frame with no access to the relay app, so a self-contained document shows with its own styling and scripts; one that loads sibling `.css`/`.js` by relative path renders without them
+
 ## [1.21.0] - 2026-07-30
 
 ### Added

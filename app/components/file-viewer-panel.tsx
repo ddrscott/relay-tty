@@ -52,6 +52,7 @@ export const CODE_EXTS = new Set([
   "csv", "tsv", "log",
 ]);
 export const MARKDOWN_EXTS = new Set(["md", "markdown", "mdx"]);
+export const HTML_EXTS = new Set(["html", "htm"]);
 
 export const BINARY_VIEW_EXTS = new Set([...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS, ...PDF_EXTS]);
 
@@ -102,7 +103,8 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
   const [content, setContent] = useState<string>("");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [mdRendered, setMdRendered] = useState(true); // markdown: rendered by default
+  // Markdown and HTML open rendered; the toolbar toggle drops to source.
+  const [rendered, setRendered] = useState(true);
   const [wordWrap, setWordWrap] = useState(false);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
 
@@ -110,6 +112,10 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
   const ext = getExt(fileName);
   const isBinary = BINARY_VIEW_EXTS.has(ext);
   const isMarkdown = MARKDOWN_EXTS.has(ext);
+  const isHtml = HTML_EXTS.has(ext);
+  // Text formats that have a rendered view worth showing before the source.
+  const isRenderable = isMarkdown || isHtml;
+  const showRendered = isRenderable && rendered && !editing;
   const isTextFile = CODE_EXTS.has(ext) || !isBinary;
   const fileUrl = buildFileUrl(sessionId, filePath);
 
@@ -194,21 +200,22 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
           {line ? `:${line}` : ""}
         </span>
 
-        {/* Markdown: toggle rendered/source */}
-        {isMarkdown && !editing && (
+        {/* Markdown / HTML: toggle rendered vs source */}
+        {isRenderable && !editing && (
           <button
-            className={`btn btn-ghost btn-xs gap-1 ${mdRendered ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
-            onClick={() => setMdRendered(!mdRendered)}
+            className={`btn btn-ghost btn-xs gap-1 ${rendered ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
+            onClick={() => setRendered(!rendered)}
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
-            title={mdRendered ? "Show source" : "Show rendered"}
+            onTouchEnd={(e) => { e.preventDefault(); setRendered(!rendered); }}
+            title={rendered ? "Show source" : "Show rendered"}
           >
-            {mdRendered ? <FileCode className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {rendered ? <FileCode className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           </button>
         )}
 
-        {/* Word wrap toggle — text files only, not in markdown rendered mode */}
-        {isTextFile && !isBinary && !(isMarkdown && mdRendered && !editing) && (
+        {/* Word wrap toggle — text files only, hidden while a rendered view is up */}
+        {isTextFile && !isBinary && !showRendered && (
           <button
             className={`btn btn-ghost btn-xs ${wordWrap ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => setWordWrap(!wordWrap)}
@@ -221,8 +228,8 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
           </button>
         )}
 
-        {/* Line number toggle — text files only, not in markdown rendered mode */}
-        {isTextFile && !isBinary && !(isMarkdown && mdRendered && !editing) && (
+        {/* Line number toggle — text files only, hidden while a rendered view is up */}
+        {isTextFile && !isBinary && !showRendered && (
           <button
             className={`btn btn-ghost btn-xs ${showLineNumbers ? "text-[#22c55e]" : "text-[#64748b] hover:text-[#e2e8f0]"}`}
             onClick={() => setShowLineNumbers(!showLineNumbers)}
@@ -329,8 +336,10 @@ export function FileViewerPanel({ sessionId, filePath, line, onBack, onClose }: 
           {/* Text / code viewer */}
           {isTextFile && !isBinary && (
             <>
-              {isMarkdown && mdRendered && !editing ? (
+              {isMarkdown && showRendered ? (
                 <MarkdownRenderer content={content} />
+              ) : isHtml && showRendered ? (
+                <HtmlPreview content={content} fileName={fileName} />
               ) : editing ? (
                 <CodeEditor
                   content={content}
@@ -602,6 +611,32 @@ function MarkdownRenderer({ content }: { content: string }) {
         <div dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     </div>
+  );
+}
+
+// ── HTML preview ────────────────────────────────────────────────────────
+
+/**
+ * Render an HTML file inside a sandboxed iframe.
+ *
+ * The document is handed over via `srcDoc` rather than a URL, so the file API
+ * does not have to serve `text/html` from the app origin. `sandbox` without
+ * `allow-same-origin` gives the frame an opaque origin, which means its
+ * scripts cannot reach the relay app's DOM, cookies, or storage even though
+ * the frame is nested in the app. Self-contained pages (inline styles and
+ * scripts, CDN assets, data URIs) render fully; a page that pulls in sibling
+ * files by relative path will show without them, and the source toggle is
+ * there for those cases.
+ */
+function HtmlPreview({ content, fileName }: { content: string; fileName: string }) {
+  return (
+    <iframe
+      srcDoc={content}
+      title={fileName}
+      sandbox="allow-scripts allow-popups allow-forms allow-modals"
+      referrerPolicy="no-referrer"
+      className="flex-1 w-full min-h-0 border-0 bg-white"
+    />
   );
 }
 

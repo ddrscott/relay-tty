@@ -33,6 +33,19 @@ workflow.
 
 The file viewer supports syntax highlighting for common programming languages and file formats.
 
+### Rendered previews
+
+Markdown (`.md`, `.markdown`, `.mdx`) and HTML (`.html`, `.htm`) files open
+rendered rather than as source, so they are easier to read. The toolbar has a
+toggle that switches between the rendered view and the highlighted source; the
+**code** icon drops to source and the **eye** icon goes back to the preview.
+Editing a file always shows the source.
+
+HTML previews run in a sandboxed frame with no access to the relay app, which
+means a self-contained page renders with its own styling and scripts, but a
+page that loads sibling `.css` or `.js` files by relative path renders without
+them. Switch to the source view for those.
+
 ## Opening files from the terminal
 
 Clicking a file path in terminal output opens that file in a slide-in side panel.
