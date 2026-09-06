@@ -11,6 +11,7 @@ import type { FileLink } from "../lib/file-link-provider";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
+import { useSessionReveal, relaxFiltersForSession, persistRelaxation } from "../lib/session-reveal";
 import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
@@ -587,6 +588,33 @@ export default function Grid({ loaderData }: Route.ComponentProps) {
       return next;
     });
   }, []);
+
+  // Sidebar selection reveals the session inside the grid instead of
+  // navigating away: unzoom, select the cell, and relax whichever filter is
+  // hiding it. Selecting a cell never sends a RESIZE, so other devices are
+  // untouched (see the thumbnail policy in CLAUDE.md).
+  useSessionReveal(useCallback((id: string) => {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return false;
+    const patch = relaxFiltersForSession(session, {
+      showInactive,
+      recency: recencyFilter,
+      projectFilter,
+    });
+    if (patch) {
+      persistRelaxation(patch);
+      if (patch.showInactive !== undefined) {
+        setShowInactive(patch.showInactive);
+        setWindowPref("relay-tty-show-inactive", String(patch.showInactive));
+      }
+      if (patch.recency) setRecencyFilter(patch.recency);
+      if (patch.projectFilter) setProjectFilter(patch.projectFilter);
+    }
+    setModalSessionId(null);
+    setZoomedCellId(null);
+    setSelectedCellId(id);
+    return true;
+  }, [sessions, showInactive, recencyFilter, projectFilter]));
 
   const handleFontSizeChange = useCallback((sessionId: string, delta: number) => {
     setSessionFontSizes((prev) => {

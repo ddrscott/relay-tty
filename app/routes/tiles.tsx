@@ -37,6 +37,7 @@ import {
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
+import { useSessionReveal, relaxFiltersForSession, persistRelaxation } from "../lib/session-reveal";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
 import { useSessionInspect } from "../hooks/use-session-inspect";
@@ -638,6 +639,55 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
       return next;
     });
   }, []);
+
+  // Sidebar selection focuses the pane already showing the session, or opens
+  // one for it (placed like Cmd+D, as a column after the focused node) and
+  // focuses that. Filters hiding the session are relaxed first, otherwise the
+  // reconcile effect would drop the pane again on the next render.
+  useSessionReveal(useCallback((id: string) => {
+    const session = loaderSessions.find((s) => s.id === id);
+    if (!session) return false;
+    const patch = relaxFiltersForSession(session, {
+      showInactive,
+      recency: recencyFilter,
+      projectFilter,
+    });
+    if (patch) {
+      persistRelaxation(patch);
+      if (patch.showInactive !== undefined) {
+        setShowInactive(patch.showInactive);
+        setWindowPref(SHOW_INACTIVE_STORE, String(patch.showInactive));
+      }
+      if (patch.recency) setRecencyFilter(patch.recency);
+      if (patch.projectFilter) setProjectFilter(patch.projectFilter);
+    }
+    // A pane the user closed earlier must stop counting as dismissed, or the
+    // reconcile pass would strip the pane we are about to open.
+    if (dismissedIdsRef.current.delete(id)) persistDismissed();
+    setLayout((prev) => {
+      const existing = findNodeBySessionId(prev, id);
+      if (existing) {
+        setFocusedNodeId(existing.id);
+        return prev;
+      }
+      const next =
+        prev.root && focusedNodeId
+          ? insertAfterColumn(prev, focusedNodeId, id)
+          : insertAtStart(prev, id);
+      const node = findNodeBySessionId(next, id);
+      if (node) setFocusedNodeId(node.id);
+      return next;
+    });
+    return true;
+  }, [
+    loaderSessions,
+    showInactive,
+    recencyFilter,
+    projectFilter,
+    focusedNodeId,
+    persistDismissed,
+    setLayout,
+  ]));
 
   const setProjectFilterPersist = useCallback((next: string[]) => {
     setProjectFilter(next);

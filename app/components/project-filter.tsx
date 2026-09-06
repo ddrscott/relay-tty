@@ -95,6 +95,18 @@ function getUniqueProjects(sessions: Session[]): string[] {
   return Array.from(cwds).sort();
 }
 
+/** Persist the project filter selection. */
+export function setStoredProjectFilter(cwds: string[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cwds));
+}
+
+/** Persist the recency filter state. */
+export function setStoredRecencyFilter(recency: RecencyFilter): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(RECENCY_STORAGE_KEY, JSON.stringify(recency));
+}
+
 /** Filter sessions by selected project CWDs. Empty selection = show all. */
 export function filterByProject(sessions: Session[], selectedCwds: string[]): Session[] {
   if (selectedCwds.length === 0) return sessions;
@@ -161,20 +173,20 @@ export function ProjectFilter({
         ? selectedCwds.filter((c) => c !== cwd)
         : [...selectedCwds, cwd];
       onSelectionChange(next);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setStoredProjectFilter(next);
     },
     [selectedCwds, onSelectionChange]
   );
 
   const clearFilter = useCallback(() => {
     onSelectionChange([]);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    setStoredProjectFilter([]);
   }, [onSelectionChange]);
 
   const setRecency = useCallback(
     (next: RecencyFilter) => {
       onRecencyChange(next);
-      localStorage.setItem(RECENCY_STORAGE_KEY, JSON.stringify(next));
+      setStoredRecencyFilter(next);
     },
     [onRecencyChange]
   );

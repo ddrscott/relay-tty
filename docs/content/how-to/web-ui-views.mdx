@@ -66,6 +66,17 @@ Both the toggle and the duration persist across reloads, and apply to the Grid, 
 - Double-click a cell (or click the expand icon) to zoom it to full size
 - Useful for monitoring multiple long-running processes at a glance
 
+### Picking a session from the sidebar
+
+In Grid, Lanes, and Tiles the sidebar is a way to *find* a session inside the view rather than a way out of it. Clicking a session name keeps you on the current route:
+
+- **Grid and Lanes** unzoom the currently zoomed cell and select the picked session's cell, which is the same state a direct click on that cell produces — so Cmd+N and the font-size shortcuts keep targeting it.
+- **Tiles** focuses the pane already showing that session, or opens a pane for it (placed as a column after the focused pane, the way Cmd+D places a split) and focuses that.
+
+If the session was hidden by the project filter, the recency filter, or the inactive toggle, the view relaxes whichever one was hiding it and leaves the others as you set them.
+
+On the single-session page, Home, Agents, and Settings the sidebar still navigates to the full session view.
+
 ### Per-session font size
 
 Each session has its own font size, adjustable with **Cmd+=** / **Cmd+-** (or pinch-to-zoom on touch devices). The font size is persisted per session and shared across all views.

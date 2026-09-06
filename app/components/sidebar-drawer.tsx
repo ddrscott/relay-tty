@@ -10,6 +10,7 @@ import { SidebarAgentCard } from "./agent-card";
 import { QuickLaunch } from "./quick-launch";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { SIDEBAR_COLLAPSED_KEY } from "../lib/sidebar-toggle";
+import { revealSession } from "../lib/session-reveal";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "recent", label: "Recent" },
@@ -359,6 +360,10 @@ export function SidebarDrawer({
   const selectSession = useCallback((id: string) => {
     const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
     if (checkbox) checkbox.checked = false;
+    // Multi-session views (grid, lanes, tiles) register a reveal handler while
+    // they are mounted, so picking a session brings it into view there rather
+    // than yanking the user out of the view. Everything else navigates.
+    if (revealSession(id)) return;
     navigate(`/sessions/${id}`);
   }, [navigate]);
 

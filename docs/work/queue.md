@@ -14,4 +14,4 @@
 - [x] Clear scrollback must free the server-side pty-host output buffer ([details](clear-scrollback-frees-server-buffer.md))
 - [x] Session picker: scroll active session into view on open — stop defaulting to top of list ([details](session-picker-scroll-to-active.md))
 - [x] Gallery project filter: recency filter header — toggle + configurable duration hides stale sessions and stale projects ([details](gallery-recency-filter.md))
-- [-] Desktop sidebar: view-aware session selection — reveal in grid/lanes/tiles instead of navigating away ([details](sidebar-view-aware-select.md))
+- [x] Desktop sidebar: view-aware session selection — reveal in grid/lanes/tiles instead of navigating away ([details](sidebar-view-aware-select.md))
