@@ -67,7 +67,13 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
 
   const handleSessionUpdate = useCallback((session: Session) => {
     if (session.id === sessionId && session.cols && session.rows) {
-      setPtyDims({ cols: session.cols, rows: session.rows });
+      // SESSION_UPDATE arrives on every metadata flush (~5s per session);
+      // a fresh object each time would re-render on unchanged dimensions.
+      setPtyDims((prev) =>
+        prev && prev.cols === session.cols && prev.rows === session.rows
+          ? prev
+          : { cols: session.cols!, rows: session.rows! }
+      );
     }
   }, [sessionId]);
 

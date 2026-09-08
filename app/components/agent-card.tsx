@@ -3,7 +3,7 @@
  *
  * Extracted from app/routes/activity.tsx to avoid duplication.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { Cpu, FolderOpen, Clock } from "lucide-react";
 import type { Session } from "../../shared/types";
 import type { SessionMetrics } from "../hooks/use-session-metrics";
@@ -189,14 +189,16 @@ export function AgentCard({
 }
 
 /** Compact agent card for the sidebar — narrower layout with smaller sparkline */
-export function SidebarAgentCard({
+// Memoized: sparkline SVG + labels only repaint when this session's metrics
+// entry or selection changed, not on every batched sidebar flush.
+export const SidebarAgentCard = memo(function SidebarAgentCard({
   metrics,
   selected,
   onSelect,
 }: {
   metrics: SessionMetrics;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
 }) {
   const { session, sparkline } = metrics;
   const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
@@ -215,7 +217,7 @@ export function SidebarAgentCard({
           ? "bg-[#1a1a2e] border-[#3d3d5c]"
           : "bg-[#0f0f1a] hover:bg-[#1a1a2e] border-[#1e1e2e] hover:border-[#2d2d44]"
       }`}
-      onClick={onSelect}
+      onClick={() => onSelect(session.id)}
       onMouseDown={(e) => e.preventDefault()}
       tabIndex={-1}
     >
@@ -256,4 +258,4 @@ export function SidebarAgentCard({
       </div>
     </button>
   );
-}
+});

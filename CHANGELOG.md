@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Live session metrics now ride on a single shared `/ws/events` connection per page instead of one socket per hook (root layout, sidebar, activity view each opened their own). Each `SESSION_UPDATE` broadcast is decoded once and fanned out, and the sidebar commits metrics to React state at most once per second in a batch instead of re-rendering every card and sparkline on every frame. Sidebar rows and agent cards are memoized on their own session, and the terminal ignores dimension updates that did not change. Measured on a session page under 4x CPU throttling (phone-class): main-thread stalls over 50ms in a 40s idle window dropped from 14 to 3, which is the budget that was swallowing whole words while typing fast
+
 ### Fixed
 - Opening a session page no longer stalls for seconds behind the sidebar's sparkline backfill. The server fetches each running session's sparkline over a fresh pty-host socket, and the pty-host treated that first frame as a legacy client: it gzipped and sent the entire ring buffer, dropped the request, and the server sat on its 2s timeout. With a dozen sessions those dead requests queued on the browser's per-host connection limit and held the xterm modules behind them, so the terminal appeared after ~8.5s on localhost. The pty-host now answers a first-frame `SPARKLINE_REQUEST` directly; sparkline calls return in milliseconds and no phantom replays are generated. Sessions started before the upgrade keep the old binary until restarted
 

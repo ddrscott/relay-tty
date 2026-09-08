@@ -1,20 +1,28 @@
 /**
- * Hook that subscribes to live session metrics via the global WS connection.
+ * Hook that subscribes to live session metrics via the shared `/ws/events`
+ * connection (`lib/events-client.ts`).
  *
  * The `/ws/events` WebSocket receives both text "sessions-changed" messages
  * AND binary SESSION_UPDATE broadcasts (because all event subscribers are
- * on the same WebSocketServer). This hook parses SESSION_UPDATE messages
- * to maintain a live map of session metadata including bps1/bps5/bps15,
- * foregroundProcess, and totalBytesWritten.
+ * on the same WebSocketServer). The shared client decodes each frame once;
+ * this hook maintains a live map of session metadata including
+ * bps1/bps5/bps15, foregroundProcess, and totalBytesWritten.
  *
  * It also collects a history of bps1 values per session for sparkline rendering.
+ *
+ * Updates are BATCHED: incoming SESSION_UPDATE frames accumulate in a pending
+ * map and are committed to React state at most once per `FLUSH_MS`. With a
+ * dozen sessions each flushing metadata every ~5s, per-frame setState meant a
+ * sidebar re-render (every session card + sparkline SVG) several times a
+ * second — steady main-thread stalls on a phone while the user is typing.
  */
 import { useEffect, useRef, useState } from "react";
-import { WS_MSG, type Session } from "../../shared/types";
+import type { Session } from "../../shared/types";
+import { subscribeEvents } from "../lib/events-client";
 
 const SPARKLINE_MAX_POINTS = 120; // Show up to 2 minutes of 1s history (downsampled from 3600)
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 10_000;
+/** Minimum interval between React state commits for incoming metrics. */
+const FLUSH_MS = 1000;
 
 export interface SessionMetrics {
   session: Session;
@@ -35,6 +43,13 @@ function downsample(values: number[], targetLen: number): number[] {
     result.push(sum / (end - start));
   }
   return result;
+}
+
+/** Accumulated updates for one session between flushes. */
+interface PendingUpdate {
+  session: Session;
+  /** bps1 samples in arrival order (one per SESSION_UPDATE frame) */
+  samples: number[];
 }
 
 /**
@@ -84,68 +99,44 @@ export function useSessionMetrics(
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    let ws: WebSocket | null = null;
-    let reconnectDelay = RECONNECT_BASE_MS;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
+    const pending = new Map<string, PendingUpdate>();
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function connect() {
-      if (disposed) return;
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${proto}//${location.host}/ws/events`);
-      ws.binaryType = "arraybuffer";
-
-      ws.onopen = () => {
-        reconnectDelay = RECONNECT_BASE_MS;
-      };
-
-      ws.onmessage = (ev) => {
-        // Text message: session list changed
-        if (typeof ev.data === "string") {
-          if (ev.data === "sessions-changed") {
-            onSessionsChangedRef.current?.();
+    function flush() {
+      flushTimer = null;
+      if (disposed || pending.size === 0) return;
+      const batch = new Map(pending);
+      pending.clear();
+      setMetrics((prev) => {
+        let next: Map<string, SessionMetrics> | null = null;
+        for (const [id, upd] of batch) {
+          const existing = prev.get(id);
+          if (!existing) continue; // Not tracking this session
+          const sparkline = existing.sparkline.concat(upd.samples);
+          if (sparkline.length > SPARKLINE_MAX_POINTS) {
+            sparkline.splice(0, sparkline.length - SPARKLINE_MAX_POINTS);
           }
-          return;
+          if (!next) next = new Map(prev);
+          next.set(id, { session: { ...existing.session, ...upd.session }, sparkline });
         }
-
-        // Binary message: parse SESSION_UPDATE
-        const data = new Uint8Array(ev.data);
-        if (data.length < 2) return;
-
-        if (data[0] === WS_MSG.SESSION_UPDATE) {
-          try {
-            const json = new TextDecoder().decode(data.slice(1));
-            const session = JSON.parse(json) as Session;
-            setMetrics((prev) => {
-              const existing = prev.get(session.id);
-              if (!existing) return prev; // Not tracking this session
-              const sparkline = [...existing.sparkline, session.bps1 ?? 0];
-              if (sparkline.length > SPARKLINE_MAX_POINTS) {
-                sparkline.splice(0, sparkline.length - SPARKLINE_MAX_POINTS);
-              }
-              const next = new Map(prev);
-              next.set(session.id, { session: { ...existing.session, ...session }, sparkline });
-              return next;
-            });
-          } catch {
-            // Ignore parse errors
-          }
-        }
-      };
-
-      ws.onclose = () => {
-        ws = null;
-        if (disposed) return;
-        reconnectTimer = setTimeout(() => {
-          reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-          connect();
-        }, reconnectDelay);
-      };
-
-      ws.onerror = () => {};
+        return next ?? prev;
+      });
     }
 
-    connect();
+    const unsubscribe = subscribeEvents({
+      onSessionsChanged: () => onSessionsChangedRef.current?.(),
+      onSessionUpdate: (session) => {
+        const p = pending.get(session.id);
+        if (p) {
+          p.session = { ...p.session, ...session };
+          p.samples.push(session.bps1 ?? 0);
+        } else {
+          pending.set(session.id, { session, samples: [session.bps1 ?? 0] });
+        }
+        if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+      },
+    });
 
     // Backfill sparkline history from pty-host ring buffer
     async function backfillSparklines() {
@@ -185,11 +176,8 @@ export function useSessionMetrics(
 
     return () => {
       disposed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
+      if (flushTimer) clearTimeout(flushTimer);
+      unsubscribe();
     };
   }, []);
 

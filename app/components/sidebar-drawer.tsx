@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
 import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
@@ -67,14 +67,18 @@ function formatRate(bps: number): string {
   return `${(bps / (1024 * 1024)).toFixed(1)}MB/s`;
 }
 
-function SidebarSessionItem({
+// Memoized: the sidebar re-renders on every batched metrics flush and every
+// loader revalidation; an item only needs to repaint when its own session
+// object or selection changed. `onSelect` takes the id so the parent can pass
+// one stable callback instead of a fresh closure per row.
+const SidebarSessionItem = memo(function SidebarSessionItem({
   session,
   selected,
   onSelect,
 }: {
   session: Session;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
 }) {
   const isRunning = session.status === "running";
   const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
@@ -92,7 +96,7 @@ function SidebarSessionItem({
           ? "bg-[#1a1a2e] border-[#3d3d5c]"
           : "bg-[#0f0f1a] hover:bg-[#1a1a2e] border-[#1e1e2e] hover:border-[#2d2d44]"
       }`}
-      onClick={onSelect}
+      onClick={() => onSelect(session.id)}
     >
       <div className="flex items-center gap-2">
         <span
@@ -124,7 +128,7 @@ function SidebarSessionItem({
       </div>
     </button>
   );
-}
+});
 
 export function SidebarDrawer({
   sessions,
@@ -601,7 +605,7 @@ export function SidebarDrawer({
                                 key={session.id}
                                 metrics={m}
                                 selected={activeSessionId === session.id}
-                                onSelect={() => selectSession(session.id)}
+                                onSelect={selectSession}
                               />
                             );
                           })}
@@ -645,7 +649,7 @@ export function SidebarDrawer({
                               key={session.id}
                               session={session}
                               selected={activeSessionId === session.id}
-                              onSelect={() => selectSession(session.id)}
+                              onSelect={selectSession}
                             />
                           ))}
                         </div>

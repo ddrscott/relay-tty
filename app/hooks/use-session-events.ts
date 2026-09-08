@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { subscribeEvents } from "../lib/events-client";
 
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 10_000;
 const FALLBACK_POLL_MS = 10_000;
 
 /**
- * Connects to `/ws/events` for push-based session list invalidation.
- * On "sessions-changed" messages, calls the provided `revalidate` callback.
+ * Subscribes to the shared `/ws/events` connection (see `lib/events-client.ts`)
+ * for push-based session list invalidation. On "sessions-changed", calls the
+ * provided `revalidate` callback.
  *
- * Falls back to 10s polling if the WebSocket stays disconnected.
+ * Falls back to 10s polling while the shared socket is disconnected.
  * Returns the number of consecutive reconnect attempts (0 = connected).
  */
 export function useSessionEvents(revalidate: () => void): { retryCount: number } {
@@ -19,11 +19,7 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    let ws: WebSocket | null = null;
-    let reconnectDelay = RECONNECT_BASE_MS;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
-    let disposed = false;
 
     function safeRevalidate() {
       if (navigator.onLine === false) return;
@@ -31,7 +27,7 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
     }
 
     function startFallbackPolling() {
-      if (fallbackTimer || disposed) return;
+      if (fallbackTimer) return;
       fallbackTimer = setInterval(safeRevalidate, FALLBACK_POLL_MS);
     }
 
@@ -42,62 +38,23 @@ export function useSessionEvents(revalidate: () => void): { retryCount: number }
       }
     }
 
-    function connect() {
-      if (disposed) return;
+    const unsubscribe = subscribeEvents({
+      onSessionsChanged: safeRevalidate,
+      onStatus: (connected, retries) => {
+        setRetryCount(retries);
+        if (connected) stopFallbackPolling();
+        else if (retries > 0) startFallbackPolling();
+      },
+    });
 
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${proto}//${location.host}/ws/events`);
-
-      ws.onopen = () => {
-        reconnectDelay = RECONNECT_BASE_MS;
-        setRetryCount(0);
-        stopFallbackPolling();
-      };
-
-      ws.onmessage = (ev) => {
-        if (ev.data === "sessions-changed") {
-          safeRevalidate();
-        }
-      };
-
-      ws.onclose = () => {
-        ws = null;
-        if (disposed) return;
-        setRetryCount(c => c + 1);
-        startFallbackPolling();
-        reconnectTimer = setTimeout(() => {
-          reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-          connect();
-        }, reconnectDelay);
-      };
-
-      ws.onerror = () => {
-        // onclose will fire after onerror
-      };
-    }
-
-    // When the phone wakes up or network returns, revalidate + reconnect WS
-    function handleOnline() {
-      safeRevalidate();
-      // Kick a reconnect if WS is dead
-      if (!ws && !reconnectTimer) {
-        reconnectDelay = RECONNECT_BASE_MS;
-        connect();
-      }
-    }
-    window.addEventListener("online", handleOnline);
-
-    connect();
+    // When the phone wakes up or network returns, fetch a fresh list right
+    // away; the shared client reconnects the socket on the same event.
+    window.addEventListener("online", safeRevalidate);
 
     return () => {
-      disposed = true;
-      window.removeEventListener("online", handleOnline);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      window.removeEventListener("online", safeRevalidate);
       stopFallbackPolling();
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
+      unsubscribe();
     };
   }, []);
 
