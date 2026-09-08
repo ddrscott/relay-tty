@@ -19,3 +19,4 @@
 - [x] Perf: pty-host must answer SPARKLINE_REQUEST as a first frame instead of sending a phantom full replay — removes 12×2s stalls that block xterm module loads ([details](sparkline-first-frame.md))
 - [x] Perf: one shared /ws/events socket per page + batched metrics/sidebar updates to stop periodic main-thread stalls while typing ([details](shared-events-socket.md))
 - [x] Perf: stop eagerly replaying carousel neighbor sessions on session page load; connect neighbors lazily with tail-limited replay ([details](lazy-neighbor-sessions.md))
+- [-] Paste a Finder-copied file into a web session: paste the original path when the clipboard carries it, otherwise upload and paste the upload path ([details](finder-file-paste.md))
