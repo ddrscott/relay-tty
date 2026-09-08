@@ -2242,6 +2242,12 @@ async fn handle_client(
             if msg_type == WS_MSG_RESUME {
                 resume_handled = true;
                 handle_resume(&writer, &state, &data).await;
+            } else if msg_type == WS_MSG_SPARKLINE_REQUEST {
+                // Query-only client (server's fetchSparkline opens a fresh socket
+                // and asks immediately). Answer it directly -- a full replay here
+                // would gzip the whole ring buffer for a client that discards it.
+                resume_handled = true;
+                send_sparkline_history(&writer, &state).await;
             } else {
                 // Not a RESUME -- send full replay first, then process this message
                 send_full_replay(&writer, &state).await;
@@ -2304,18 +2310,24 @@ async fn handle_client(
             let data = &payload[1..];
 
             if msg_type == WS_MSG_SPARKLINE_REQUEST {
-                let s = state.read().await;
-                let mut resp = Vec::with_capacity(1 + 2 + s.sparkline.len() * 8);
-                resp.push(WS_MSG_SPARKLINE_HISTORY);
-                resp.extend_from_slice(&s.sparkline.encode());
-                let frame = encode_frame(&resp);
-                let mut w = writer.lock().await;
-                let _ = w.write_all(&frame).await;
+                send_sparkline_history(&writer, &state).await;
             } else {
                 process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx, &clear_tx).await;
             }
         }
     }
+}
+
+/// Reply to SPARKLINE_REQUEST with the bps1 ring buffer history.
+async fn send_sparkline_history(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>) {
+    let s = state.read().await;
+    let mut resp = Vec::with_capacity(1 + 2 + s.sparkline.len() * 8);
+    resp.push(WS_MSG_SPARKLINE_HISTORY);
+    resp.extend_from_slice(&s.sparkline.encode());
+    drop(s);
+    let frame = encode_frame(&resp);
+    let mut w = writer.lock().await;
+    let _ = w.write_all(&frame).await;
 }
 
 async fn read_first_message(

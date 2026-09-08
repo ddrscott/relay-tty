@@ -787,6 +787,34 @@ fn sparkline_request_returns_history() {
     );
 }
 
+#[test]
+fn sparkline_request_as_first_frame_is_answered_without_replay() {
+    // PtyManager.fetchSparkline() opens a fresh socket and sends SPARKLINE_REQUEST
+    // as the very first frame (no RESUME). The pty-host must answer it directly
+    // instead of treating it as a legacy client and pushing a full replay.
+    let handle = spawn_pty_host("/bin/sh", &["-c", "echo hello && sleep 30"])
+        .expect("failed to spawn pty-host");
+    std::thread::sleep(Duration::from_millis(1500)); // let a sparkline tick land
+
+    let mut client = connect(&handle.socket_path).expect("failed to connect");
+    client.send_sparkline_request().expect("send_sparkline_request failed");
+
+    let frames = client.collect_frames(Duration::from_millis(600));
+    let types: Vec<u8> = frames.iter().map(|f| f.msg_type).collect();
+    assert!(
+        types.contains(&WS_MSG_SPARKLINE_HISTORY),
+        "expected SPARKLINE_HISTORY, got frame types {:?}",
+        types
+    );
+    for t in [WS_MSG_BUFFER_REPLAY, WS_MSG_BUFFER_REPLAY_GZ, WS_MSG_RESIZE, WS_MSG_SYNC] {
+        assert!(
+            !types.contains(&t),
+            "first-frame sparkline request must not trigger a replay; got frame types {:?}",
+            types
+        );
+    }
+}
+
 // ── SYNC offset tests ───────────────────────────────────────────────
 
 #[test]

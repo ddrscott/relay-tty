@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Opening a session page no longer stalls for seconds behind the sidebar's sparkline backfill. The server fetches each running session's sparkline over a fresh pty-host socket, and the pty-host treated that first frame as a legacy client: it gzipped and sent the entire ring buffer, dropped the request, and the server sat on its 2s timeout. With a dozen sessions those dead requests queued on the browser's per-host connection limit and held the xterm modules behind them, so the terminal appeared after ~8.5s on localhost. The pty-host now answers a first-frame `SPARKLINE_REQUEST` directly; sparkline calls return in milliseconds and no phantom replays are generated. Sessions started before the upgrade keep the old binary until restarted
+
 ### Added
 - HTML files open rendered in the file viewer, matching how markdown already behaves, with a toolbar toggle back to the highlighted source. The page renders in a sandboxed frame with no access to the relay app, so a self-contained document shows with its own styling and scripts; one that loads sibling `.css`/`.js` by relative path renders without them
 

@@ -83,6 +83,8 @@ RESUME has an optional 16-byte form: `[offset f64 BE][maxReplayBytes f64 BE]`. W
 
 pty-host waits up to `RESUME_TIMEOUT_MS` (100ms) for the first message. If no RESUME arrives (CLI clients that predate the protocol), it falls back to full replay. Do not increase this timeout -- it adds latency to every new connection.
 
+A `SPARKLINE_REQUEST` (0x18) as the first frame is answered directly with `SPARKLINE_HISTORY` and **no replay** -- the server's `fetchSparkline()` opens a throwaway socket and asks immediately. Any other non-RESUME first frame still triggers the legacy full replay before the message is processed. Do not route new query-only requests through the replay fallback: before this special case, every sparkline probe made the pty-host gzip its whole ring buffer for a client that discarded it.
+
 ### Cache Reset Signal
 
 When `read_from(offset)` returns `None` (offset expired), pty-host sends `SYNC(0.0)` before the full replay. The browser detects `serverOffset === 0 && byteOffset > 0`, discards its IndexedDB cache, and resets `byteOffset` to 0.

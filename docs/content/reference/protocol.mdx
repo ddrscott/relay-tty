@@ -42,7 +42,7 @@ Client                          pty-host
   │◀─ ready for DATA ───────────│
 ```
 
-pty-host waits 100ms for a `RESUME` message. If none arrives (e.g., CLI clients), it sends the full buffer.
+pty-host waits 100ms for a `RESUME` message. If none arrives (e.g., CLI clients), it sends the full buffer. A `SPARKLINE_REQUEST` sent as the first message is answered directly without a replay.
 
 ### Reconnect (delta resume)
 
