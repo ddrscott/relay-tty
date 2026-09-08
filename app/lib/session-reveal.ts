@@ -17,7 +17,19 @@ import {
  * to reveal a session and falls back to navigation when nothing is registered
  * or the handler declines. Same shape as `sidebar-toggle.ts`.
  */
-export type SessionRevealHandler = (sessionId: string) => boolean;
+export interface SessionRevealOptions {
+  /**
+   * Zoom the session's cell after revealing it (grid, lanes). Views without a
+   * zoom concept (tiles) ignore it. The sidebar sets this on double-click so
+   * the gesture matches double-clicking the cell itself.
+   */
+  zoom?: boolean;
+}
+
+export type SessionRevealHandler = (
+  sessionId: string,
+  opts?: SessionRevealOptions
+) => boolean;
 
 let handler: SessionRevealHandler | null = null;
 
@@ -34,9 +46,12 @@ export function registerSessionRevealHandler(next: SessionRevealHandler): () => 
  * registered, or when the view declined (e.g. it does not know the session),
  * so the caller can navigate instead.
  */
-export function revealSession(sessionId: string): boolean {
+export function revealSession(
+  sessionId: string,
+  opts?: SessionRevealOptions
+): boolean {
   if (!handler) return false;
-  return handler(sessionId) === true;
+  return handler(sessionId, opts) === true;
 }
 
 /**
@@ -46,7 +61,10 @@ export function revealSession(sessionId: string): boolean {
 export function useSessionReveal(onReveal: SessionRevealHandler): void {
   const ref = useRef(onReveal);
   ref.current = onReveal;
-  useEffect(() => registerSessionRevealHandler((id) => ref.current(id)), []);
+  useEffect(
+    () => registerSessionRevealHandler((id, opts) => ref.current(id, opts)),
+    []
+  );
 }
 
 /** Filter state shared by the grid, lanes and tiles views. */

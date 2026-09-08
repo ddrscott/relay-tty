@@ -69,16 +69,19 @@ function formatRate(bps: number): string {
 
 // Memoized: the sidebar re-renders on every batched metrics flush and every
 // loader revalidation; an item only needs to repaint when its own session
-// object or selection changed. `onSelect` takes the id so the parent can pass
-// one stable callback instead of a fresh closure per row.
+// object or selection changed. `onSelect` / `onActivate` take the id so the
+// parent can pass stable callbacks instead of a fresh closure per row.
 const SidebarSessionItem = memo(function SidebarSessionItem({
   session,
   selected,
   onSelect,
+  onActivate,
 }: {
   session: Session;
   selected: boolean;
   onSelect: (id: string) => void;
+  /** Double-click: zoom the cell in grid/lanes, same as double-clicking it. */
+  onActivate: (id: string) => void;
 }) {
   const isRunning = session.status === "running";
   const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
@@ -97,6 +100,12 @@ const SidebarSessionItem = memo(function SidebarSessionItem({
           : "bg-[#0f0f1a] hover:bg-[#1a1a2e] border-[#1e1e2e] hover:border-[#2d2d44]"
       }`}
       onClick={() => onSelect(session.id)}
+      onDoubleClick={(e) => {
+        // Drop focus from the row so the zoomed terminal, not this button,
+        // receives keystrokes and the Grid/Lanes keyboard shortcuts.
+        e.currentTarget.blur();
+        onActivate(session.id);
+      }}
     >
       <div className="flex items-center gap-2">
         <span
@@ -370,6 +379,18 @@ export function SidebarDrawer({
     if (revealSession(id)) return;
     navigate(`/sessions/${id}`);
   }, [navigate]);
+
+  // Double-click: same reveal, plus zoom where the view supports it (grid,
+  // lanes). The single click of the pair has already run `selectSession`, so
+  // when no view handles the reveal the navigation has already happened and
+  // there is nothing left to do; navigating again would only push a duplicate
+  // history entry for the page we are already on.
+  const activateSession = useCallback((id: string) => {
+    const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
+    if (checkbox) checkbox.checked = false;
+    if (revealSession(id, { zoom: true })) return;
+    if (location.pathname !== `/sessions/${id}`) navigate(`/sessions/${id}`);
+  }, [navigate, location.pathname]);
 
   // Close drawer on route change (mobile)
   useEffect(() => {
@@ -650,6 +671,7 @@ export function SidebarDrawer({
                               session={session}
                               selected={activeSessionId === session.id}
                               onSelect={selectSession}
+                              onActivate={activateSession}
                             />
                           ))}
                         </div>

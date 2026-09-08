@@ -37,7 +37,7 @@ import {
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
-import { useSessionReveal, relaxFiltersForSession, persistRelaxation } from "../lib/session-reveal";
+import { useSessionReveal, relaxFiltersForSession, persistRelaxation, type SessionRevealOptions } from "../lib/session-reveal";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
 import { useSessionInspect } from "../hooks/use-session-inspect";
@@ -643,8 +643,10 @@ export default function Tiles({ loaderData }: Route.ComponentProps) {
   // Sidebar selection focuses the pane already showing the session, or opens
   // one for it (placed like Cmd+D, as a column after the focused node) and
   // focuses that. Filters hiding the session are relaxed first, otherwise the
-  // reconcile effect would drop the pane again on the next render.
-  useSessionReveal(useCallback((id: string) => {
+  // reconcile effect would drop the pane again on the next render. Tiles has
+  // no zoom state, so the `zoom` reveal option (sidebar double-click) is
+  // accepted and ignored: double-click focuses the pane like a single click.
+  useSessionReveal(useCallback((id: string, _opts?: SessionRevealOptions) => {
     const session = loaderSessions.find((s) => s.id === id);
     if (!session) return false;
     const patch = relaxFiltersForSession(session, {

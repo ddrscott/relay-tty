@@ -46,13 +46,14 @@ Font size changes send SIGWINCH — the terminal columns and rows adjust to fit 
 | Shortcut | Action |
 |----------|--------|
 | Click sidebar session | Select that session's cell without leaving the view |
+| Double-click sidebar session | Select and zoom that session's cell (same as double-clicking the cell) |
 | Click cell | Select cell for keyboard input |
 | Double-click cell | Zoom/expand cell |
 | Cmd+= / Cmd+- | Increase/decrease font size of selected cell |
 | Pinch-to-zoom | Increase/decrease font size (touch devices) |
 | Escape | Unzoom, then deselect |
 
-Picking a session in the sidebar reveals it in the view you are already in rather than navigating to the single-session page. In Grid and Lanes it unzooms whatever cell was zoomed and selects the picked session's cell; in Tiles it focuses that session's pane, opening one beside the focused pane if none is showing it. If a project, recency, or inactive filter was hiding the session, only the filter responsible for hiding it is relaxed, so the rest of your filtering survives.
+Picking a session in the sidebar reveals it in the view you are already in rather than navigating to the single-session page. In Grid and Lanes it unzooms whatever cell was zoomed and selects the picked session's cell; in Tiles it focuses that session's pane, opening one beside the focused pane if none is showing it. Double-clicking a sidebar session additionally zooms the cell in Grid and Lanes, replacing any cell that was already zoomed; in Tiles a double-click behaves like a single click. If a project, recency, or inactive filter was hiding the session, only the filter responsible for hiding it is relaxed, so the rest of your filtering survives.
 
 Font size is saved per session and shared across all views (grid, lanes, and single-session). Every font size change sends SIGWINCH to recompute terminal dimensions — the container stays fixed while columns and rows adjust to fit the new cell size.
 

@@ -9,7 +9,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Maximize, Minimize, Menu 
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 import { ProjectFilter, getStoredProjectFilter, filterByProject, getStoredRecencyFilter, filterByRecency, type RecencyFilter } from "../components/project-filter";
-import { useSessionReveal, relaxFiltersForSession, persistRelaxation } from "../lib/session-reveal";
+import { useSessionReveal, relaxFiltersForSession, persistRelaxation, type SessionRevealOptions } from "../lib/session-reveal";
 import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { useSessionInspect } from "../hooks/use-session-inspect";
@@ -485,8 +485,10 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
   // Sidebar selection reveals the session inside the lanes view instead of
   // navigating away: unzoom, select the cell, and relax whichever filter is
   // hiding it. Selecting a cell never sends a RESIZE, so other devices are
-  // untouched (see the thumbnail policy in CLAUDE.md).
-  useSessionReveal(useCallback((id: string) => {
+  // untouched (see the thumbnail policy in CLAUDE.md). A sidebar double-click
+  // asks for `zoom`, which takes the same zoom path as double-clicking the
+  // cell, replacing whatever cell was zoomed before.
+  useSessionReveal(useCallback((id: string, opts?: SessionRevealOptions) => {
     const session = sessions.find((s) => s.id === id);
     if (!session) return false;
     const patch = relaxFiltersForSession(session, {
@@ -504,8 +506,8 @@ export default function Lanes({ loaderData }: Route.ComponentProps) {
       if (patch.projectFilter) setProjectFilter(patch.projectFilter);
     }
     setModalSessionId(null);
-    setZoomedCellId(null);
     setSelectedCellId(id);
+    setZoomedCellId(opts?.zoom ? id : null);
     return true;
   }, [sessions, showInactive, recencyFilter, projectFilter]));
 
