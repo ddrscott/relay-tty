@@ -53,6 +53,12 @@ import {
 // ── Per-session font size persistence ──
 const FONT_KEY = (id: string) => `relay-tty-fontsize-${id}`;
 const MAX_KEEP_ALIVE = 8;
+/** Delay between the active session's content appearing and carousel neighbors mounting (mobile only) */
+const NEIGHBOR_MOUNT_DELAY_MS = 1000;
+/** Fallback: mount neighbors even if the active terminal never reports ready */
+const NEIGHBOR_MOUNT_FALLBACK_MS = 15000;
+/** Tail-limited replay size for carousel-neighbor previews */
+const NEIGHBOR_TAIL_BYTES = 256 * 1024;
 
 // ── View mode persistence (terminal vs chat) ──
 type ViewMode = "terminal" | "chat";
@@ -170,6 +176,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   // ── Keep-alive: track visited sessions (LRU, max MAX_KEEP_ALIVE) ──
   // Always includes immediate neighbors for smooth carousel transitions.
   const [visitedSessions, setVisitedSessions] = useState<string[]>([activeId]);
+
+  // Sessions that have actually been the active one. Anything else in
+  // visitedSessions is a carousel neighbor: those are NOT mounted on the
+  // critical path of showing the requested session (opening one session used
+  // to open three sockets and replay three buffers), and when they do mount
+  // they connect with a 256KB tail-limited replay and no IndexedDB cache.
+  // Becoming active upgrades them to a full replay (Terminal key changes).
+  const everActiveRef = useRef<Set<string>>(new Set([activeId]));
+  everActiveRef.current.add(activeId);
+  const [neighborsUnlocked, setNeighborsUnlocked] = useState(false);
+  const unlockNeighbors = useCallback(() => setNeighborsUnlocked(true), []);
+
   useEffect(() => {
     setVisitedSessions(prev => {
       const needed = new Set(prev);
@@ -306,6 +324,21 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // ── Mobile detection + input bar state ──
   const [isMobile, setIsMobile] = useState(false);
+  // Neighbors only matter for the mobile swipe carousel. Unlock them shortly
+  // after the active session's content is on screen (see onContentReady in
+  // the gated callbacks), immediately on swipe, or after a fallback delay if
+  // the active terminal never reports ready (exited session, network down).
+  const neighborUnlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleNeighborUnlock = useCallback((delay: number) => {
+    if (neighborUnlockTimer.current) return;
+    neighborUnlockTimer.current = setTimeout(unlockNeighbors, delay);
+  }, [unlockNeighbors]);
+  useEffect(() => {
+    if (neighborsUnlocked || !isMobile) return;
+    const t = setTimeout(unlockNeighbors, NEIGHBOR_MOUNT_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, [neighborsUnlocked, isMobile, unlockNeighbors]);
+  useEffect(() => () => { if (neighborUnlockTimer.current) clearTimeout(neighborUnlockTimer.current); }, []);
 
   // Detect mobile on mount and window resize
   useEffect(() => {
@@ -609,6 +642,8 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   handleFileLinkRef.current = handleFileLink;
   const handleImageRef = useRef(handleImage);
   handleImageRef.current = handleImage;
+  const scheduleNeighborUnlockRef = useRef(scheduleNeighborUnlock);
+  scheduleNeighborUnlockRef.current = scheduleNeighborUnlock;
 
   const gatedCallbacksCache = useRef(new Map<string, ReturnType<typeof makeGatedCbs>>());
   function makeGatedCbs(sid: string) {
@@ -624,6 +659,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       onActivityUpdate: (update: { isActive: boolean; totalBytes: number }) => { if (activeIdRef.current === sid) handleActivityUpdateRef.current(update); },
       onFileLink: (link: FileLink) => { if (activeIdRef.current === sid) handleFileLinkRef.current(link); },
       onImage: (image: { id: string; blobUrl: string }) => { if (activeIdRef.current === sid) handleImageRef.current(image); },
+      onContentReady: () => { if (activeIdRef.current === sid) scheduleNeighborUnlockRef.current(NEIGHBOR_MOUNT_DELAY_MS); },
       onFullscreenDetected: () => {
         setTuiSessions(prev => { const next = new Set(prev); next.add(sid); return next; });
       },
@@ -886,6 +922,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     activeId,
     goTo,
     enabled: isMobile && !textViewerOpen && !pickerOpen && allSessions.length > 1,
+    onSwipeStart: unlockNeighbors,
   });
 
   // Prevent browser auto-scroll on the terminal area container.
@@ -1207,6 +1244,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
         {/* Carousel track: translates horizontally during swipe */}
         <div ref={carouselTrackRef} className="absolute inset-0">
           {isClient && visitedSessions.map(sid => {
+            // A neighbor that was never active is a preview: skip it until
+            // unlocked (mobile, after load delay or on swipe), and give it a
+            // tail-limited, cache-less connection. The Terminal key includes
+            // the mode so becoming active remounts into a full instance.
+            const isPreview = !everActiveRef.current.has(sid);
+            if (isPreview && (!isMobile || !neighborsUnlocked)) return null;
             const cbs = getGatedCallbacks(sid);
             const relIdx = getRelativeIndex(sid, activeId, sessionIds);
             return (
@@ -1222,8 +1265,11 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 {(effectiveViewMode === "terminal" || sid !== activeId) && (
                   <div className={effectiveViewMode === "chat" && sid === activeId ? "hidden" : "w-full h-full"}>
                     <Terminal
+                      key={isPreview ? `${sid}:preview` : sid}
                       ref={sid === activeId && effectiveViewMode === "terminal" ? terminalRef : undefined}
                       sessionId={sid}
+                      maxReplayBytes={isPreview ? NEIGHBOR_TAIL_BYTES : undefined}
+                      cache={isPreview ? false : undefined}
                       fontSize={fontSizes[sid] ?? getSessionFontSize(sid)}
                       active={sid === activeId && effectiveViewMode === "terminal"}
                       initialPtyCols={allSessions.find(s => s.id === sid)?.cols}
@@ -1239,6 +1285,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                       onImage={cbs.onImage}
                       onActivityUpdate={cbs.onActivityUpdate}
                       onFileLink={cbs.onFileLink}
+                      onContentReady={cbs.onContentReady}
                     />
                   </div>
                 )}

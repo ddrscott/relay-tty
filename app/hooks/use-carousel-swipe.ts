@@ -38,6 +38,8 @@ interface CarouselSwipeOpts {
   goTo: (id: string) => void;
   /** Whether swipe is enabled (disable during text selection, etc.) */
   enabled?: boolean;
+  /** Called once when a gesture commits to a horizontal swipe (neighbors about to be revealed) */
+  onSwipeStart?: () => void;
 }
 
 export function useCarouselSwipe(
@@ -214,6 +216,7 @@ export function useCarouselSwipe(
         if (absDx >= H_THRESHOLD && absDx > absDy * HV_RATIO) {
           // Horizontal swipe — commit!
           committed = true;
+          optsRef.current.onSwipeStart?.();
         } else {
           // Not enough movement yet — wait
           return;

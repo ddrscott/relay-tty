@@ -90,6 +90,8 @@ interface PooledTerminal {
   cacheWriter: BufferCacheWriter | null;
   cacheSessionId: string | null;
   pooledAt: number;
+  /** Instance connected with a tail-limited RESUME — its buffer is only the last N bytes */
+  tailLimited: boolean;
 }
 
 const terminalPool = new Map<string, PooledTerminal>();
@@ -1729,9 +1731,23 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       byteOffset = pooled.byteOffset;
       cacheWriter = pooled.cacheWriter;
 
-      // Terminal is immediately visible with its existing buffer content
-      initialContentReady = true;
-      setContentReady(true);
+      const wantsTail = (opts.maxReplayBytes ?? 0) > 0;
+      if (pooled.tailLimited && !wantsTail) {
+        // Upgrade: this instance was a carousel-neighbor preview holding only
+        // the last N bytes. Now it is the real view, so force RESUME(0) — the
+        // first-connect path resets xterm and replays the full buffer — and
+        // start a cache writer (neighbors run with the cache disabled).
+        byteOffset = 0;
+        cacheWriter?.dispose();
+        cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+        // Keep the tail hidden until the full replay lands (no half-buffer flash).
+        initialContentReady = false;
+        setContentReady(false);
+      } else {
+        // Terminal is immediately visible with its existing buffer content
+        initialContentReady = true;
+        setContentReady(true);
+      }
 
       const useFixedSize = opts.fixedCols != null && opts.fixedRows != null;
       if (!useFixedSize) {
@@ -1851,6 +1867,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           cacheWriter,
           cacheSessionId,
           pooledAt: Date.now(),
+          tailLimited: byteOffset > 0 && (opts.maxReplayBytes ?? 0) > 0,
         });
         poolEvict();
         // Clear refs without disposing — pooled for reuse

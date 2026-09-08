@@ -53,9 +53,20 @@ interface TerminalProps {
   /** Initial PTY dimensions from session metadata (cols x rows) */
   initialPtyCols?: number;
   initialPtyRows?: number;
+  /**
+   * Clamp the first replay to the last N bytes (carousel neighbors use 256KB so
+   * they never pull a full 10MB buffer just to be swipe previews). Unset = full.
+   * A pooled tail-limited instance is upgraded to a full replay when it is
+   * remounted without this prop — see the pool logic in use-terminal-core.
+   */
+  maxReplayBytes?: number;
+  /** IndexedDB buffer cache (default true). Neighbors pass false. */
+  cache?: boolean;
+  /** Called once the first content (cache or replay) is visible */
+  onContentReady?: () => void;
 }
 
-export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true, initialPtyCols, initialPtyRows }, ref) {
+export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function Terminal({ sessionId, fontSize = 14, onExit, onTitleChange, onScrollChange, onReplayProgress, onNotification, onFontSizeChange, onCopy, onSelectionModeChange, onActivityUpdate, onFileLink, onTap, onClipboard, onImage, active = true, initialPtyCols, initialPtyRows, maxReplayBytes, cache, onContentReady }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputTransformRef = useRef<((data: string) => string | null) | null>(null);
   const selectionModeRef = useRef(false);
@@ -95,7 +106,15 @@ export const Terminal = memo(forwardRef<TerminalHandle, TerminalProps>(function 
     onFileLink,
     onTap,
     onSessionUpdate: handleSessionUpdate,
+    maxReplayBytes,
+    cache,
   });
+
+  const onContentReadyRef = useRef(onContentReady);
+  onContentReadyRef.current = onContentReady;
+  useEffect(() => {
+    if (contentReady) onContentReadyRef.current?.();
+  }, [contentReady]);
 
   const sendText = useCallback((text: string) => {
     sendBinary(encodeDataMessage(text));

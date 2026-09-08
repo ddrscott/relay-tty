@@ -18,4 +18,4 @@
 - [ ] Desktop sidebar: double-click a session to zoom its cell in grid/lanes (same as double-clicking the cell), focus pane in tiles ([details](sidebar-double-click-zoom.md))
 - [x] Perf: pty-host must answer SPARKLINE_REQUEST as a first frame instead of sending a phantom full replay — removes 12×2s stalls that block xterm module loads ([details](sparkline-first-frame.md))
 - [x] Perf: one shared /ws/events socket per page + batched metrics/sidebar updates to stop periodic main-thread stalls while typing ([details](shared-events-socket.md))
-- [-] Perf: stop eagerly replaying carousel neighbor sessions on session page load; connect neighbors lazily with tail-limited replay ([details](lazy-neighbor-sessions.md))
+- [x] Perf: stop eagerly replaying carousel neighbor sessions on session page load; connect neighbors lazily with tail-limited replay ([details](lazy-neighbor-sessions.md))
