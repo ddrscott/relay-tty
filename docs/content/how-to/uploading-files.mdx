@@ -24,11 +24,17 @@ If the mobile **scratchpad** is open when the upload finishes, the paths are
 appended to the scratchpad input instead of being typed into the terminal,
 so you can keep composing your command.
 
-Two shortcuts trigger the same flow:
+Three shortcuts trigger the same flow:
 
 - **Drag and drop** — drop files anywhere on the terminal (desktop)
 - **Paste an image** — pasting clipboard image data (like a screenshot)
   uploads it as a timestamped PNG and pastes its path
+- **Paste a file from Finder** — copy one or more files in macOS Finder
+  (Cmd-C), then paste into the terminal (Cmd-V). The files are uploaded
+  and their paths pasted, exactly like drag-and-drop. Chrome and Safari
+  hide the original filesystem path from web pages, so an upload is the
+  only way the session can reach the file; if a browser does expose the
+  real absolute path, that path is pasted instead and nothing is uploaded
 
 The destination for this flow is configurable in **Settings → Upload
 Directory**.

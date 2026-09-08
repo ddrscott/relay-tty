@@ -114,6 +114,26 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   return { session, allSessions, hostname: context.hostname };
 }
 
+/** Absolute filesystem paths a paste event exposes for copied files, if any.
+ * Checks `text/uri-list` for `file://` URLs and `text/plain` for absolute
+ * paths. A bare filename is not a path and yields nothing. */
+function clipboardFilePaths(cd: DataTransfer): string[] {
+  const out: string[] = [];
+  for (const line of cd.getData("text/uri-list").split(/\r?\n/)) {
+    if (!line.startsWith("file://")) continue;
+    try {
+      const p = decodeURIComponent(new URL(line).pathname);
+      if (p.startsWith("/")) out.push(p);
+    } catch { /* malformed URL */ }
+  }
+  if (out.length === 0) {
+    for (const line of cd.getData("text/plain").split(/\r?\n/)) {
+      if (line.startsWith("/")) out.push(line);
+    }
+  }
+  return out;
+}
+
 export default function SessionView({ loaderData }: Route.ComponentProps) {
   const { session: initialSession, allSessions, hostname } = loaderData as {
     session: Session;
@@ -737,15 +757,9 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
-  /** Upload files then insert their paths (space-separated) into the
-   * scratchpad input if it's open, otherwise into the terminal. */
-  const uploadAndInsert = useCallback(async (files: File[]) => {
-    const paths: string[] = [];
-    for (const file of files) {
-      const p = await uploadOne(file);
-      if (p) paths.push(p);
-    }
-    if (paths.length === 0) return;
+  /** Insert absolute paths (space-separated) into the scratchpad input if
+   * it's open, otherwise into the terminal. */
+  const insertPaths = useCallback((paths: string[]) => {
     const text = paths.join(" ");
     if (scratchpadOpenRef.current && mobileToolbarRef.current) {
       mobileToolbarRef.current.insertScratchpadText(text);
@@ -754,17 +768,36 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       // consecutive uploads and follow-up typing separated.
       (terminalRef.current ?? chatRef.current)?.sendText(text + " ");
     }
-  }, [uploadOne]);
+  }, []);
+  const insertPathsRef = useRef(insertPaths);
+  insertPathsRef.current = insertPaths;
+
+  /** Upload files then insert their paths (space-separated) into the
+   * scratchpad input if it's open, otherwise into the terminal. */
+  const uploadAndInsert = useCallback(async (files: File[]) => {
+    const paths: string[] = [];
+    for (const file of files) {
+      const p = await uploadOne(file);
+      if (p) paths.push(p);
+    }
+    if (paths.length > 0) insertPaths(paths);
+  }, [uploadOne, insertPaths]);
 
   const onFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) uploadAndInsert(Array.from(files));
   }, [uploadAndInsert]);
 
-  // ── Clipboard image paste ──
-  // Intercept paste events containing image data (screenshots, copied images).
-  // Convert to a File with a timestamped name and upload via the existing
-  // upload flow. Text-only pastes fall through to xterm's normal handler.
+  // ── Clipboard file/image paste ──
+  // Intercept paste events that carry file items: screenshots, copied
+  // images, and files copied from Finder. Text-only pastes fall through to
+  // xterm's normal handler.
+  //
+  // Verified on macOS (Chrome and Safari): a Finder Cmd-C exposes ONLY a
+  // `Files` entry to the page — no text/plain, no text/uri-list — so the
+  // original path is normally unavailable and the file is uploaded like a
+  // drag-and-drop. `clipboardFilePaths` still checks for a real absolute
+  // path in case a browser does expose one, and pastes it without uploading.
   const uploadAndInsertRef = useRef(uploadAndInsert);
   uploadAndInsertRef.current = uploadAndInsert;
 
@@ -772,17 +805,14 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     function onPaste(e: ClipboardEvent) {
       if (!e.clipboardData) return;
 
-      // Check for image items in clipboard
+      const files: File[] = [];
       const items = e.clipboardData.items;
-      let imageItem: DataTransferItem | null = null;
       for (let i = 0; i < items.length; i++) {
-        if (items[i].type.startsWith("image/")) {
-          imageItem = items[i];
-          break;
-        }
+        if (items[i].kind !== "file") continue;
+        const f = items[i].getAsFile();
+        if (f) files.push(f);
       }
-
-      if (!imageItem) return; // No image — let xterm handle text paste normally
+      if (files.length === 0) return; // No files — let xterm handle text paste normally
 
       // Don't intercept if the paste target is a textarea or input (e.g. scratchpad)
       const target = e.target as HTMLElement;
@@ -791,21 +821,27 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
       e.preventDefault();
       e.stopPropagation();
 
-      const blob = imageItem.getAsFile();
-      if (!blob) return;
+      // Branch 1: the browser exposed the original absolute path(s) — paste
+      // them directly, no upload.
+      const paths = clipboardFilePaths(e.clipboardData);
+      if (paths.length > 0) {
+        insertPathsRef.current(paths);
+        return;
+      }
 
-      // Generate a timestamped filename: paste-20260311-143052.png
+      // Branch 2: upload. Clipboard screenshots arrive as a nameless
+      // "image.png"; give those a timestamped name so uploads don't collide.
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-      const ext = blob.type === "image/jpeg" ? ".jpg"
-        : blob.type === "image/webp" ? ".webp"
-        : blob.type === "image/gif" ? ".gif"
-        : ".png";
-      const filename = `paste-${ts}${ext}`;
-
-      const file = new File([blob], filename, { type: blob.type });
-      uploadAndInsertRef.current([file]);
+      uploadAndInsertRef.current(files.map((f) => {
+        if (!f.type.startsWith("image/") || !/^(image\.[a-z]+)?$/i.test(f.name)) return f;
+        const ext = f.type === "image/jpeg" ? ".jpg"
+          : f.type === "image/webp" ? ".webp"
+          : f.type === "image/gif" ? ".gif"
+          : ".png";
+        return new File([f], `paste-${ts}${ext}`, { type: f.type });
+      }));
     }
 
     document.addEventListener("paste", onPaste, { capture: true });
