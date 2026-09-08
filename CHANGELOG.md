@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - HTML files open rendered in the file viewer, matching how markdown already behaves, with a toolbar toggle back to the highlighted source. The page renders in a sandboxed frame with no access to the relay app, so a self-contained document shows with its own styling and scripts; one that loads sibling `.css`/`.js` by relative path renders without them
 
+### Changed
+- Picking a session in the desktop sidebar now respects the view you are in instead of always jumping to the full session view. In `/grid` and `/lanes` it selects that session's cell in place, unzooming whatever was zoomed; in `/tiles` it focuses the session's pane, opening one beside the focused pane if none is showing it. A session hidden by the project, recency, or inactive filter is revealed by relaxing only the filter that was hiding it, so the sidebar works as a way to find a session without leaving the layout. The session view and the list views navigate as before
+
 ## [1.21.0] - 2026-07-30
 
 ### Added
