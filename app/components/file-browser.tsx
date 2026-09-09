@@ -24,6 +24,7 @@ import {
   FolderUp,
 } from "lucide-react";
 import { PlainInput } from "./plain-input";
+import { shellQuote } from "../lib/shell-quote";
 import { getExt, getFileIcon, FileViewerPanel } from "./file-viewer-panel";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -402,14 +403,16 @@ export function FileBrowser({ sessionId, initialPath, onClose, onNavigate }: Fil
     if (uploadNoticeTimer.current) clearTimeout(uploadNoticeTimer.current);
   }, []);
 
-  // Copy path to clipboard
-  const copyPath = useCallback(async (fullPath: string) => {
+  // Copy a path to the clipboard, shell-quoted so it survives as a single
+  // argument when pasted at a prompt. Plain paths are copied bare.
+  const copyPath = useCallback(async (rawPath: string) => {
+    const text = shellQuote(rawPath);
     try {
-      await navigator.clipboard.writeText(fullPath);
+      await navigator.clipboard.writeText(text);
     } catch {
       // Fallback for non-HTTPS contexts
       const ta = document.createElement("textarea");
-      ta.value = fullPath;
+      ta.value = text;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
