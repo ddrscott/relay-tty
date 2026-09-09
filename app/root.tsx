@@ -30,7 +30,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   const isShare = url.pathname.startsWith("/share/");
   const sessions = isShare ? [] : context.sessionStore.list({ includeExited: true });
   const customCommands: string[] = !isShare && context.readCustomCommands ? context.readCustomCommands() : [];
-  return { sessions, version: context.version, hostname: context.hostname, customCommands };
+  const desktopAvailable = !isShare && context.desktopAvailable ? await context.desktopAvailable() : false;
+  return { sessions, version: context.version, hostname: context.hostname, customCommands, desktopAvailable };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -59,11 +60,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function App({ loaderData }: Route.ComponentProps) {
   useKeyboardViewport();
-  const { sessions, version, hostname, customCommands } = loaderData as {
+  const { sessions, version, hostname, customCommands, desktopAvailable } = loaderData as {
     sessions: any[];
     version: string;
     hostname: string;
     customCommands: string[];
+    desktopAvailable: boolean;
   };
   const { revalidate } = useRevalidator();
   const location = useLocation();
@@ -75,7 +77,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
   }
 
   return (
-    <SidebarDrawer sessions={sessions} version={version} hostname={hostname} customCommands={customCommands}>
+    <SidebarDrawer sessions={sessions} version={version} hostname={hostname} customCommands={customCommands} desktopAvailable={desktopAvailable}>
       <Outlet />
     </SidebarDrawer>
   );

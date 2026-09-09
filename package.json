@@ -63,6 +63,7 @@
     "@codemirror/state": "^6.5.4",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.39.17",
+    "@novnc/novnc": "^1.7.0",
     "@react-router/express": "^7.12.0",
     "@react-router/node": "^7.12.0",
     "@tailwindcss/typography": "^0.5.19",

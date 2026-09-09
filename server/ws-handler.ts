@@ -7,6 +7,7 @@ import type { SessionStore } from "./session-store.js";
 import type { PtyManager } from "./pty-manager.js";
 import { verifyShareToken, verifyPasswordShareToken, peekJwtPayload } from "./auth.js";
 import { WS_MSG } from "../shared/types.js";
+import { bridgeDesktop } from "./desktop.js";
 
 /** Ping interval to keep connections alive through proxies (e.g. Cloudflare Tunnel ~100s idle timeout) */
 const PING_INTERVAL_MS = 30_000;
@@ -176,6 +177,17 @@ export class WsHandler {
         this.eventSubscribers.add(ws);
         ws.on("close", () => this.eventSubscribers.delete(ws));
         ws.on("error", () => this.eventSubscribers.delete(ws));
+      });
+      return;
+    }
+
+    // Remote desktop: raw RFB bytes bridged to the loopback VNC server.
+    // Owner-only — verifyWsAuth in server.js rejects guest pair grants for
+    // any path other than the grant's own session socket.
+    if (url.pathname === "/ws/desktop") {
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        this.initKeepAlive(ws);
+        bridgeDesktop(ws);
       });
       return;
     }

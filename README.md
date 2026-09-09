@@ -166,6 +166,12 @@ Combine with `relay share` to give others read-only links without exposing your 
 
 ---
 
+## Remote desktop
+
+Turn on **Screen Sharing** in macOS System Settings and a **Desktop** entry appears in the web UI. It opens the host's screen in the browser, through the same tunnel and login as your terminals, signed in with your macOS account. Handy when you need a browser on the host's network or a GUI app you cannot drive from a shell. On Linux, any VNC server on port 5900 works. See the [Remote Desktop guide](https://docs.relaytty.com/how-to/remote-desktop).
+
+---
+
 ## CLI reference
 
 ```bash

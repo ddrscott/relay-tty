@@ -13,4 +13,8 @@ export default defineConfig({
     allowedHosts,
   },
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+  // noVNC 1.7 uses top-level await, which needs an es2022 target. Every
+  // browser relay-tty targets (Safari 15+, Chrome 89+) supports it.
+  build: { target: "es2022" },
+  optimizeDeps: { esbuildOptions: { target: "es2022" } },
 });

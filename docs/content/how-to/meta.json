@@ -4,6 +4,7 @@
     "index",
     "session-management",
     "web-ui-views",
+    "remote-desktop",
     "input-tools",
     "tunnel-access",
     "sharing-qr",

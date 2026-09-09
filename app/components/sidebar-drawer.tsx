@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
-import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter } from "lucide-react";
+import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter, Monitor } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
 import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
@@ -144,12 +144,15 @@ export function SidebarDrawer({
   hostname,
   version,
   customCommands,
+  desktopAvailable = false,
   children,
 }: {
   sessions: Session[];
   hostname: string;
   version: string;
   customCommands: string[];
+  /** True when the host has a VNC server on loopback (macOS Screen Sharing). */
+  desktopAvailable?: boolean;
   children: React.ReactNode;
 }) {
   const navigate = useNavigate();
@@ -429,6 +432,25 @@ export function SidebarDrawer({
               )}
             </h1>
             <div className="flex items-center gap-1">
+              {/* Remote desktop — only when the host has a VNC server listening */}
+              {desktopAvailable && (
+                <button
+                  className={`flex items-center p-1 rounded-lg transition-colors ${
+                    location.pathname === "/desktop" ? "text-[#e2e8f0]" : "text-[#64748b] hover:text-[#e2e8f0]"
+                  }`}
+                  onClick={() => {
+                    const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
+                    if (checkbox) checkbox.checked = false;
+                    navigate("/desktop");
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                  title="Remote desktop"
+                  aria-label="Remote desktop"
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+              )}
               {/* List/Cards toggle */}
               {sessions.length > 0 && (
                 <button

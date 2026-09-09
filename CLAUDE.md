@@ -6,6 +6,7 @@
 - xterm.js v5.5.0 (NOT v6 — v6 breaks mobile touch scrolling)
 - lucide-react for icons
 - `npm run dev` on port 18701, public URL via Cloudflare tunnel
+- The dev server runs in a restart loop (`while ... npm run dev; do sleep 1; done`). Server-side changes (`server/`, `server.js`) are not hot-reloaded, so kill the process listening on 18701 after such changes and it comes back on its own in a few seconds. Client code under `app/` reloads via Vite HMR and needs no restart.
 
 ## Critical: xterm.js v5 Only
 v6 replaces the native viewport with `SmoothScrollableElement` which has no usable touch scroll on mobile. Stay on v5.5.0 with addons `@xterm/addon-fit@0.10.0`, `@xterm/addon-web-links@0.11.0`, `@xterm/addon-webgl@0.18.0`.
@@ -58,3 +59,6 @@ SIGWINCH is ONLY permitted when a cell enters **expanded/interactive mode** (zoo
 Docs site at **docs.relaytty.com** — Fumadocs (Next.js static export) in `docs/`. Use the `docs-site` skill for full details on structure, build, and conventions.
 
 **Rule: Always update docs when changing user-facing features.** Any CLI command, keybinding, UI change, or new feature must have its corresponding doc page updated (or created). This includes `docs/content/reference/cli.mdx`, `docs/content/reference/keyboard-shortcuts.mdx`, and any relevant how-to or tutorial pages.
+
+## Remote Desktop (`/desktop`)
+`server/desktop.ts` bridges `/ws/desktop` (raw RFB over binary WS) to the loopback VNC port 5900; `app/routes/desktop.tsx` runs noVNC (`@novnc/novnc`, lazily imported). Availability is a cached TCP probe exposed via load context as `desktopAvailable()` and read by the root loader, so the nav entry only appears when a VNC server is listening. The socket is owner-only (guest grants are rejected by `verifyWsAuth`). noVNC needs an es2022 target for top-level await (set in `vite.config.ts`). macOS Screen Sharing uses ARD auth (RFB type 30) with the macOS account; credentials are entered in the browser and never stored. `desktopDisplays()` reads monitor geometry (NSScreen via JXA on macOS, `xrandr` on Linux) in framebuffer coordinates; the page clips noVNC's viewport to one display and scales it, re-applying after noVNC's own resize pass.

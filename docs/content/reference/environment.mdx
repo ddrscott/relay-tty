@@ -12,6 +12,7 @@ Configure relay-tty via environment variables or a `.env` file in the project ro
 | `APP_URL` | No | Public URL for remote access (e.g., `https://relay.example.com`). Shown on startup and used for Discord notifications |
 | `DISCORD_WEBHOOK` | No | Discord webhook URL. Posts a clickable auth link on startup |
 | `RELAY_SKIP_BINARY_DOWNLOAD` | No | Set to `1` to skip downloading the pre-built Rust binary during `npm install` |
+| `RELAY_VNC_PORT` | No | Loopback port of the VNC server behind `/desktop` (default: `5900`). Set for Linux displays on `5901`+ |
 
 ## Session environment
 

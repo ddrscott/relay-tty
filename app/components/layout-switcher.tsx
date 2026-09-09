@@ -1,5 +1,5 @@
-import { useLocation, useNavigate } from "react-router";
-import { List, LayoutGrid, Columns, Activity, PanelsTopLeft } from "lucide-react";
+import { useLocation, useNavigate, useRouteLoaderData } from "react-router";
+import { List, LayoutGrid, Columns, Activity, PanelsTopLeft, Monitor } from "lucide-react";
 
 const LAYOUTS = [
   { icon: List, title: "Home", path: "/" },
@@ -9,6 +9,9 @@ const LAYOUTS = [
   { icon: PanelsTopLeft, title: "Tiles", path: "/tiles" },
 ] as const;
 
+/** Shown only when the root loader found a VNC server on the host. */
+const DESKTOP_LAYOUT = { icon: Monitor, title: "Desktop", path: "/desktop" } as const;
+
 /**
  * Icon-based layout switcher for toggling between Home, Grid, and Lanes views.
  * Desktop-only — hidden on mobile (< lg breakpoint).
@@ -16,10 +19,12 @@ const LAYOUTS = [
 export function LayoutSwitcher() {
   const location = useLocation();
   const navigate = useNavigate();
+  const rootData = useRouteLoaderData("root") as { desktopAvailable?: boolean } | undefined;
+  const layouts = rootData?.desktopAvailable ? [...LAYOUTS, DESKTOP_LAYOUT] : LAYOUTS;
 
   return (
     <div className="flex items-center gap-1 border border-[#2d2d44] rounded-lg p-0.5 w-fit">
-      {LAYOUTS.map(({ icon: Icon, title, path }) => {
+      {layouts.map(({ icon: Icon, title, path }) => {
         const active = location.pathname === path;
         return (
           <button

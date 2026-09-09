@@ -77,6 +77,8 @@ async function loadModules(load) {
   const apiModule = await load("api");
   app.use("/api", apiModule.createApiRouter(sessionStore, ptyManager, { appUrl: APP_URL, notificationStore, pushStore, pairStore }));
 
+  const desktopModule = await load("desktop");
+
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
 
@@ -101,7 +103,11 @@ async function loadModules(load) {
     const isSecure = req.protocol === "https" || req.get("x-forwarded-proto") === "https";
     const securePart = isSecure ? " Secure;" : "";
     res.setHeader("Set-Cookie", `session=${sessionToken}; HttpOnly; SameSite=Lax;${securePart} Path=/; Max-Age=${30 * 24 * 60 * 60}`);
-    res.redirect("/");
+    // Optional in-app landing path (e.g. /desktop). Only same-origin absolute
+    // paths are honored so the token URL can't be turned into an open redirect.
+    const next = typeof req.query.next === "string" ? req.query.next : "";
+    const safeNext = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
+    res.redirect(safeNext);
   });
 
   app.get("/api/auth/logout", (_req, res) => {
@@ -109,7 +115,7 @@ async function loadModules(load) {
     res.redirect("/");
   });
 
-  return { sessionStore, ptyManager, wsHandler, pairStore, sweepTimer, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir };
+  return { sessionStore, ptyManager, wsHandler, pairStore, sweepTimer, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir, desktopAvailable: desktopModule.desktopAvailable, desktopDisplays: desktopModule.desktopDisplays };
 }
 
 async function start() {
@@ -130,7 +136,7 @@ async function start() {
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands, desktopAvailable: modules.desktopAvailable, desktopDisplays: modules.desktopDisplays };
         },
       })
     );
@@ -156,7 +162,7 @@ async function start() {
       createRequestHandler({
         build,
         getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands };
+          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands, desktopAvailable: modules.desktopAvailable, desktopDisplays: modules.desktopDisplays };
         },
       })
     );

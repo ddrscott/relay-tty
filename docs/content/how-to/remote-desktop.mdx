@@ -1,0 +1,56 @@
+---
+title: Remote Desktop
+---
+
+Open the host machine's screen in the browser, next to your terminal sessions. This is for the moments when a terminal is not enough: you need a browser that sits on the host's network, a GUI app with state you cannot reach from a shell, or a dialog that only exists on the desktop.
+
+The desktop view is on by default. If the host has a VNC server listening on port 5900, a **Desktop** entry appears in the layout switcher and in the sidebar header at `/desktop`. If nothing is listening, the entry is hidden and the page explains how to turn it on.
+
+## Turn it on (macOS)
+
+1. Open **System Settings → General → Sharing**.
+2. Turn on **Screen Sharing**.
+
+That is the whole setup. relay looks for the server on the host's loopback interface, so nothing new is exposed to the network. The desktop view signs in with your **macOS account** (username and password), and Screen Sharing checks it on the host. relay never stores the password; the browser prompts each time you connect and remembers only the username.
+
+## Turn it on (Linux)
+
+Start any VNC server on port 5900 of the machine running `relay server`. A desktop-session server such as `x11vnc` or a compositor's built-in sharing (GNOME Remote Desktop with the VNC backend) works. Standard VNC password auth and no-auth servers are both supported.
+
+## Getting there from a phone
+
+Scan the QR code printed by `relay server`, tap the Desktop icon in the sidebar header, sign in. The screen scales to fit the phone by default.
+
+To land directly on the desktop after scanning, append a `next` target to the token URL:
+
+```
+https://<your-host>/api/auth/callback?token=<token>&next=/desktop
+```
+
+## Multiple displays
+
+A host with more than one monitor shares them as one wide framebuffer, which is unreadable on a phone. When relay can read the host's display layout (macOS, or Linux with `xrandr`), a picker appears in the header: **all**, **1**, **2**, and so on, in the host's own order with the main display first. Picking a number fits that display alone into the view. The minimap outlines every display and tapping one there selects it. The choice is remembered per browser.
+
+The picker only appears when the reported layout matches the framebuffer the VNC server announced, so a stale layout never produces a wrong crop. Virtual desktops (macOS Spaces) are not selectable; the server shares whichever Space is active on each monitor.
+
+## Controls
+
+| Control | What it does |
+|---|---|
+| Fit / 1:1 | Fit shrinks the whole screen into the view. 1:1 shows real pixels; drag to pan, or use the minimap in the corner: tap or drag on it to move the visible region. |
+| Frame rate | Cycles the update cap through 5, 10, 20 and uncapped. The default of 5 keeps a busy desktop from saturating a tunnel; raise it on a fast link. Remembered per browser. |
+| Paste | Sends your device clipboard to the host's clipboard. Text copied on the host comes back automatically. |
+| Keyboard (mobile) | Opens the phone's keyboard and forwards what you type as key events. |
+| Disconnect | Ends the session. Reconnect from the same page. |
+
+Mouse, scroll wheel, and touch (tap, drag, pinch) are handled by the viewer.
+
+## Access control
+
+The desktop socket is owner-only. A device paired with a single-session grant, or a read-only share link, cannot reach it. Anyone holding the owner cookie already has a shell on the host, so the desktop does not widen what a compromised cookie can do.
+
+## Limits
+
+- **Latency** is what you feel, not bandwidth. Clicking around a web app is fine over a tunnel; typing paragraphs is better done in your local scratchpad and pasted.
+- macOS sends the screen at its logical resolution, so text is slightly soft on a Retina display.
+- The host screen is not resized to match your browser. Apple's server ignores that request, and reflowing a shared desktop from a phone would be unkind to whoever is sitting at it.
