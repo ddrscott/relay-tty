@@ -18,7 +18,9 @@ script, and so on.
 3. Files are saved to your configured upload directory
    (`~/.relay-tty/uploads` by default)
 4. The absolute paths are pasted at the terminal prompt, space-separated,
-   ready to use as command arguments
+   ready to use as command arguments. A path containing spaces or shell
+   metacharacters is wrapped in single quotes so it survives as one argument;
+   plain paths are pasted as-is
 
 If the mobile **scratchpad** is open when the upload finishes, the paths are
 appended to the scratchpad input instead of being typed into the terminal,

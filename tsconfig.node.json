@@ -20,6 +20,7 @@
   },
   "include": [
     "app/lib/session-groups.ts",
+    "app/lib/shell-quote.ts",
     "cli/**/*.ts",
     "server/**/*.ts",
     "service/**/*.ts",

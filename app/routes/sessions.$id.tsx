@@ -43,6 +43,7 @@ import {
 import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import { useSmartNotifications } from "../hooks/use-smart-notifications";
 import { usePushSubscription, syncPushTriggers } from "../hooks/use-push-subscription";
+import { shellQuotePaths } from "../lib/shell-quote";
 import {
   getEffectiveNotifSettings,
   getSessionNotifOverride,
@@ -757,10 +758,12 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
-  /** Insert absolute paths (space-separated) into the scratchpad input if
-   * it's open, otherwise into the terminal. */
+  /** Insert absolute paths (shell-quoted, space-separated) into the
+   * scratchpad input if it's open, otherwise into the terminal. Quoting
+   * keeps paths with spaces or metacharacters intact as a single argument;
+   * plain paths are left unquoted so the common case stays readable. */
   const insertPaths = useCallback((paths: string[]) => {
-    const text = paths.join(" ");
+    const text = shellQuotePaths(paths);
     if (scratchpadOpenRef.current && mobileToolbarRef.current) {
       mobileToolbarRef.current.insertScratchpadText(text);
     } else {
