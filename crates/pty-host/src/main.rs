@@ -24,6 +24,8 @@ use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time;
 
+mod agent_state;
+
 // ── WS_MSG constants (must match shared/types.ts) ────────────────────
 
 const WS_MSG_DATA: u8 = 0x00;
