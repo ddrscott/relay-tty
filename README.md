@@ -423,9 +423,9 @@ npm start            # production server
 
 A fully isolated test environment is available for testing changes before deploying to production. See [docs/testing.md](docs/testing.md) for setup instructions.
 
-### Rust pty-host (optional but recommended)
+### Rust pty-host
 
-The PTY session host is written in Rust for reliability. Without a Rust toolchain, relay-tty falls back to the Node.js implementation automatically.
+The PTY session host is a Rust binary, and relay-tty requires it. `npm install` downloads a pre-built one for your platform; build it yourself when working on the host:
 
 ```bash
 # Install Rust (if needed)
@@ -434,9 +434,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Build the pty-host binary
 cargo build --release --manifest-path crates/pty-host/Cargo.toml
 
-# Run tests (53 unit + 19 integration)
+# Rust unit and integration tests
 cargo test --manifest-path crates/pty-host/Cargo.toml
+
+# Node tests, including the integration suites that run the release binary
+npm test
 ```
+
+### Parity suite
+
+`test/parity.integration.test.ts` holds the TUI and `relay attach` to one rule: using a session through relay must not be slower or less capable than running the same program in a plain terminal. It runs the client inside a real pty-host acting as the user's terminal and checks keystroke echo latency against a raw shell, that an app's terminal modes (alternate screen, mouse tracking, bracketed paste, cursor keys, cursor visibility) are restored on attach and on every TUI switch and reset when leaving, and that OSC 52 clipboard writes and OSC 9 notifications reach the terminal. Any change to the CLI, the TUI, the client core or pty-host output handling has to keep it green.
 
 The Rust binary provides 1/5/15-minute throughput metrics (like `top` load averages), lower memory usage (~2MB vs ~40MB per session), and eliminates the `node-pty` native addon as a crash risk.
 

@@ -146,6 +146,10 @@ Install: `relay plugin install owner/repo[/subdir] [--ref tag]` clones into `~/.
 
 Marketplace: the GitHub topic `relay-tty-plugin`. A scheduled GitHub Actions job in the docs repo queries the topic, fetches each manifest from the default branch, validates it against the schema, and writes `docs/public/plugins.json`. The docs site renders a searchable page from that file, sortable by stars and recency, with the standard unreviewed-listing warning. No review queue, no registry service, nothing to operate.
 
+### Parity bar (hard requirement)
+
+The TUI must never be perceived as slower or less capable than the same program in a plain terminal; otherwise users feel restricted instead of organized. Every TUI phase is gated on `test/parity.integration.test.ts`, which measures keystroke latency against a raw shell and checks terminal-mode restore and reset, and clipboard, notification and image passthrough. Phase 2 inherits two consequences: the compositor only runs when two or more panes are visible (a single or zoomed pane uses passthrough attach), and the pane view must pass the same suite before it ships.
+
 ### D7. The TUI is a Node client built on the core, in two phases with an explicit gate
 
 **Phase 1, no compositor.** The TUI keeps rendering its own chrome in the alt screen and attaches to a session by raw passthrough, exactly as today, with these additions:
