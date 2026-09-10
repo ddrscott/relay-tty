@@ -10,14 +10,13 @@ import type { Session } from "../shared/types.js";
 import { WS_MSG } from "../shared/types.js";
 import { resolveRustBinaryPath, buildSpawnArgs } from "../shared/spawn-utils.js";
 import { dim } from "./log.js";
+import { SessionStream } from "../shared/client/session-stream.js";
+import { socketTransport } from "../shared/client/transport-socket-node.js";
+import { RELAY_DIR, SESSIONS_DIR, SOCKETS_DIR, isPidAlive } from "../shared/client/directory-disk-node.js";
+import { encodeSparklineRequest, decodeSparkline } from "../shared/client/messages.js";
+import { gunzipSync } from "node:zlib";
 
-const DATA_DIR = path.join(os.homedir(), ".relay-tty");
-const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
-const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
-
-function isPidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
+const DATA_DIR = RELAY_DIR;
 
 /**
  * Manages pty-host processes. Each session runs in an independent detached process
@@ -31,7 +30,7 @@ function isPidAlive(pid: number): boolean {
  */
 export class PtyManager extends EventEmitter {
   // Monitoring connections — one per running session, for status tracking
-  private monitors = new Map<string, net.Socket>();
+  private monitors = new Map<string, SessionStream>();
   private fileWatcher: fs.FSWatcher | null = null;
 
   constructor(private sessionStore: SessionStore) {
@@ -185,7 +184,7 @@ export class PtyManager extends EventEmitter {
     // Close monitoring connection
     const monitor = this.monitors.get(id);
     if (monitor) {
-      monitor.destroy();
+      monitor.close();
       this.monitors.delete(id);
     }
 
@@ -253,60 +252,20 @@ export class PtyManager extends EventEmitter {
     if (!fs.existsSync(socketPath)) return Promise.resolve(null);
 
     return new Promise((resolve) => {
-      const socket = net.createConnection(socketPath);
-      let pending = Buffer.alloc(0);
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        resolve(null);
-      }, 2000);
-
-      socket.on("connect", () => {
-        // Send SPARKLINE_REQUEST: [4B len=1][0x18]
-        const frame = Buffer.alloc(5);
-        frame.writeUInt32BE(1, 0);
-        frame[4] = 0x18; // WS_MSG.SPARKLINE_REQUEST
-        socket.write(frame);
-      });
-
-      socket.on("data", (chunk) => {
-        pending = Buffer.concat([pending, chunk]);
-
-        // Parse length-prefixed frames
-        while (pending.length >= 4) {
-          const msgLen = pending.readUInt32BE(0);
-          if (pending.length < 4 + msgLen) break;
-
-          const payload = pending.subarray(4, 4 + msgLen);
-          pending = pending.subarray(4 + msgLen);
-
-          if (payload.length < 1) continue;
-          if (payload[0] === 0x19) { // WS_MSG.SPARKLINE_HISTORY
-            clearTimeout(timeout);
-            const data = payload.subarray(1);
-            if (data.length < 2) {
-              socket.destroy();
-              resolve([]);
-              return;
-            }
-            const count = data.readUInt16BE(0);
-            const values: number[] = [];
-            for (let i = 0; i < count; i++) {
-              const offset = 2 + i * 8;
-              if (offset + 8 > data.length) break;
-              values.push(data.readDoubleBE(offset));
-            }
-            socket.destroy();
-            resolve(values);
-            return;
-          }
-          // Ignore other frames (BUFFER_REPLAY, etc.)
-        }
-      });
-
-      socket.on("error", () => {
+      // SPARKLINE_REQUEST as the first frame is answered directly with no
+      // replay, so this is a raw transport rather than a SessionStream
+      // (which would send RESUME first).
+      const t = socketTransport(socketPath);
+      const timeout = setTimeout(() => { t.close(); resolve(null); }, 2000);
+      t.onOpen(() => t.send(encodeSparklineRequest()));
+      t.onFrame((frame) => {
+        if (frame[0] !== WS_MSG.SPARKLINE_HISTORY) return;
         clearTimeout(timeout);
-        resolve(null);
+        const values = decodeSparkline(frame.subarray(1));
+        t.close();
+        resolve(values);
       });
+      t.onClose(() => { clearTimeout(timeout); resolve(null); });
     });
   }
 
@@ -496,65 +455,38 @@ export class PtyManager extends EventEmitter {
    * This connection receives data/exit events so the session store stays current.
    */
   private startMonitor(id: string, socketPath: string): void {
-    const socket = net.createConnection(socketPath, () => {
-      this.monitors.set(id, socket);
+    const stream = new SessionStream({
+      transport: () => socketTransport(socketPath),
+      inflate: async (b) => new Uint8Array(gunzipSync(b)),
+      reconnect: false,
+      // The monitor only needs live events; a 1-byte tail limit keeps the
+      // mandatory replay tiny instead of gzipping the whole ring buffer.
+      maxReplayBytes: 1,
+    });
 
-      // Sync title from disk — handles pty-host processes running old code
-      // that don't send TITLE after buffer replay, and race conditions where
-      // the shell sets the title before the monitor connects.
-      const sessionPath = path.join(SESSIONS_DIR, `${id}.json`);
-      try {
-        const meta = JSON.parse(fs.readFileSync(sessionPath, "utf-8"));
-        if (meta.title) {
-          this.sessionStore.setTitle(id, meta.title);
+    stream.on("status", (status) => {
+      if (status === "connected") {
+        this.monitors.set(id, stream);
+        // Sync title from disk — handles pty-host processes running old code
+        // that don't send TITLE after buffer replay, and race conditions where
+        // the shell sets the title before the monitor connects.
+        try {
+          const meta = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, `${id}.json`), "utf-8"));
+          if (meta.title) this.sessionStore.setTitle(id, meta.title);
+        } catch {
+          // file may not exist yet or be corrupted
         }
-      } catch {
-        // Ignore — file may not exist yet or be corrupted
+      } else if (status === "closed") {
+        if (this.monitors.get(id) === stream) this.monitors.delete(id);
       }
     });
-
-    let pending = Buffer.alloc(0);
-
-    socket.on("data", (chunk) => {
-      pending = Buffer.concat([pending, chunk]);
-
-      while (pending.length >= 4) {
-        const msgLen = pending.readUInt32BE(0);
-        if (pending.length < 4 + msgLen) break;
-
-        const payload = pending.subarray(4, 4 + msgLen);
-        pending = pending.subarray(4 + msgLen);
-
-        if (payload.length < 1) continue;
-        const type = payload[0];
-
-        switch (type) {
-          case WS_MSG.DATA:
-            this.sessionStore.touch(id);
-            break;
-          case WS_MSG.EXIT: {
-            const exitCode = payload.readInt32BE(1);
-            this.sessionStore.markExited(id, exitCode);
-            this.monitors.delete(id);
-            this.emit("exit", id, exitCode);
-            break;
-          }
-          case WS_MSG.TITLE: {
-            const title = payload.subarray(1).toString("utf8");
-            this.sessionStore.setTitle(id, title);
-            break;
-          }
-          // BUFFER_REPLAY: ignore for monitoring
-        }
-      }
-    });
-
-    socket.on("close", () => {
+    stream.on("data", () => this.sessionStore.touch(id));
+    stream.on("title", (title) => this.sessionStore.setTitle(id, title));
+    stream.on("exit", (exitCode) => {
+      this.sessionStore.markExited(id, exitCode);
       this.monitors.delete(id);
+      this.emit("exit", id, exitCode);
     });
-
-    socket.on("error", () => {
-      this.monitors.delete(id);
-    });
+    stream.connect();
   }
 }
