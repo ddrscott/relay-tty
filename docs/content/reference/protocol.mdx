@@ -27,6 +27,8 @@ In both cases, the first byte of the payload is the message type.
 | `0x12` | server→client | `SESSION_STATE` | 1 byte: `0x00` = idle, `0x01` = active |
 | `0x13` | server→client | `BUFFER_REPLAY_GZ` | gzip-compressed output buffer (on connect) |
 | `0x14` | server→client | `SESSION_METRICS` | 4× float64 BE: bps1, bps5, bps15, totalBytes |
+| `0x24` | client→server | `SET_TITLE` | UTF-8 string: user-set title. Sets `titlePinned` so OSC title updates no longer overwrite it. Empty payload unpins. |
+| `0x25` | client→server | `SIGNAL` | 1 byte: signal number, delivered to the foreground process group (`kill(-tcgetpgrp(master), sig)`) |
 
 Constants are defined in `shared/types.ts` as `WS_MSG`.
 
@@ -104,6 +106,7 @@ pty-host is the only writer of `~/.relay-tty/sessions/<id>.json`. The server wat
 |-------|------|---------|
 | `agentState` | `"working" \| "blocked" \| "done" \| "idle" \| "unknown"` | Heuristic state of the foreground agent, recomputed once a second from `foregroundProcess`, `bps1`, and the last 4KB of output with escapes stripped. `idle` when the shell prompt is in the foreground, `unknown` for processes that are not a recognized agent. `blocked` means a permission or confirmation prompt is on screen. `done` means a known agent settled while no client was connected; it clears to `idle` on the next connect. |
 | `agentStateChangedAt` | number (epoch ms) | When `agentState` last changed. The file is rewritten immediately on a transition rather than waiting for the 5-second flush. |
+| `titlePinned` | boolean (omitted when false) | Set by `SET_TITLE`. While true, OSC 0/2 title sequences from the program are ignored and `title` stays as the user set it. An empty `SET_TITLE` clears it. |
 
 The rule tables live in `crates/pty-host/src/agent_state.rs`; adding an agent or a prompt pattern is a one-line change with unit tests alongside.
 

@@ -27,6 +27,8 @@ pub const WS_MSG_BUFFER_REPLAY_GZ: u8 = 0x13;
 pub const WS_MSG_SESSION_METRICS: u8 = 0x14;
 pub const WS_MSG_SPARKLINE_REQUEST: u8 = 0x18;
 pub const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
+pub const WS_MSG_SET_TITLE: u8 = 0x24;
+pub const WS_MSG_SIGNAL: u8 = 0x25;
 
 // ── Frame encoding/decoding ─────────────────────────────────────────
 
@@ -130,6 +132,16 @@ impl SocketClient {
     /// Send a SPARKLINE_REQUEST frame (no payload).
     pub fn send_sparkline_request(&mut self) -> io::Result<()> {
         self.send_frame(WS_MSG_SPARKLINE_REQUEST, &[])
+    }
+
+    /// Send SET_TITLE. Empty title unpins.
+    pub fn send_set_title(&mut self, title: &str) -> io::Result<()> {
+        self.send_frame(WS_MSG_SET_TITLE, title.as_bytes())
+    }
+
+    /// Send SIGNAL with a one-byte signal number.
+    pub fn send_signal(&mut self, signal: u8) -> io::Result<()> {
+        self.send_frame(WS_MSG_SIGNAL, &[signal])
     }
 
     /// Read the next frame. Returns None on timeout or disconnect.

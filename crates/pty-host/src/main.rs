@@ -46,6 +46,8 @@ const WS_MSG_SPARKLINE_REQUEST: u8 = 0x18;
 const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
 const WS_MSG_DETACH: u8 = 0x22;
 const WS_MSG_CLEAR_SCROLLBACK: u8 = 0x23;
+const WS_MSG_SET_TITLE: u8 = 0x24;
+const WS_MSG_SIGNAL: u8 = 0x25;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -1234,6 +1236,9 @@ struct SessionMeta {
     bytes_per_second: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
+    /// True after SET_TITLE; OSC title updates are ignored while pinned
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    title_pinned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     /// 1-minute bytes/sec rolling average
@@ -1526,6 +1531,8 @@ struct SharedState {
     exit_code: Option<i32>,
     throughput: ThroughputTracker,
     title: Option<String>,
+    /// Set by SET_TITLE; the OSC title branch is skipped while true.
+    title_pinned: bool,
     /// Tracks whether metrics are currently broadcasting (non-zero activity).
     /// Stops broadcasting when all three bps values hit 0.
     last_metrics_nonzero: bool,
@@ -1636,6 +1643,7 @@ async fn main() {
                 last_active_at: iso_now(),
                 bytes_per_second: 0.0,
                 title: None,
+                title_pinned: false,
                 error: Some(err.to_string()),
                 bps1: 0.0,
                 bps5: 0.0,
@@ -1676,6 +1684,7 @@ async fn main() {
         last_active_at: iso_now(),
         bytes_per_second: 0.0,
         title: None,
+        title_pinned: false,
         error: None,
         bps1: 0.0,
         bps5: 0.0,
@@ -1695,6 +1704,7 @@ async fn main() {
         exit_code: None,
         throughput: ThroughputTracker::new(),
         title: None,
+        title_pinned: false,
         last_metrics_nonzero: false,
         sparkline: SparklineRing::new(),
         clients_attached: 0,
@@ -1717,6 +1727,12 @@ async fn main() {
 
     // Channel for clear scrollback requests from clients
     let (clear_tx, mut clear_rx) = mpsc::channel::<()>(4);
+
+    // Channel for SET_TITLE (empty string unpins)
+    let (title_tx, mut title_rx) = mpsc::channel::<String>(4);
+
+    // Channel for SIGNAL (signal number for the foreground process group)
+    let (signal_tx, mut signal_rx) = mpsc::channel::<i32>(4);
 
     // Create Unix socket listener
     let std_listener = StdUnixListener::bind(&socket_path)
@@ -1826,10 +1842,11 @@ async fn main() {
 
                     let data = &drain_buf[..];
 
-                    // Parse OSC title
+                    // Parse OSC title (ignored while a SET_TITLE pin is active)
                     if let Some(new_title) = parse_osc_title(data) {
                         let mut s = state_pty.write().await;
-                        let title_changed = s.title.as_deref() != Some(&new_title);
+                        let title_changed =
+                            !s.title_pinned && s.title.as_deref() != Some(&new_title);
                         if title_changed {
                             s.title = Some(new_title.clone());
                             s.meta.title = Some(new_title.clone());
@@ -2049,6 +2066,50 @@ async fn main() {
         }
     });
 
+    // ── SET_TITLE handler: user-pinned title ────────────────────────
+    let state_title = Arc::clone(&state);
+    let broadcast_tx_title = broadcast_tx.clone();
+    let session_path_title = session_path.clone();
+    tokio::spawn(async move {
+        while let Some(title) = title_rx.recv().await {
+            let mut s = state_title.write().await;
+            if title.is_empty() {
+                // Unpin: keep the current title, let the next OSC overwrite it.
+                s.title_pinned = false;
+                s.meta.title_pinned = false;
+                atomic_write_json(&session_path_title, &s.meta);
+                s.meta_dirty = false;
+                continue;
+            }
+            s.title = Some(title.clone());
+            s.meta.title = Some(title.clone());
+            s.title_pinned = true;
+            s.meta.title_pinned = true;
+            atomic_write_json(&session_path_title, &s.meta);
+            s.meta_dirty = false;
+            drop(s);
+
+            let mut title_msg = vec![WS_MSG_TITLE];
+            title_msg.extend_from_slice(title.as_bytes());
+            let _ = broadcast_tx_title.send(encode_frame(&title_msg));
+        }
+    });
+
+    // ── SIGNAL handler: deliver to the foreground process group ─────
+    tokio::spawn(async move {
+        while let Some(sig) = signal_rx.recv().await {
+            // Out-of-range numbers are rejected by kill() with EINVAL.
+            if sig <= 0 {
+                continue;
+            }
+            let fg_pgrp = unsafe { libc::tcgetpgrp(master_raw_fd) };
+            let target = if fg_pgrp > 0 { fg_pgrp } else { child_pid };
+            unsafe {
+                libc::kill(-target, sig);
+            }
+        }
+    });
+
     // ── Periodic JSON flush (every 5s) ──────────────────────────────
     let state_json = Arc::clone(&state);
     let session_path_json = session_path.clone();
@@ -2255,8 +2316,18 @@ async fn main() {
                         let writer_client = Arc::clone(&writer);
                         let detach_tx = detach_tx.clone();
                         let clear_tx = clear_tx.clone();
+                        let title_tx = title_tx.clone();
+                        let signal_tx = signal_tx.clone();
                         tokio::spawn(async move {
-                            handle_client(reader, writer_client, state_client, input_tx, resize_tx, detach_tx, clear_tx).await;
+                            let control = ClientControl {
+                                input_tx,
+                                resize_tx,
+                                detach_tx,
+                                clear_tx,
+                                title_tx,
+                                signal_tx,
+                            };
+                            handle_client(reader, writer_client, state_client, &control).await;
                             broadcast_handle.abort();
                             let mut s = state_detach.write().await;
                             s.clients_attached = s.clients_attached.saturating_sub(1);
@@ -2278,14 +2349,21 @@ async fn main() {
 
 // ── Client handler ──────────────────────────────────────────────────
 
-async fn handle_client(
-    mut reader: tokio::net::unix::OwnedReadHalf,
-    writer: ClientWriter,
-    state: Arc<RwLock<SharedState>>,
+/// Senders for every client-to-host control message, one bundle per client.
+struct ClientControl {
     input_tx: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u16, u16)>,
     detach_tx: mpsc::Sender<()>,
     clear_tx: mpsc::Sender<()>,
+    title_tx: mpsc::Sender<String>,
+    signal_tx: mpsc::Sender<i32>,
+}
+
+async fn handle_client(
+    mut reader: tokio::net::unix::OwnedReadHalf,
+    writer: ClientWriter,
+    state: Arc<RwLock<SharedState>>,
+    control: &ClientControl,
 ) {
     // Wait for RESUME or timeout for full replay
     let mut pending = Vec::new();
@@ -2313,7 +2391,7 @@ async fn handle_client(
                 // Not a RESUME -- send full replay first, then process this message
                 send_full_replay(&writer, &state).await;
                 resume_handled = true;
-                process_client_message(msg_type, &data, &input_tx, &resize_tx, &detach_tx, &clear_tx).await;
+                process_client_message(msg_type, &data, control).await;
             }
         }
         Ok(None) => {
@@ -2373,7 +2451,7 @@ async fn handle_client(
             if msg_type == WS_MSG_SPARKLINE_REQUEST {
                 send_sparkline_history(&writer, &state).await;
             } else {
-                process_client_message(msg_type, data, &input_tx, &resize_tx, &detach_tx, &clear_tx).await;
+                process_client_message(msg_type, data, control).await;
             }
         }
     }
@@ -2589,30 +2667,32 @@ async fn send_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, bu
     }
 }
 
-async fn process_client_message(
-    msg_type: u8,
-    data: &[u8],
-    input_tx: &mpsc::Sender<Vec<u8>>,
-    resize_tx: &mpsc::Sender<(u16, u16)>,
-    detach_tx: &mpsc::Sender<()>,
-    clear_tx: &mpsc::Sender<()>,
-) {
+async fn process_client_message(msg_type: u8, data: &[u8], control: &ClientControl) {
     match msg_type {
         WS_MSG_DATA => {
-            let _ = input_tx.send(data.to_vec()).await;
+            let _ = control.input_tx.send(data.to_vec()).await;
         }
         WS_MSG_RESIZE => {
             if data.len() >= 4 {
                 let new_cols = u16::from_be_bytes([data[0], data[1]]);
                 let new_rows = u16::from_be_bytes([data[2], data[3]]);
-                let _ = resize_tx.send((new_cols, new_rows)).await;
+                let _ = control.resize_tx.send((new_cols, new_rows)).await;
             }
         }
         WS_MSG_DETACH => {
-            let _ = detach_tx.send(()).await;
+            let _ = control.detach_tx.send(()).await;
         }
         WS_MSG_CLEAR_SCROLLBACK => {
-            let _ = clear_tx.send(()).await;
+            let _ = control.clear_tx.send(()).await;
+        }
+        WS_MSG_SET_TITLE => {
+            let title = String::from_utf8_lossy(data).trim().to_string();
+            let _ = control.title_tx.send(title).await;
+        }
+        WS_MSG_SIGNAL => {
+            if let Some(&sig) = data.first() {
+                let _ = control.signal_tx.send(sig as i32).await;
+            }
         }
         _ => {
             // Ignore other message types (RESUME handled separately)
@@ -3575,6 +3655,16 @@ mod tests {
         assert_eq!(WS_MSG_SESSION_METRICS, 0x14);
         assert_eq!(WS_MSG_IMAGE, 0x17);
         assert_eq!(WS_MSG_CLEAR_SCROLLBACK, 0x23);
+        assert_eq!(WS_MSG_SET_TITLE, 0x24);
+        assert_eq!(WS_MSG_SIGNAL, 0x25);
+    }
+
+    #[test]
+    fn session_meta_title_pinned_only_when_true() {
+        let mut meta = test_shared_state().meta;
+        assert!(!serde_json::to_string(&meta).unwrap().contains("titlePinned"));
+        meta.title_pinned = true;
+        assert!(serde_json::to_string(&meta).unwrap().contains("\"titlePinned\":true"));
     }
 
     // ── SessionMeta serialization tests ─────────────────────────────
@@ -3599,6 +3689,7 @@ mod tests {
             last_active_at: "2026-01-01T00:00:00.000Z".into(),
             bytes_per_second: 0.0,
             title: None,
+            title_pinned: false,
             error: None,
             bps1: 0.0,
             bps5: 0.0,
@@ -3641,6 +3732,7 @@ mod tests {
             last_active_at: "2026-01-01T00:00:01.000Z".into(),
             bytes_per_second: 512.0,
             title: Some("vim".into()),
+            title_pinned: false,
             error: Some("test error".into()),
             bps1: 100.0,
             bps5: 50.0,
@@ -3676,6 +3768,7 @@ mod tests {
             last_active_at: "2026-01-01T00:00:00.000Z".into(),
             bytes_per_second: 0.0,
             title: None,
+            title_pinned: false,
             error: None,
             bps1: 0.0,
             bps5: 0.0,
@@ -4332,6 +4425,7 @@ mod tests {
             last_active_at: "2026-01-01T00:00:00.000Z".into(),
             bytes_per_second: 0.0,
             title: None,
+            title_pinned: false,
             error: None,
             bps1: 0.0,
             bps5: 0.0,
@@ -4348,6 +4442,7 @@ mod tests {
             exit_code: None,
             throughput: ThroughputTracker::new(),
             title: None,
+            title_pinned: false,
             last_metrics_nonzero: false,
             sparkline: SparklineRing::new(),
             clients_attached: 0,

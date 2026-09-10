@@ -880,3 +880,73 @@ fn agent_state_blocked_on_prompt() {
     }
     panic!("agentState never became blocked; last metadata: {:?}", last);
 }
+
+// ── SET_TITLE / SIGNAL tests ────────────────────────────────────────
+
+#[test]
+fn set_title_pins_over_osc() {
+    let handle = spawn_pty_host("/bin/sh", &[]).expect("failed to spawn");
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    client.collect_frames(Duration::from_millis(500));
+
+    client.send_set_title("mine").expect("send_set_title failed");
+    let frame = client
+        .wait_for_message(WS_MSG_TITLE, Duration::from_secs(2))
+        .expect("no TITLE frame after SET_TITLE");
+    assert_eq!(String::from_utf8_lossy(&frame.data), "mine");
+
+    // The program tries to retitle via OSC 0; the pin must win.
+    client
+        .send_data(b"printf '\\033]0;shell\\007'\r")
+        .expect("send_data failed");
+    let frames = client.collect_frames(Duration::from_secs(1));
+    let titles: Vec<String> = frames
+        .iter()
+        .filter(|f| f.msg_type == WS_MSG_TITLE)
+        .map(|f| String::from_utf8_lossy(&f.data).to_string())
+        .collect();
+    assert!(
+        !titles.iter().any(|t| t == "shell"),
+        "OSC title leaked through the pin: {:?}",
+        titles
+    );
+
+    let meta = read_session_json(&handle.session_path).expect("read session JSON");
+    assert_eq!(meta["title"], "mine");
+    assert_eq!(meta["titlePinned"], true);
+
+    // Empty SET_TITLE unpins; the next OSC goes through again.
+    client.send_set_title("").expect("unpin failed");
+    std::thread::sleep(Duration::from_millis(200));
+    client
+        .send_data(b"printf '\\033]0;shell\\007'\r")
+        .expect("send_data failed");
+    let frame = client
+        .wait_for_message(WS_MSG_TITLE, Duration::from_secs(2))
+        .expect("no TITLE frame after unpin");
+    assert_eq!(String::from_utf8_lossy(&frame.data), "shell");
+    let meta = read_session_json(&handle.session_path).expect("read session JSON");
+    assert!(meta.get("titlePinned").is_none(), "titlePinned should be omitted: {:?}", meta);
+}
+
+#[test]
+fn signal_interrupts_foreground() {
+    let handle = spawn_pty_host("/bin/sh", &["-c", "sleep 30; echo after"])
+        .expect("failed to spawn");
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    client
+        .wait_for_message(WS_MSG_SYNC, Duration::from_secs(2))
+        .expect("no SYNC");
+
+    client.send_signal(libc::SIGINT as u8).expect("send_signal failed");
+
+    let frame = client
+        .wait_for_message(WS_MSG_EXIT, Duration::from_secs(2))
+        .expect("no EXIT within 2s of SIGNAL");
+    let code = i32::from_be_bytes(frame.data[..4].try_into().unwrap());
+    assert_ne!(code, 0, "shell should not exit cleanly after SIGINT, got {}", code);
+}
