@@ -104,7 +104,7 @@ pty-host is the only writer of `~/.relay-tty/sessions/<id>.json`. The server wat
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `agentState` | `"working" \| "blocked" \| "done" \| "idle" \| "unknown"` | Heuristic state of the foreground agent, recomputed once a second from `foregroundProcess`, `bps1`, and the last 4KB of output with escapes stripped. `idle` when the shell prompt is in the foreground, `unknown` for processes that are not a recognized agent. `blocked` means a permission or confirmation prompt is on screen. `done` means a known agent settled while no client was connected; it clears to `idle` on the next connect. |
+| `agentState` | `"working" \| "blocked" \| "done" \| "idle" \| "unknown"` | Heuristic state of the foreground agent, recomputed once a second from `foregroundProcess`, `bps1`, and the last 4KB of output with escapes stripped. `idle` when the shell prompt is in the foreground, `unknown` for processes that are not a recognized agent (a bare version number such as `2.1.266` counts as Claude Code, since that is how its native binary reports its name). `blocked` means a permission or confirmation prompt is on screen. `done` means a known agent settled while no client was connected; it clears to `idle` on the next connect. |
 | `agentStateChangedAt` | number (epoch ms) | When `agentState` last changed. The file is rewritten immediately on a transition rather than waiting for the 5-second flush. |
 | `titlePinned` | boolean (omitted when false) | Set by `SET_TITLE`. While true, OSC 0/2 title sequences from the program are ignored and `title` stays as the user set it. An empty `SET_TITLE` clears it. |
 

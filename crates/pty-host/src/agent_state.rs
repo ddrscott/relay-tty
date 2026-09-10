@@ -65,7 +65,18 @@ const WORKING_BPS1: f64 = 1.0;
 
 pub fn is_known_agent(process: &str) -> bool {
     let name = process.rsplit('/').next().unwrap_or(process);
-    KNOWN_AGENTS.iter().any(|a| a.eq_ignore_ascii_case(name))
+    KNOWN_AGENTS.iter().any(|a| a.eq_ignore_ascii_case(name)) || is_semver_name(name)
+}
+
+/// Claude Code's native binary reports its comm name as its version
+/// ("2.1.266"), so a bare `MAJOR.MINOR.PATCH` name is treated as Claude Code.
+fn is_semver_name(name: &str) -> bool {
+    let mut parts = name.split('.');
+    let all_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some(a), Some(b), Some(c), None) if all_digits(a) && all_digits(b) && all_digits(c)
+    )
 }
 
 pub fn classify(obs: &Observation) -> AgentState {
@@ -199,6 +210,24 @@ mod tests {
         assert!(is_known_agent("cursor-agent"));
         assert!(!is_known_agent("vim"));
         assert!(!is_known_agent("claudette"));
+    }
+
+    #[test]
+    fn semver_comm_name_is_claude_code() {
+        assert!(is_known_agent("2.1.266"));
+        assert!(is_known_agent("/opt/claude/versions/2.1.266"));
+        assert!(!is_known_agent("2.1"));
+        assert!(!is_known_agent("2.1.266.1"));
+        assert!(!is_known_agent("2.x.1"));
+        assert!(!is_known_agent("v2.1.266"));
+        assert_eq!(
+            classify(&obs(Some("2.1.266"), 0.0, "esc to interrupt", 1, AgentState::Idle)),
+            AgentState::Working
+        );
+        assert_eq!(
+            classify(&obs(Some("2.1.266"), 0.0, "Yes, and don't ask again", 1, AgentState::Working)),
+            AgentState::Blocked
+        );
     }
 
     #[test]
