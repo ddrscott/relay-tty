@@ -1,3 +1,5 @@
+import type { AgentState } from "./client/agent-state.js";
+
 export interface Session {
   id: string;
   command: string;
@@ -28,6 +30,12 @@ export interface Session {
   bps15?: number;
   /** Name of the foreground process (absent when shell itself is in foreground) */
   foregroundProcess?: string;
+  /** Heuristic agent state computed by pty-host (see shared/client/agent-state.ts) */
+  agentState?: AgentState;
+  /** Epoch ms when agentState last changed */
+  agentStateChangedAt?: number;
+  /** True when the title was set by SET_TITLE and OSC title updates are ignored */
+  titlePinned?: boolean;
 }
 
 export const WS_MSG = {
