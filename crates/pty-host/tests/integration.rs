@@ -950,3 +950,41 @@ fn signal_interrupts_foreground() {
     let code = i32::from_be_bytes(frame.data[..4].try_into().unwrap());
     assert_ne!(code, 0, "shell should not exit cleanly after SIGINT, got {}", code);
 }
+
+// ── OBSERVE tests ───────────────────────────────────────────────────
+
+#[test]
+fn observe_gets_live_data_without_replay() {
+    let handle = spawn_pty_host(
+        "/bin/sh",
+        &["-c", "echo before; sleep 1; echo after; sleep 3"],
+    )
+    .expect("failed to spawn");
+    std::thread::sleep(Duration::from_millis(300)); // "before" is in the buffer
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_observe().expect("send_observe failed");
+
+    let frames = client.collect_frames(Duration::from_millis(2500));
+    let types: Vec<u8> = frames.iter().map(|f| f.msg_type).collect();
+    for t in [WS_MSG_BUFFER_REPLAY, WS_MSG_BUFFER_REPLAY_GZ, WS_MSG_SYNC, WS_MSG_RESIZE] {
+        assert!(
+            !types.contains(&t),
+            "observer must not get handshake frame {:#x}; got {:?}",
+            t,
+            types
+        );
+    }
+    let data: Vec<u8> = frames
+        .iter()
+        .filter(|f| f.msg_type == WS_MSG_DATA)
+        .flat_map(|f| f.data.clone())
+        .collect();
+    let text = String::from_utf8_lossy(&data);
+    assert!(text.contains("after"), "observer should see live output, got {:?}", text);
+    assert!(
+        !text.contains("before"),
+        "observer should not see buffered output, got {:?}",
+        text
+    );
+}

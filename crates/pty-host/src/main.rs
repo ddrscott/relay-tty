@@ -48,6 +48,7 @@ const WS_MSG_DETACH: u8 = 0x22;
 const WS_MSG_CLEAR_SCROLLBACK: u8 = 0x23;
 const WS_MSG_SET_TITLE: u8 = 0x24;
 const WS_MSG_SIGNAL: u8 = 0x25;
+const WS_MSG_OBSERVE: u8 = 0x26;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -2275,7 +2276,6 @@ async fn main() {
                         let (reader, writer) = stream.into_split();
                         let writer = Arc::new(Mutex::new(writer));
                         let state_client = Arc::clone(&state_accept);
-                        state_client.write().await.clients_attached += 1;
                         let state_detach = Arc::clone(&state_accept);
                         let input_tx = input_tx.clone();
                         let resize_tx = resize_tx.clone();
@@ -2327,10 +2327,12 @@ async fn main() {
                                 title_tx,
                                 signal_tx,
                             };
-                            handle_client(reader, writer_client, state_client, &control).await;
+                            let counted = handle_client(reader, writer_client, state_client, &control).await;
                             broadcast_handle.abort();
-                            let mut s = state_detach.write().await;
-                            s.clients_attached = s.clients_attached.saturating_sub(1);
+                            if counted {
+                                let mut s = state_detach.write().await;
+                                s.clients_attached = s.clients_attached.saturating_sub(1);
+                            }
                         });
                     }
                     Err(_) => continue,
@@ -2359,15 +2361,19 @@ struct ClientControl {
     signal_tx: mpsc::Sender<i32>,
 }
 
+/// Serve one client socket until it disconnects. Returns whether the client
+/// was counted in `clients_attached` (observers are not) so the caller can
+/// decrement symmetrically.
 async fn handle_client(
     mut reader: tokio::net::unix::OwnedReadHalf,
     writer: ClientWriter,
     state: Arc<RwLock<SharedState>>,
     control: &ClientControl,
-) {
+) -> bool {
     // Wait for RESUME or timeout for full replay
     let mut pending = Vec::new();
     let mut resume_handled = false;
+    let mut observer = false;
 
     // Read initial data with timeout
     let resume_result = tokio::time::timeout(
@@ -2381,6 +2387,11 @@ async fn handle_client(
             if msg_type == WS_MSG_RESUME {
                 resume_handled = true;
                 handle_resume(&writer, &state, &data).await;
+            } else if msg_type == WS_MSG_OBSERVE {
+                // Observer (server monitor, gallery, plugins): live broadcasts
+                // only, no replay/SYNC, and not a viewer for the Done rule.
+                resume_handled = true;
+                observer = true;
             } else if msg_type == WS_MSG_SPARKLINE_REQUEST {
                 // Query-only client (server's fetchSparkline opens a fresh socket
                 // and asks immediately). Answer it directly -- a full replay here
@@ -2396,7 +2407,7 @@ async fn handle_client(
         }
         Ok(None) => {
             // Client disconnected
-            return;
+            return false;
         }
         Err(_) => {
             // Timeout -- send full replay
@@ -2405,6 +2416,10 @@ async fn handle_client(
 
     if !resume_handled {
         send_full_replay(&writer, &state).await;
+    }
+
+    if !observer {
+        state.write().await.clients_attached += 1;
     }
 
     // Send exit if already exited
@@ -2455,6 +2470,8 @@ async fn handle_client(
             }
         }
     }
+
+    !observer
 }
 
 /// Reply to SPARKLINE_REQUEST with the bps1 ring buffer history.
@@ -3657,6 +3674,7 @@ mod tests {
         assert_eq!(WS_MSG_CLEAR_SCROLLBACK, 0x23);
         assert_eq!(WS_MSG_SET_TITLE, 0x24);
         assert_eq!(WS_MSG_SIGNAL, 0x25);
+        assert_eq!(WS_MSG_OBSERVE, 0x26);
     }
 
     #[test]

@@ -29,6 +29,7 @@ In both cases, the first byte of the payload is the message type.
 | `0x14` | server→client | `SESSION_METRICS` | 4× float64 BE: bps1, bps5, bps15, totalBytes |
 | `0x24` | client→server | `SET_TITLE` | UTF-8 string: user-set title. Sets `titlePinned` so OSC title updates no longer overwrite it. Empty payload unpins. |
 | `0x25` | client→server | `SIGNAL` | 1 byte: signal number, delivered to the foreground process group (`kill(-tcgetpgrp(master), sig)`) |
+| `0x26` | client→server | `OBSERVE` | *(none)*. Only meaningful as the first frame: marks the client as an observer, which gets no `BUFFER_REPLAY`/`SYNC`, is not counted as an attached viewer for `agentState`, but still receives every broadcast and may send control messages. Ignored if sent later. |
 
 Constants are defined in `shared/types.ts` as `WS_MSG`.
 
@@ -44,7 +45,7 @@ Client                          pty-host
   │◀─ ready for DATA ───────────│
 ```
 
-pty-host waits 100ms for a `RESUME` message. If none arrives (e.g., CLI clients), it sends the full buffer. A `SPARKLINE_REQUEST` sent as the first message is answered directly without a replay.
+pty-host waits 100ms for a `RESUME` message. If none arrives (e.g., CLI clients), it sends the full buffer. A `SPARKLINE_REQUEST` sent as the first message is answered directly without a replay. An `OBSERVE` sent as the first message skips the replay entirely: the client joins the live broadcast stream (and gets `EXIT` immediately if the session already ended) without being counted as a viewer. Server monitors, gallery cells, and plugins should open sockets this way so a session can reach `agentState: "done"` while only they are connected.
 
 ### Reconnect (delta resume)
 
