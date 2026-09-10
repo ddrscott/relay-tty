@@ -325,7 +325,7 @@ CLI: relay htop ────POST /api/sessions──▶│
 
                             ┌──────────────────────────────────┐
                             │ pty-host (detached process)      │
-                            │   ├─ Rust binary (or Node.js)    │
+                            │   ├─ Rust binary (forkpty)       │
                             │   ├─ OutputBuffer (10MB ring)    │
                             │   └─ Unix socket server          │
                             │       ~/.relay-tty/sockets/<id>  │
@@ -336,7 +336,7 @@ CLI: relay htop ────POST /api/sessions──▶│
 
 ### Key design decisions
 
-- **Process separation** — each session runs in a detached `pty-host` process that owns the PTY. The Rust implementation (`crates/pty-host/`) is preferred when available (~700KB binary, ~2MB RSS per session), with automatic Node.js fallback. The server can crash, restart, or be upgraded without killing sessions. Metadata is persisted to `~/.relay-tty/sessions/` and sockets live at `~/.relay-tty/sockets/`. On restart, the server discovers and reconnects to surviving sessions.
+- **Process separation** — each session runs in a detached `pty-host` process that owns the PTY. The pty-host is a Rust binary (`crates/pty-host/`, ~700KB, ~2MB RSS per session). The server can crash, restart, or be upgraded without killing sessions. Metadata is persisted to `~/.relay-tty/sessions/` and sockets live at `~/.relay-tty/sockets/`. On restart, the server discovers and reconnects to surviving sessions.
 - **CLI attaches by default** — `relay bash` creates a session and enters raw TTY mode. `--detach` for fire-and-forget.
 - **10MB output ring buffer** — new clients replay recent output on connect. This is a replay buffer for reconnecting viewers, not a logging system. Use real log infrastructure if you need durable retention.
 - **Per-client socket connections** — each WS client gets its own Unix socket to the pty-host, so each gets independent buffer replay.
@@ -417,7 +417,10 @@ relay server uninstall   # remove and stop the service
 npm run dev          # dev server with Vite HMR (auto-builds Rust if toolchain present)
 npm run build        # production build (React Router + CLI + Rust pty-host)
 npm start            # production server
+npm run check        # everything CI gates on: Rust tests, Node tests, client build
 ```
+
+Contributors, human or agent, should start with [AGENTS.md](AGENTS.md), which covers setup, verification, issues, and releases. CI runs `npm run check` on Ubuntu and macOS for every pull request.
 
 ### Tunnel test environment
 
@@ -441,11 +444,11 @@ cargo test --manifest-path crates/pty-host/Cargo.toml
 npm test
 ```
 
+The binary also reports 1/5/15-minute throughput averages (like `top` load averages) for every session.
+
 ### Parity suite
 
 `test/parity.integration.test.ts` holds the TUI and `relay attach` to one rule: using a session through relay must not be slower or less capable than running the same program in a plain terminal. It runs the client inside a real pty-host acting as the user's terminal and checks keystroke echo latency against a raw shell, that an app's terminal modes (alternate screen, mouse tracking, bracketed paste, cursor keys, cursor visibility) are restored on attach and on every TUI switch and reset when leaving, and that OSC 52 clipboard writes and OSC 9 notifications reach the terminal. Any change to the CLI, the TUI, the client core or pty-host output handling has to keep it green.
-
-The Rust binary provides 1/5/15-minute throughput metrics (like `top` load averages), lower memory usage (~2MB vs ~40MB per session), and eliminates the `node-pty` native addon as a crash risk.
 
 ### Binary distribution
 
@@ -458,7 +461,7 @@ When installed via npm, a postinstall script automatically downloads the pre-bui
 
 > **Windows:** Not natively supported. Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and install relay-tty inside your WSL distribution.
 
-If the download fails (offline, unsupported platform), it falls back to the Node.js pty-host. Set `RELAY_SKIP_BINARY_DOWNLOAD=1` to skip the download entirely.
+If the download fails (offline, unsupported platform), the install stops and prints the cargo command that builds the binary. Set `RELAY_SKIP_BINARY_DOWNLOAD=1` to skip the download, for example when you build pty-host yourself.
 
 Binaries are built via GitHub Actions on each tagged release (`v*`). The workflow cross-compiles for all four targets and attaches stripped binaries to the GitHub release.
 
@@ -467,8 +470,8 @@ Binaries are built via GitHub Actions on each tagged release (`v*`). The workflo
 ## Tech stack
 
 - **Frontend**: React Router v7 (SSR) + Tailwind v4 + DaisyUI v5 + xterm.js v5
-- **Backend**: Express 5 + node-pty + ws
-- **PTY Host**: Rust (tokio + forkpty) with Node.js fallback
+- **Backend**: Express 5 + ws
+- **PTY Host**: Rust (tokio + forkpty)
 - **CLI**: Commander
 - **Service**: launchd (macOS) / systemd (Linux)
 - **Mobile**: PWA (standalone, no browser chrome) + Web Speech API for voice input

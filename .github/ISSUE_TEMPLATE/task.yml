@@ -1,0 +1,26 @@
+name: Task
+description: Maintenance, refactoring, tests, or tooling with a clear finish line
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Done when
+      description: Checkable outcomes, one per line.
+      placeholder: |
+        - [ ] `npx tsc --noEmit` is clean for app/
+        - [ ] CI runs the typecheck
+    validations:
+      required: true
+
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Pointers
+      description: Files, prior commits, or related issues that save the next person time.

@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in relay-tty behaves wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most relay-tty bugs depend on the device and browser, so the environment fields below are required. Security problems go through [private reporting](https://github.com/ddrscott/relay-tty/security/advisories/new) instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The symptom as you saw it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Start from a clean state. Include the exact commands.
+      placeholder: |
+        1. relay server start --tunnel
+        2. relay claude
+        3. Open the session on the phone and scroll up while output streams
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it happens
+      multiple: true
+      options:
+        - Web UI, desktop browser
+        - Web UI, iOS (Safari or home-screen app)
+        - Web UI, Android (Chrome or home-screen app)
+        - relay attach / relay <command> in a terminal
+        - TUI (relay with no arguments)
+        - Tunnel (relaytty.com)
+        - Remote desktop (/desktop)
+        - Server install / service (launchd, systemd)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: relay-tty version
+      description: Output of `relay --version`
+      placeholder: "1.21.0"
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Host OS and architecture
+      description: The machine running relay.
+      placeholder: macOS 15.5, Apple Silicon
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Client device and browser
+      description: Skip if the bug is CLI-only.
+      placeholder: iPhone 16, iOS 19.1, Safari home-screen app
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or terminal output
+      description: Server output, browser console errors, or `relay info <id> --json`.
+      render: shell

@@ -1,39 +1,38 @@
 ---
-description: Prepare and publish a new release — bump version, update changelog, commit, tag, push, create GitHub release, and watch CI.
+description: Prepare and publish a new release — bump version, update changelog, commit, verify CI, tag, push, create GitHub release, and watch the release workflows.
 ---
 
-Prepare and publish a new release for relay-tty. Follow these steps in order:
+Prepare and publish a new release for relay-tty. Follow these steps in order. Tags are never moved or deleted once pushed: npm versions are immutable and postinstall downloads pty-host binaries by tag, so every problem found after tagging is fixed by releasing the next patch version.
 
-1. **Check state**: Run `git status` and `git diff --stat` to verify all changes are committed. If there are uncommitted changes, stop and ask the user to commit first.
+If the active `gh` account lacks push access to the repo, prefix every `gh` command that writes with `GH_TOKEN=$(gh auth token --user <account-with-push>)`.
+
+1. **Check state**: Run `git status` and `git diff --stat` to verify all changes are committed and you are on `main`. If there are uncommitted changes, stop and ask the user to commit first.
 
 2. **Determine version bump**: Look at commits since the last tag (`git log $(git describe --tags --abbrev=0)..HEAD --oneline`). Ask the user to confirm the bump level:
    - **patch** (bug fixes only)
    - **minor** (new features, non-breaking changes)
    - **major** (breaking changes)
 
-3. **Update CHANGELOG.md**: Read the current changelog, then add a new version section under `[Unreleased]` with the new version number and today's date. Categorize commits into Added, Changed, Fixed sections following Keep a Changelog format. Show the user the changelog entry for approval before writing.
+3. **Update CHANGELOG.md**: Move the `[Unreleased]` entries into a new `## [<version>] - <YYYY-MM-DD>` section, leaving an empty `[Unreleased]` above it. Fill gaps from the commit log using the Keep a Changelog sections (Added, Changed, Fixed), one line per entry. Show the user the entry for approval before writing.
 
 4. **Bump version**: Run `npm version <patch|minor|major> --no-git-tag-version`.
 
 5. **Commit**: Stage `CHANGELOG.md`, `package.json`, and `package-lock.json`. Commit with message `chore: release v<version>`.
 
-6. **Build check**: Run `cargo test --manifest-path crates/pty-host/Cargo.toml` to verify Rust tests pass before pushing.
+6. **Verify locally**: Run `npm run check`. Stop on failure. Nothing is tagged yet, so fix, commit, and rerun.
 
-7. **Push and tag**: Run `git push && git tag v<version> && git push --tags`.
+7. **Push `main` and wait for CI**: Run `git push`, then find the CI run for the release commit (`gh run list --workflow ci.yml --commit $(git rev-parse HEAD)`) and `gh run watch <run-id> --exit-status`. If it fails, investigate with `gh run view <run-id> --log-failed`, fix, commit, push, and watch again. Do not tag until CI is green on the exact commit being released.
 
-8. **Create GitHub release**: Use `gh release create v<version>` with release notes derived from the changelog entry.
+8. **Tag**: `git tag v<version> && git push origin v<version>`. Push only this tag, never `--tags`.
 
-9. **Watch CI**: Run `gh run list --limit 2` to find the triggered workflows, then `gh run watch <run-id>` to monitor until they complete.
+9. **Create GitHub release**: `gh release create v<version> --title v<version> --notes "<changelog entry>"`. The Rust workflow attaches the binaries to this release when its builds finish.
 
-10. **Auto-fix CI failures**: If a build fails:
+10. **Watch the release workflows**: `gh run list --limit 3` shows `Build Rust pty-host` and `Publish to npm` for the tag. Watch both with `gh run watch <run-id> --exit-status`.
+
+11. **If a release workflow fails**:
     a. Investigate with `gh run view <run-id> --log-failed | head -100`.
-    b. Diagnose the root cause (test failures, compile errors, lint issues, etc.).
-    c. Fix the issue locally — update code, fix tests, resolve errors.
-    d. Run the failing tests/build locally to verify the fix.
-    e. Commit the fix with a descriptive message.
-    f. Move the version tag: `git tag -f v<version> && git push --force origin v<version>` and `git push`.
-    g. Update the GitHub release if the tag moved: `gh release edit v<version> --target $(git rev-parse HEAD)`.
-    h. Watch CI again (`gh run watch`). Repeat this step until CI passes.
-    i. Only ask the user for help if the failure requires a design decision or is outside the codebase (e.g., CI infra, secrets, permissions).
+    b. If the cause is infrastructure (the npm trusted publisher config, runner images, a flaky download), fix it and rerun the failed jobs with `gh run rerun <run-id> --failed`. The tag does not change.
+    c. If the cause is code, fix it on `main` and start over at step 2 with a patch bump.
+    d. Never publish to npm by hand or move the tag yourself. If publishing cannot be fixed from CI, report to the user and let them decide.
 
-11. **Report**: Summarize the release with the version number, GitHub release URL, and CI status.
+12. **Report**: Summarize the release with the version number, GitHub release URL, npm version (`npm view relay-tty version`), and the status of each workflow.

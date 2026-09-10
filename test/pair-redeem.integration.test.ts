@@ -1,16 +1,11 @@
+import "./helpers/jwt-secret.js"; // first: server/auth.ts reads JWT_SECRET at load
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
 import { createApiRouter } from "../server/api.js";
+import { authMiddleware, setPairStore } from "../server/auth.js";
 import { PairStore } from "../server/pair-store.js";
 import { SessionStore } from "../server/session-store.js";
-
-// CRITICAL: set secret BEFORE importing auth module — JWT_SECRET is a module-level
-// constant captured at load time. Any import that arrives later will see the empty string.
-process.env.JWT_SECRET = "integration-test-secret";
-
-const authModule = await import("../server/auth.js");
-const { authMiddleware, setPairStore } = authModule;
 
 // Minimal PtyManager stub — no real process spawning needed for these tests.
 const ptyManagerStub = {

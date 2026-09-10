@@ -3,10 +3,10 @@
 /**
  * postinstall.js — Download pre-built Rust pty-host binary for the current platform.
  *
- * Uses only Node builtins (no external dependencies). Falls back gracefully
- * if the download fails — the Node.js pty-host will be used instead.
+ * Uses only Node builtins (no external dependencies). The binary is required,
+ * so a failed download fails the install with instructions to build it.
  *
- * Set RELAY_SKIP_BINARY_DOWNLOAD=1 to skip (useful in CI with --ignore-scripts).
+ * Set RELAY_SKIP_BINARY_DOWNLOAD=1 to skip (CI builds pty-host from source).
  */
 
 import { createWriteStream, mkdirSync, chmodSync, existsSync, unlinkSync } from "node:fs";

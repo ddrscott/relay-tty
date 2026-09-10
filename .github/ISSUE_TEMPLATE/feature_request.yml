@@ -1,0 +1,50 @@
+name: Feature request
+description: Something relay-tty should do that it does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What relay-tty should do. Name the command, screen, or setting if you know it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Done when
+      description: Checkable outcomes, one per line. Whoever picks this up works to this list.
+      placeholder: |
+        - [ ] `relay list --json` includes the session's git branch
+        - [ ] The sidebar shows the branch under the session title
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it would live
+      multiple: true
+      options:
+        - Web UI
+        - Mobile web UI
+        - CLI
+        - TUI
+        - pty-host
+        - Tunnel
+        - Docs
+        - Not sure
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds

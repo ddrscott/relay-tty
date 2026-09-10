@@ -1,4 +1,4 @@
-name: Deploy Documentation
+name: Documentation
 
 on:
   push:
@@ -6,14 +6,18 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 concurrency:
-  group: docs
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,7 +32,9 @@ jobs:
       - name: Install and build docs
         run: cd docs && npm ci && npm run build
 
+      # PRs only prove the site builds; main deploys it.
       - name: Deploy to Cloudflare Pages
+        if: github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

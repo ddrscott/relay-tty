@@ -20,20 +20,32 @@ jobs:
   publish:
     needs: wait-for-rust
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC); there is no NPM_TOKEN
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm (trusted publishing needs 11.5.1+)
+        run: npm install -g npm@11
+
+      # postinstall downloads the pty-host binary by this version's tag.
+      - name: Tag matches package.json version
+        run: |
+          want="v$(node -p 'require("./package.json").version')"
+          if [ "$want" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $want"
+            exit 1
+          fi
+
       - run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish
-        run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELAY_SKIP_BINARY_DOWNLOAD: "1"
+
+      # prepack runs `npm run build`. Provenance is attached automatically.
+      - run: npm publish

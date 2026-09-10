@@ -1,5 +1,7 @@
 # relay-tty Development Guide
 
+Workflow (setup, `npm run check`, issues, branches, releases) lives in AGENTS.md: @AGENTS.md
+
 ## Stack
 - Express + React Router v7 SSR + Tailwind v4 + DaisyUI v5
 - Rust pty-host (`crates/pty-host/`) — tokio + libc::forkpty, ~700KB binary
@@ -38,9 +40,9 @@ Solution in `terminal.tsx`: intercept touch events with `capture: true` + `stopP
 The scratchpad input bar is the **reference implementation**. When adding new toolbars with inputs, use these classes to maintain consistent sizing across all toolbars.
 
 ## Process Architecture
-Each session runs in a detached pty-host process (per-process isolation — one crash can't kill other sessions). Rust binary required (`crates/pty-host/`). Binary lookup: `bin/relay-pty-host` → `crates/pty-host/target/release/relay-pty-host`. Install downloads the binary automatically; build locally with `cargo build --release --manifest-path crates/pty-host/Cargo.toml`.
+Each session runs in a detached pty-host process (per-process isolation — one crash can't kill other sessions). Rust binary required (`crates/pty-host/`). Binary lookup: `crates/pty-host/target/release/relay-pty-host` → `bin/relay-pty-host` (`resolveRustBinaryPath` in `shared/spawn-utils.ts`). Install downloads the binary automatically; build locally with `cargo build --release --manifest-path crates/pty-host/Cargo.toml`.
 
-Rust pty-host features: `AltScreenScanner` (dual buffer, strips dead alt-screen content at write time), `bps1`/`bps5`/`bps15` throughput metrics (1/5/15m windows), `SESSION_METRICS` (0x14) broadcasts. Build: `cargo build --release --manifest-path crates/pty-host/Cargo.toml`. Test: `cargo test` (53 unit + 19 integration).
+Rust pty-host features: `AltScreenScanner` (dual buffer, strips dead alt-screen content at write time), `bps1`/`bps5`/`bps15` throughput metrics (1/5/15m windows), `SESSION_METRICS` (0x14) broadcasts. Build: `cargo build --release --manifest-path crates/pty-host/Cargo.toml`. Test: `npm run check` runs the Rust and Node suites together.
 
 Code changes require restarting pty-host or creating new sessions — running sessions use the old binary.
 

@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(deps)
+    open-pull-requests-limit: 5
+    ignore:
+      # xterm.js stays on v5 because v6 breaks mobile touch scrolling, and the
+      # addons are pinned to v5-compatible releases. See CLAUDE.md.
+      - dependency-name: "@xterm/*"
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(docs-deps)
+    groups:
+      docs:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /crates/pty-host
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      actions:
+        patterns: ["*"]
