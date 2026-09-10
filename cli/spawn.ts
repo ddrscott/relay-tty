@@ -1,16 +1,9 @@
 import { spawn as cpSpawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import { resolveRustBinaryPath, buildSpawnArgs } from "../shared/spawn-utils.js";
-
-const DATA_DIR = path.join(os.homedir(), ".relay-tty");
-const SOCKETS_DIR = path.join(DATA_DIR, "sockets");
-
-function isPidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
+import { SOCKETS_DIR, isPidAlive } from "../shared/client/directory-disk-node.js";
 
 /**
  * Spawn a pty-host process directly from the CLI (no server needed).

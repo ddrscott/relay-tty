@@ -1,11 +1,7 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
 import type { Session } from "../shared/types.js";
 import { resolveHost } from "./config.js";
-
-const SESSIONS_DIR = path.join(os.homedir(), ".relay-tty", "sessions");
-const SOCKETS_DIR = path.join(os.homedir(), ".relay-tty", "sockets");
+import { diskDirectory } from "../shared/client/directory-disk-node.js";
 
 // ── ANSI helpers ────────────────────────────────────────────────────────
 
@@ -59,73 +55,11 @@ export function truncate(s: string, maxLen: number): string {
   return s.slice(0, maxLen - 1) + "\u2026";
 }
 
-// ── Process liveness ────────────────────────────────────────────────────
-
-function isPidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
 // ── Session loading ─────────────────────────────────────────────────────
 
-export function listFromDisk(): Session[] {
-  if (!fs.existsSync(SESSIONS_DIR)) return [];
-
-  // Collect IDs that have session files so we can clean orphan sockets
-  const knownIds = new Set<string>();
-  const sessions: Session[] = [];
-
-  for (const file of fs.readdirSync(SESSIONS_DIR)) {
-    if (!file.endsWith(".json")) continue;
-    const id = file.replace(".json", "");
-    knownIds.add(id);
-
-    try {
-      const metaPath = path.join(SESSIONS_DIR, file);
-      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as Session;
-      if (!meta.cwd) meta.cwd = os.homedir();
-
-      // Reality check: if metadata says running, verify with the OS
-      if (meta.status === "running") {
-        const alive = meta.pid ? isPidAlive(meta.pid) : false;
-        if (!alive) {
-          meta.status = "exited";
-          meta.exitCode = -1;
-          meta.exitedAt = Date.now();
-          try { fs.writeFileSync(metaPath, JSON.stringify(meta)); } catch {}
-          try { fs.unlinkSync(path.join(SOCKETS_DIR, `${id}.sock`)); } catch {}
-        }
-      }
-
-      // Auto-clean exited sessions older than 1 hour
-      if (meta.status === "exited") {
-        const age = Date.now() - (meta.exitedAt || meta.createdAt);
-        if (age > 60 * 60 * 1000) {
-          try { fs.unlinkSync(metaPath); } catch {}
-          try { fs.unlinkSync(path.join(SOCKETS_DIR, `${id}.sock`)); } catch {}
-          continue;
-        }
-      }
-
-      sessions.push(meta);
-    } catch {
-      // Corrupted JSON — remove it
-      try { fs.unlinkSync(path.join(SESSIONS_DIR, file)); } catch {}
-    }
-  }
-
-  // Clean orphan sockets (no matching session file)
-  try {
-    for (const sock of fs.readdirSync(SOCKETS_DIR)) {
-      if (!sock.endsWith(".sock")) continue;
-      const id = sock.replace(".sock", "");
-      if (!knownIds.has(id)) {
-        try { fs.unlinkSync(path.join(SOCKETS_DIR, sock)); } catch {}
-      }
-    }
-  } catch {}
-
-  // Filter out exited sessions — they clutter listings with no practical value
-  return sessions.filter(s => s.status !== "exited").sort((a, b) => b.createdAt - a.createdAt);
+/** Running sessions from ~/.relay-tty (liveness-checked, newest first). */
+export function listFromDisk(): Promise<Session[]> {
+  return diskDirectory().list();
 }
 
 export async function loadSessions(host?: string): Promise<Session[]> {
@@ -154,10 +88,9 @@ export async function stopSession(id: string, host?: string): Promise<boolean> {
   }
 
   // Fallback: read PID from session metadata and kill directly
-  const metaPath = path.join(SESSIONS_DIR, `${id}.json`);
   try {
-    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-    if (meta.pid) {
+    const meta = await diskDirectory().get(id);
+    if (meta?.pid) {
       process.kill(meta.pid, "SIGTERM");
       return true;
     }
