@@ -1,5 +1,5 @@
 import type { Session } from "../../shared/types";
-import { agentStateRank } from "../../shared/client/agent-state";
+import { agentStateRank } from "../../shared/client/agent-state.js";
 
 export type SortKey = "recent" | "created" | "active" | "name";
 export type SortDir = "asc" | "desc";
