@@ -18,6 +18,7 @@ import { registerRenameCommand } from "./commands/rename.js";
 import { registerKillCommand } from "./commands/kill.js";
 import { registerWaitCommand } from "./commands/wait.js";
 import { registerEventsCommand } from "./commands/events.js";
+import { ensureRcFile } from "./rc.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -50,5 +51,9 @@ registerKillCommand(program);
 registerWaitCommand(program);
 registerEventsCommand(program);
 registerServerCommand(program);
+
+// Create ~/.config/relay-tty/relayrc with commented defaults if it is
+// missing, so the settings file is there to find whichever command runs first.
+ensureRcFile();
 
 program.parse();

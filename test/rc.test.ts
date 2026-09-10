@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseKeyChord, parseRc, loadRc, DEFAULT_RC } from "../cli/rc.js";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { parseKeyChord, parseRc, loadRc, ensureRcFile, DEFAULT_RC, DEFAULT_RC_TEXT } from "../cli/rc.js";
 
 describe("parseKeyChord", () => {
   it("accepts the common spellings", () => {
@@ -36,8 +39,32 @@ describe("parseRc", () => {
   });
 });
 
+describe("default relayrc", () => {
+  it("parses back to the defaults with no warnings", () => {
+    const warnings: string[] = [];
+    assert.deepEqual({ ...DEFAULT_RC, ...parseRc(DEFAULT_RC_TEXT, (m) => warnings.push(m)) }, DEFAULT_RC);
+    assert.deepEqual(warnings, []);
+  });
+});
+
 describe("loadRc", () => {
-  it("returns defaults when the file is missing", () => {
-    assert.deepEqual(loadRc("/nonexistent/relayrc"), DEFAULT_RC);
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "relay-rc-"));
+
+  it("creates the default file when it is missing, including the directory", () => {
+    const file = path.join(tmp(), "relay-tty", "relayrc");
+    assert.deepEqual(loadRc(file), DEFAULT_RC);
+    assert.equal(fs.readFileSync(file, "utf-8"), DEFAULT_RC_TEXT);
+  });
+
+  it("never overwrites an existing file", () => {
+    const file = path.join(tmp(), "relayrc");
+    fs.writeFileSync(file, "prefix = C-a\n");
+    assert.equal(ensureRcFile(file), false);
+    assert.equal(loadRc(file).prefix.label, "C-a");
+    assert.equal(fs.readFileSync(file, "utf-8"), "prefix = C-a\n");
+  });
+
+  it("returns defaults when the file cannot be created", () => {
+    assert.deepEqual(loadRc("/nonexistent-root-dir/relay-tty/relayrc"), DEFAULT_RC);
   });
 });

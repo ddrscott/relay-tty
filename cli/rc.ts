@@ -3,6 +3,9 @@
  *
  *   prefix = C-b        # TUI prefix key (default). Also accepts ctrl-b, ^b
  *   host = http://...   # default --host for every command
+ *
+ * Written with DEFAULT_RC_TEXT the first time it is read and found missing,
+ * so the file is there to discover and edit.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -24,6 +27,21 @@ export interface RelayRc {
 
 export const DEFAULT_PREFIX: KeyChord = { byte: 0x02, label: "C-b" };
 export const DEFAULT_RC: RelayRc = { prefix: DEFAULT_PREFIX };
+
+/** Contents written when no relayrc exists. Must parse back to DEFAULT_RC. */
+export const DEFAULT_RC_TEXT = `# relay-tty settings for the CLI and TUI.
+# One "key = value" per line. Lines starting with # are comments.
+# Unknown keys are ignored with a warning on stderr.
+
+# Prefix key for relay tui while attached to a session. Press it, then a
+# command key (n next, p previous, s picker, d detach, ? help). Press it
+# twice to send it to the program. Accepts C-b, ctrl-b or ^b.
+prefix = C-b
+
+# Default server URL for every command's --host. Leave unset to use the
+# sessions on this machine.
+# host = https://laptop.example.com
+`;
 
 /**
  * Parse a control chord: "C-b", "c-b", "ctrl-b", "Ctrl+B", "^b", "^]".
@@ -72,12 +90,31 @@ export function parseRc(text: string, warn: (msg: string) => void = () => {}): P
   return out;
 }
 
-/** Load the rc file; a missing or unreadable file yields the defaults. */
+/**
+ * Write the default relayrc if none exists. Never overwrites (exclusive
+ * create), and any failure (read-only home, missing permissions) is ignored
+ * because the defaults apply either way. Returns true when a file was written.
+ */
+export function ensureRcFile(file: string = RC_PATH): boolean {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, DEFAULT_RC_TEXT, { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load the rc file. A missing file is created with the defaults; a missing
+ * or unreadable file yields the defaults.
+ */
 export function loadRc(file: string = RC_PATH, warn: (msg: string) => void = (m) => process.stderr.write(m + "\n")): RelayRc {
   let text: string;
   try {
     text = fs.readFileSync(file, "utf-8");
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") ensureRcFile(file);
     return { ...DEFAULT_RC };
   }
   return { ...DEFAULT_RC, ...parseRc(text, warn) };

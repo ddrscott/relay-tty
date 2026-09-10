@@ -17,7 +17,7 @@ Contains the stable subdomain assigned by `relaytty.com`. Reused on subsequent r
 
 ## `~/.config/relay-tty/relayrc`
 
-Optional CLI and TUI settings. One `key = value` per line; `#` starts a comment. Unknown keys are ignored with a warning on stderr.
+CLI and TUI settings. Any `relay` command creates this file with the defaults below the first time it runs without one; it never overwrites an existing file. One `key = value` per line; `#` starts a comment. Unknown keys are ignored with a warning on stderr.
 
 ```ini
 # Prefix key for relay tui (default C-b). Also accepts ctrl-b or ^b.
