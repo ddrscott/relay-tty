@@ -988,3 +988,76 @@ fn observe_gets_live_data_without_replay() {
         text
     );
 }
+
+// ── Terminal mode restore ───────────────────────────────────────────
+
+/// Replay payload (BUFFER_REPLAY or decompressed BUFFER_REPLAY_GZ) as text.
+fn replay_text(frames: &[Frame]) -> String {
+    let mut out = Vec::new();
+    for frame in frames {
+        match frame.msg_type {
+            WS_MSG_BUFFER_REPLAY => out.extend_from_slice(&frame.data),
+            WS_MSG_BUFFER_REPLAY_GZ => {
+                use flate2::read::GzDecoder;
+                use std::io::Read;
+                GzDecoder::new(&frame.data[..]).read_to_end(&mut out).ok();
+            }
+            _ => {}
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[test]
+fn replay_restores_terminal_modes_set_before_last_clear() {
+    // An app turns on its modes the way vim and Claude Code do, then clears
+    // and draws. The replay body is trimmed at that clear, so without the
+    // preamble a reattaching client would lose every one of these modes.
+    let handle = spawn_pty_host(
+        "/bin/sh",
+        &[
+            "-c",
+            "printf '\\033[?1049h\\033[?1h\\033=\\033[?2004h\\033[?1000h\\033[?1006h\\033[?25l\\033[5 q'; \
+             printf '\\033[2J\\033[HAPP-FRAME'; sleep 3",
+        ],
+    )
+    .expect("failed to spawn");
+    std::thread::sleep(Duration::from_millis(600));
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    let replay = replay_text(&client.collect_frames(Duration::from_secs(2)));
+
+    assert!(replay.starts_with("\x1b[?1049h"), "replay should re-enter the alt screen first: {:?}", replay);
+    for seq in ["\x1b[?1h", "\x1b=", "\x1b[?2004h", "\x1b[?1000h", "\x1b[?1006h", "\x1b[?25l", "\x1b[5 q"] {
+        assert!(replay.contains(seq), "replay missing {:?}: {:?}", seq, replay);
+    }
+    assert!(replay.ends_with("APP-FRAME"), "screen content follows the preamble: {:?}", replay);
+}
+
+#[test]
+fn delta_resume_does_not_repeat_the_preamble() {
+    let handle = spawn_pty_host(
+        "/bin/sh",
+        &["-c", "printf '\\033[?2004h\\033[2Jfirst'; sleep 1; printf ' second'; sleep 3"],
+    )
+    .expect("failed to spawn");
+    std::thread::sleep(Duration::from_millis(400));
+
+    let mut first = connect(&handle.socket_path).expect("connect failed");
+    first.send_resume(0.0).expect("send_resume failed");
+    let frames = first.collect_frames(Duration::from_millis(500));
+    let offset = frames
+        .iter()
+        .find(|f| f.msg_type == WS_MSG_SYNC)
+        .map(|f| f64::from_be_bytes(f.data[..8].try_into().unwrap()))
+        .expect("SYNC after replay");
+    drop(first);
+    std::thread::sleep(Duration::from_millis(1000));
+
+    let mut second = connect(&handle.socket_path).expect("connect failed");
+    second.send_resume(offset).expect("send_resume failed");
+    let delta = replay_text(&second.collect_frames(Duration::from_millis(800)));
+    assert!(delta.contains("second"), "delta carries new output: {:?}", delta);
+    assert!(!delta.contains("?2004h"), "delta must not repeat the preamble: {:?}", delta);
+}

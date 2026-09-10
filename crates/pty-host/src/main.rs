@@ -26,6 +26,8 @@ use tokio::time;
 
 mod agent_state;
 use agent_state::{classify, strip_ansi, AgentState, Observation};
+mod term_modes;
+use term_modes::{alt_screen_transition, AltScreenEvent, EscScanner, TermModes};
 
 // ── WS_MSG constants (must match shared/types.ts) ────────────────────
 
@@ -61,137 +63,6 @@ const METRICS_INTERVAL_MS: u64 = 1_000;
 const RESUME_TIMEOUT_MS: u64 = 100;
 const AGENT_TAIL_BYTES: usize = 4096;
 
-// ── Alt screen mode numbers ─────────────────────────────────────────
-const ALT_SCREEN_MODES: &[u16] = &[1049, 47, 1047];
-
-// ── AltScreenScanner ────────────────────────────────────────────────
-
-/// Scanning state for detecting CSI private mode sequences that
-/// enter/exit the alternate screen buffer.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ScanState {
-    Normal,
-    Esc,      // saw ESC (0x1b)
-    Bracket,  // saw ESC [
-    Question, // saw ESC [ ?
-    Params,   // accumulating digit/semicolon param bytes
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum AltScreenEvent {
-    Enter,
-    Exit,
-}
-
-struct AltScreenScanner {
-    state: ScanState,
-    param_buf: Vec<u8>, // accumulates param bytes (digits + semicolons)
-}
-
-impl AltScreenScanner {
-    fn new() -> Self {
-        Self {
-            state: ScanState::Normal,
-            param_buf: Vec::with_capacity(32),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.state = ScanState::Normal;
-        self.param_buf.clear();
-    }
-
-    /// Feed a single byte. Returns Some(event) if an alt screen transition
-    /// was detected, along with the number of bytes in the escape sequence
-    /// (not counting this final byte, since the caller already has it).
-    fn feed(&mut self, byte: u8) -> Option<AltScreenEvent> {
-        match self.state {
-            ScanState::Normal => {
-                if byte == 0x1b {
-                    self.state = ScanState::Esc;
-                }
-                None
-            }
-            ScanState::Esc => {
-                if byte == b'[' {
-                    self.state = ScanState::Bracket;
-                } else {
-                    self.reset();
-                    // Re-check: the byte itself might be ESC
-                    if byte == 0x1b {
-                        self.state = ScanState::Esc;
-                    }
-                }
-                None
-            }
-            ScanState::Bracket => {
-                if byte == b'?' {
-                    self.state = ScanState::Question;
-                    self.param_buf.clear();
-                } else {
-                    self.reset();
-                    if byte == 0x1b {
-                        self.state = ScanState::Esc;
-                    }
-                }
-                None
-            }
-            ScanState::Question => {
-                if byte.is_ascii_digit() || byte == b';' {
-                    self.state = ScanState::Params;
-                    self.param_buf.clear();
-                    self.param_buf.push(byte);
-                } else {
-                    self.reset();
-                    if byte == 0x1b {
-                        self.state = ScanState::Esc;
-                    }
-                }
-                None
-            }
-            ScanState::Params => {
-                if byte.is_ascii_digit() || byte == b';' {
-                    self.param_buf.push(byte);
-                    None
-                } else if byte == b'h' || byte == b'l' {
-                    let event = self.check_alt_mode(byte == b'h');
-                    self.reset();
-                    event
-                } else {
-                    // Not a recognized terminator
-                    self.reset();
-                    if byte == 0x1b {
-                        self.state = ScanState::Esc;
-                    }
-                    None
-                }
-            }
-        }
-    }
-
-    /// Check if the accumulated params contain an alt screen mode number.
-    fn check_alt_mode(&self, is_set: bool) -> Option<AltScreenEvent> {
-        let params_str = std::str::from_utf8(&self.param_buf).unwrap_or("");
-        for part in params_str.split(';') {
-            if let Ok(mode) = part.parse::<u16>() {
-                if ALT_SCREEN_MODES.contains(&mode) {
-                    return Some(if is_set {
-                        AltScreenEvent::Enter
-                    } else {
-                        AltScreenEvent::Exit
-                    });
-                }
-            }
-        }
-        None
-    }
-
-    /// Whether we're mid-sequence (need to buffer bytes).
-    fn is_mid_sequence(&self) -> bool {
-        self.state != ScanState::Normal
-    }
-}
-
 // ── Ring buffer (OutputBuffer equivalent) ────────────────────────────
 
 struct OutputBuffer {
@@ -206,9 +77,11 @@ struct OutputBuffer {
     alt_content_start: f64, // total_written at start of current alt content
     // Monotonic byte counter across both buffers
     total_written: f64,
-    // Escape sequence scanner
-    scanner: AltScreenScanner,
+    // Escape sequence scanner (shared with mode tracking)
+    scanner: EscScanner,
     pending_seq: Vec<u8>, // bytes held during mid-sequence scanning
+    // Terminal modes the app has set, restored on full replay
+    modes: TermModes,
 }
 
 impl OutputBuffer {
@@ -222,8 +95,9 @@ impl OutputBuffer {
             in_alt_screen: false,
             alt_content_start: 0.0,
             total_written: 0.0,
-            scanner: AltScreenScanner::new(),
+            scanner: EscScanner::new(),
             pending_seq: Vec::with_capacity(32),
+            modes: TermModes::new(),
         }
     }
 
@@ -279,8 +153,9 @@ impl OutputBuffer {
                 self.pending_seq.push(byte);
 
                 if let Some(event) = self.scanner.feed(byte) {
-                    match event {
-                        AltScreenEvent::Enter => {
+                    self.modes.apply(&event);
+                    match alt_screen_transition(&event) {
+                        Some(AltScreenEvent::Enter) => {
                             // Write the enter sequence to main buffer
                             let seq = std::mem::take(&mut self.pending_seq);
                             self.total_written += seq.len() as f64;
@@ -289,7 +164,7 @@ impl OutputBuffer {
                             self.alt_buf.clear();
                             self.alt_content_start = self.total_written;
                         }
-                        AltScreenEvent::Exit => {
+                        Some(AltScreenEvent::Exit) => {
                             // Discard alt content, write exit sequence to main
                             self.alt_buf.clear();
                             let seq = std::mem::take(&mut self.pending_seq);
@@ -298,10 +173,20 @@ impl OutputBuffer {
                             self.write_main_slice(&seq);
                             self.alt_content_start = self.total_written;
                         }
+                        None => {
+                            // Any other completed sequence stays with the current screen
+                            let seq = std::mem::take(&mut self.pending_seq);
+                            self.total_written += seq.len() as f64;
+                            if self.in_alt_screen {
+                                self.write_alt_slice(&seq);
+                            } else {
+                                self.write_main_slice(&seq);
+                            }
+                        }
                     }
                     chunk_start = i + 1;
                 } else if !self.scanner.is_mid_sequence() {
-                    // Sequence aborted (not an alt screen sequence) — flush pending
+                    // Sequence aborted — flush pending bytes as ordinary output
                     let seq = std::mem::take(&mut self.pending_seq);
                     self.total_written += seq.len() as f64;
                     if self.in_alt_screen {
@@ -439,6 +324,28 @@ impl OutputBuffer {
         }
     }
 
+    /// Prefix a full-replay body with the terminal state it needs.
+    ///
+    /// The body is trimmed at the last screen clear, so the sequences that set
+    /// the app's modes (and often the alternate-screen switch itself) are gone.
+    /// Re-enter the alternate screen when the body no longer contains the
+    /// switch, then restore every non-default mode. Deltas never get this: a
+    /// client resuming from an offset already processed those bytes.
+    fn with_replay_preamble(&self, body: &[u8]) -> Vec<u8> {
+        let modes = self.modes.preamble();
+        let needs_alt = self.in_alt_screen && !contains_alt_enter(body);
+        if modes.is_empty() && !needs_alt {
+            return body.to_vec();
+        }
+        let mut out = Vec::with_capacity(body.len() + modes.len() + 8);
+        if needs_alt {
+            out.extend_from_slice(b"\x1b[?1049h");
+        }
+        out.extend_from_slice(&modes);
+        out.extend_from_slice(body);
+        out
+    }
+
     /// Read bytes from a global offset to the current write position.
     /// Returns None if the offset is before the buffer start (data overwritten).
     fn read_from(&self, offset: f64) -> Option<Vec<u8>> {
@@ -553,6 +460,14 @@ impl OutputBuffer {
 
 /// When a circular buffer wraps, skip to the first newline to avoid
 /// partial escape sequences / multi-byte UTF-8 characters.
+/// True when `data` contains a complete alternate-screen enter sequence.
+fn contains_alt_enter(data: &[u8]) -> bool {
+    let mut scanner = EscScanner::new();
+    data.iter()
+        .filter_map(|&b| scanner.feed(b))
+        .any(|e| alt_screen_transition(&e) == Some(AltScreenEvent::Enter))
+}
+
 fn sanitize_start(buf: Vec<u8>) -> Vec<u8> {
     if let Some(idx) = buf.iter().position(|&b| b == b'\n') {
         if idx == 0 {
@@ -2565,8 +2480,9 @@ async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, 
     if client_offset <= 0.0 {
         // First connect -- full replay, clamped to the requested tail (if any)
         let buf_data = s.output_buffer.read();
+        let replay = s.output_buffer.with_replay_preamble(clamp_replay_tail(&buf_data, max_replay_bytes));
         drop(s);
-        send_replay(writer, state, clamp_replay_tail(&buf_data, max_replay_bytes)).await;
+        send_replay(writer, state, &replay).await;
     } else {
         // Try delta replay
         match s.output_buffer.read_from(client_offset) {
@@ -2579,9 +2495,10 @@ async fn handle_resume(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, 
             None => {
                 // Offset too old -- full replay with cache reset signal
                 let buf_data = s.output_buffer.read();
+                let replay = s.output_buffer.with_replay_preamble(clamp_replay_tail(&buf_data, max_replay_bytes));
                 drop(s);
                 send_cache_reset(writer).await;
-                send_replay(writer, state, clamp_replay_tail(&buf_data, max_replay_bytes)).await;
+                send_replay(writer, state, &replay).await;
             }
         }
     }
@@ -2599,7 +2516,7 @@ async fn send_cache_reset(writer: &ClientWriter) {
 
 async fn send_full_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>) {
     let s = state.read().await;
-    let buf_data = s.output_buffer.read();
+    let buf_data = s.output_buffer.with_replay_preamble(&s.output_buffer.read());
     drop(s);
     send_replay(writer, state, &buf_data).await;
 }
@@ -3847,161 +3764,95 @@ mod tests {
         assert_eq!((y, m, d), (2026, 3, 1));
     }
 
-    // ── AltScreenScanner tests ──────────────────────────────────────
+    // ── Alt-screen detection through EscScanner ────────────────────
+    // (scanner and mode-tracking unit tests live in term_modes.rs)
 
-    #[test]
-    fn scanner_detects_alt_enter_1049() {
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?1049h";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Enter));
+    /// Alt-screen transitions seen while feeding `seq` through one scanner.
+    fn alt_events(scanner: &mut EscScanner, seq: &[u8]) -> Vec<AltScreenEvent> {
+        seq.iter()
+            .filter_map(|&b| scanner.feed(b))
+            .filter_map(|e| alt_screen_transition(&e))
+            .collect()
     }
 
     #[test]
-    fn scanner_detects_alt_exit_1049() {
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?1049l";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Exit));
+    fn scanner_detects_alt_modes() {
+        let mut s = EscScanner::new();
+        assert_eq!(alt_events(&mut s, b"\x1b[?1049h"), vec![AltScreenEvent::Enter]);
+        assert_eq!(alt_events(&mut s, b"\x1b[?1049l"), vec![AltScreenEvent::Exit]);
+        assert_eq!(alt_events(&mut s, b"\x1b[?47h"), vec![AltScreenEvent::Enter]);
+        assert_eq!(alt_events(&mut s, b"\x1b[?1047l"), vec![AltScreenEvent::Exit]);
+        assert_eq!(alt_events(&mut s, b"\x1b[?1049;25h"), vec![AltScreenEvent::Enter]);
     }
 
     #[test]
-    fn scanner_detects_mode_47() {
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?47h";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Enter));
-    }
-
-    #[test]
-    fn scanner_detects_mode_1047() {
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?1047l";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Exit));
-    }
-
-    #[test]
-    fn scanner_compound_params() {
-        // ESC[?1049;25h — compound params, 1049 is alt screen
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?1049;25h";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Enter));
-    }
-
-    #[test]
-    fn scanner_ignores_non_alt_mode() {
-        // ESC[?25h — show cursor, not alt screen
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?25h";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, None);
-    }
-
-    #[test]
-    fn scanner_ignores_non_private_csi() {
-        // ESC[1m — SGR bold, not a private mode
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[1m";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, None);
-    }
-
-    #[test]
-    fn scanner_resets_on_non_sequence() {
-        let mut scanner = AltScreenScanner::new();
-        // Feed some plain text
-        for &b in b"hello" {
-            assert_eq!(scanner.feed(b), None);
-        }
-        assert_eq!(scanner.state, ScanState::Normal);
+    fn scanner_ignores_non_alt_sequences() {
+        let mut s = EscScanner::new();
+        assert!(alt_events(&mut s, b"\x1b[?25h\x1b[1mhello").is_empty());
+        assert!(!s.is_mid_sequence());
     }
 
     #[test]
     fn scanner_cross_boundary() {
-        // Split ESC[?1049h across two "writes"
-        let mut scanner = AltScreenScanner::new();
-        let part1 = b"\x1b[?10";
-        let part2 = b"49h";
-        let mut event = None;
-        for &b in part1 {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert!(scanner.is_mid_sequence());
-        assert_eq!(event, None);
-        for &b in part2 {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Enter));
+        let mut s = EscScanner::new();
+        assert!(alt_events(&mut s, b"\x1b[?10").is_empty());
+        assert!(s.is_mid_sequence());
+        assert_eq!(alt_events(&mut s, b"49h"), vec![AltScreenEvent::Enter]);
     }
 
     #[test]
-    fn scanner_aborted_sequence_followed_by_real() {
-        // ESC[?25h (not alt), then ESC[?1049h (alt)
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b[?25h\x1b[?1049h";
-        let mut events = Vec::new();
-        for &b in seq.iter() {
-            if let Some(e) = scanner.feed(b) {
-                events.push(e);
-            }
+    fn scanner_non_alt_then_alt_and_double_esc() {
+        let mut s = EscScanner::new();
+        assert_eq!(alt_events(&mut s, b"\x1b[?25h\x1b[?1049h"), vec![AltScreenEvent::Enter]);
+        assert_eq!(alt_events(&mut s, b"\x1b\x1b[?1049l"), vec![AltScreenEvent::Exit]);
+    }
+
+    // ── Replay preamble ─────────────────────────────────────────────
+
+    #[test]
+    fn replay_preamble_restores_modes_lost_to_screen_clear_trim() {
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"$ vim\r\n\x1b[?1049h\x1b[?1h\x1b=\x1b[?2004h\x1b[?1000;1006h\x1b[?25l");
+        buf.write(b"\x1b[2J\x1b[HFRAME");
+        let body = buf.read();
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(body_text.starts_with("\x1b[2J"), "trimmed at last clear: {:?}", body_text);
+        assert!(!body_text.contains("?2004h"));
+        let replay = String::from_utf8(buf.with_replay_preamble(&body)).unwrap();
+        assert!(replay.starts_with("\x1b[?1049h"), "re-enters alt screen: {:?}", replay);
+        for seq in ["\x1b[?1h", "\x1b[?25l", "\x1b[?1000h", "\x1b[?1006h", "\x1b[?2004h", "\x1b="] {
+            assert!(replay.contains(seq), "missing {:?} in {:?}", seq, replay);
         }
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0], AltScreenEvent::Enter);
+        assert!(replay.ends_with("\x1b[2J\x1b[HFRAME"));
     }
 
     #[test]
-    fn scanner_double_esc_recovery() {
-        // Two ESCs in a row — second should start a new sequence
-        let mut scanner = AltScreenScanner::new();
-        let seq = b"\x1b\x1b[?1049h";
-        let mut event = None;
-        for &b in seq {
-            if let Some(e) = scanner.feed(b) {
-                event = Some(e);
-            }
-        }
-        assert_eq!(event, Some(AltScreenEvent::Enter));
+    fn replay_preamble_does_not_duplicate_alt_enter_in_body() {
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"prompt\x1b[?1049hALT");
+        let body = buf.read();
+        let replay = buf.with_replay_preamble(&body);
+        let text = String::from_utf8_lossy(&replay);
+        assert_eq!(text.matches("?1049h").count(), 1, "{:?}", text);
+    }
+
+    #[test]
+    fn replay_preamble_empty_for_plain_shell_and_after_exit() {
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"$ ls\r\nfile\r\n");
+        assert_eq!(buf.with_replay_preamble(&buf.read()), buf.read());
+        buf.write(b"\x1b[?1049h\x1b[?2004h\x1b[?1000hvim\x1b[?1000l\x1b[?2004l\x1b[?1049l$ ");
+        let body = buf.read();
+        assert_eq!(buf.with_replay_preamble(&body), body);
+    }
+
+    #[test]
+    fn modes_split_across_writes_are_tracked() {
+        let mut buf = OutputBuffer::new(4096);
+        buf.write(b"\x1b[?20");
+        buf.write(b"04h\x1b[2Jx");
+        let replay = String::from_utf8(buf.with_replay_preamble(&buf.read())).unwrap();
+        assert!(replay.starts_with("\x1b[?2004h"), "{:?}", replay);
     }
 
     // ── Dual-buffer OutputBuffer tests ──────────────────────────────

@@ -85,6 +85,24 @@ Client                          pty-host
 - `RESUME`/`SYNC` use float64 because `totalBytes` can exceed 2^32 for long-running sessions
 - `BUFFER_REPLAY_GZ` is used when the buffer exceeds ~64KB to reduce transfer time
 - Browser writes replayed data in 64KB chunks with `setTimeout` yields to avoid UI jank
+- A full replay is trimmed at the last full-screen clear (`ESC[2J`), because TUIs such as Claude Code redraw with a clear on every frame and only the last frame matters
+
+### Terminal mode restore
+
+Trimming at the last clear also drops the sequences an application used to set up the terminal, usually long before. pty-host therefore tracks the modes the application has set and prefixes every **full** replay (first connect, or a stale offset) with the sequences that restore them. Delta replays never get the prefix, since the client already processed those bytes.
+
+| Restored | Sequence |
+|---|---|
+| Alternate screen | `ESC[?1049h`, emitted first and only when the trimmed body no longer contains the switch |
+| Cursor keys (DECCKM), autowrap, cursor visible | `ESC[?1h`, `ESC[?7l`, `ESC[?25l` |
+| Mouse tracking and encodings | `ESC[?1000h`, `?1002h`, `?1003h`, `?1004h` (focus), `?1005h`, `?1006h`, `?1015h`, `?1016h` |
+| Bracketed paste | `ESC[?2004h` |
+| Application keypad | `ESC=` (also set by `ESC[?66h`) |
+| Cursor shape (DECSCUSR) | `ESC[Ps q` |
+| Kitty keyboard flags | `ESC[>flags u` |
+| xterm modifyOtherKeys | `ESC[>4;Pv m` |
+
+Only settings that differ from the power-on defaults are emitted, so a plain shell gets no prefix. `ESC c` (RIS) and `ESC[!p` (DECSTR) reset the tracked state. The list is defined in `crates/pty-host/src/term_modes.rs` and mirrored by the client-side reset in `shared/client/terminal-reset.ts`, which turns all of these off when a terminal client leaves a session. Change them together.
 
 ## Metrics (0x14)
 
