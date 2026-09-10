@@ -4,12 +4,21 @@ import { spawnDirect, waitForSocket } from "../spawn.js";
 
 export function registerRunCommand(program: Command) {
   program
-    .argument("<command...>", "command to run (e.g., bash, htop)")
+    .argument("[command...]", "command to run (e.g., bash, htop); with no command, opens the TUI")
     .option("-d, --detach", "start session without attaching")
     .option("-s, --share", "generate a share link immediately after session creation")
     .option("--ttl <seconds>", "share link lifetime in seconds (default: 3600)", "3600")
     .option("-H, --host <url>", "server URL (for --share)")
     .action(async (commandParts: string[], opts) => {
+      if (commandParts.length === 0) {
+        if (process.stdout.isTTY && process.stdin.isTTY) {
+          const { runTui } = await import("../tui.js");
+          await runTui({ host: opts.host });
+          return;
+        }
+        process.stderr.write("Usage: relay <command> [args...]   (run `relay` in a terminal to open the TUI)\n");
+        process.exit(1);
+      }
       const command = commandParts[0];
       const args = commandParts.slice(1);
       const cols = process.stdout.columns || 80;

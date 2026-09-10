@@ -21,6 +21,8 @@ relay -- python3 -m http.server  # use -- for commands with flags
 |------|-------------|
 | `--detach`, `-d` | Create session without attaching. Prints session URL to stdout |
 
+Running `relay` with no command in a terminal opens the TUI (see `relay tui`).
+
 ### `relay attach <id>`
 
 Reattach to an existing session in raw TTY mode.
@@ -32,13 +34,19 @@ Reattach to an existing session in raw TTY mode.
 
 List all active sessions with their IDs, commands, and status.
 
-### `relay info`
+| Flag | Description |
+|------|-------------|
+| `--json` | Output the session array as JSON |
+| `--watch` | With `--json`: keep running and print one JSON line per session change (`{"id":..,"removed":true}` when one disappears) |
 
-Show information about the current relay session. Must be run from inside a relay session (where `RELAY_SESSION_ID` is set).
+### `relay info [id]`
+
+Show information about a session. Without an id it describes the current relay session (where `RELAY_SESSION_ID` is set).
 
 ```bash
-relay info          # pretty-printed session details
-relay info --json   # machine-readable JSON output
+relay info            # pretty-printed details for the current session
+relay info a1b2c3d4   # any session by id
+relay info --json     # machine-readable JSON output
 ```
 
 Displays: session ID, command, CWD, status, PID, terminal size, title, throughput, timestamps, and the pty-host binary path with its build date.
@@ -52,6 +60,58 @@ If run outside a relay session, prints "Not a relay session" to stderr.
 ### `relay stop <id>`
 
 Kill a session and its underlying process.
+
+### `relay send <id> [text...]`
+
+Write text to a session's stdin. With no text, stdin is read until EOF. Data goes straight to the pty, so quote shell metacharacters.
+
+```bash
+relay send a1b2c3d4 --enter "make test"     # type a command and press Enter
+echo "y" | relay send a1b2c3d4              # answer a prompt from a pipe
+```
+
+| Flag | Description |
+|------|-------------|
+| `--enter` | Append a carriage return |
+| `--host <url>` | Target a remote server |
+
+### `relay rename <id> <title...>`
+
+Set a session title. A title set this way is pinned: programs that update the terminal title (shells, editors, agents) no longer overwrite it until you `--unpin`.
+
+| Flag | Description |
+|------|-------------|
+| `--unpin` | Clear the pinned title so program titles show again |
+
+### `relay kill <id>`
+
+Deliver a signal to the session's foreground process group. Defaults to `INT`, which interrupts the running command and returns you to the shell prompt. The session itself keeps running; use `relay stop` to end it.
+
+| Flag | Description |
+|------|-------------|
+| `--signal <name>`, `-s` | Signal name or number (`INT`, `TERM`, `HUP`, `9`, ...) |
+
+### `relay wait <id> --state <state>`
+
+Block until the session reaches an agent state or exits. States: `blocked`, `working`, `done`, `idle`, `unknown`, `exited`. Exit code 0 when the state is reached, 2 on timeout, 1 when the session does not exist.
+
+```bash
+relay wait a1b2c3d4 --state blocked --timeout 600   # wake me when the agent needs input
+relay wait a1b2c3d4 --state exited && echo finished
+```
+
+| Flag | Description |
+|------|-------------|
+| `--timeout <seconds>`, `-t` | Give up after N seconds |
+| `--json` | Print the final session JSON on stdout |
+
+### `relay events`
+
+Stream session events as JSON lines: `session.created`, `session.exited`, `session.removed`, `session.agent_state`, `session.title`, `session.cwd`, `session.foreground`. Each line carries the full session object. Pass `--all` to also get `session.updated` for metric-only changes.
+
+```bash
+relay events | jq -r 'select(.event=="session.agent_state") | "\(.session.id) \(.session.agentState)"'
+```
 
 ### `relay share <id>`
 

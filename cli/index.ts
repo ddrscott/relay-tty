@@ -13,6 +13,11 @@ import { registerShareCommand } from "./commands/share.js";
 import { registerSetPasswordCommand } from "./commands/set-password.js";
 import { registerTuiCommand } from "./commands/tui.js";
 import { registerInfoCommand } from "./commands/info.js";
+import { registerSendCommand } from "./commands/send.js";
+import { registerRenameCommand } from "./commands/rename.js";
+import { registerKillCommand } from "./commands/kill.js";
+import { registerWaitCommand } from "./commands/wait.js";
+import { registerEventsCommand } from "./commands/events.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -39,6 +44,11 @@ registerShareCommand(program);
 registerSetPasswordCommand(program);
 registerTuiCommand(program);
 registerInfoCommand(program);
+registerSendCommand(program);
+registerRenameCommand(program);
+registerKillCommand(program);
+registerWaitCommand(program);
+registerEventsCommand(program);
 registerServerCommand(program);
 
 program.parse();

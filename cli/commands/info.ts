@@ -65,14 +65,14 @@ function formatDate(mtime: Date): string {
 
 export function registerInfoCommand(program: Command) {
   program
-    .command("info")
-    .description("show information about the current relay session")
+    .command("info [id]")
+    .description("show information about a session (defaults to the current relay session)")
     .option("--json", "output as JSON")
-    .action((opts) => {
-      const sessionId = process.env.RELAY_SESSION_ID;
+    .action((idArg: string | undefined, opts) => {
+      const sessionId = idArg ?? process.env.RELAY_SESSION_ID;
       if (!sessionId) {
-        process.stderr.write("Not a relay session\n");
-        return;
+        process.stderr.write("Not a relay session (pass a session id)\n");
+        process.exit(1);
       }
 
       const metaPath = path.join(SESSIONS_DIR, `${sessionId}.json`);
@@ -123,6 +123,7 @@ export function registerInfoCommand(program: Command) {
       lines.push(["Size", `${session.cols}x${session.rows}`]);
       if (session.title) lines.push(["Title", session.title]);
       if (session.foregroundProcess) lines.push(["Foreground", session.foregroundProcess]);
+      if (session.agentState && session.agentState !== "idle") lines.push(["Agent", session.agentState]);
       lines.push(["Throughput", throughput]);
 
       if (session.startedAt) {

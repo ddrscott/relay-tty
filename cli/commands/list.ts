@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { openTarget } from "../directory.js";
 import {
   loadSessions,
   timeAgo,
@@ -18,7 +19,21 @@ export function registerListCommand(program: Command) {
     .description("list all sessions")
     .option("-H, --host <url>", "server URL")
     .option("--json", "output as JSON")
+    .option("-w, --watch", "with --json: keep running and print one JSON line per change")
     .action(async (opts) => {
+      if (opts.watch) {
+        const target = openTarget(opts.host);
+        for (const s of await target.directory.list()) process.stdout.write(JSON.stringify(s) + "\n");
+        target.directory.subscribe((e) => {
+          if (e.type === "removed") process.stdout.write(JSON.stringify({ id: e.id, removed: true }) + "\n");
+          else process.stdout.write(JSON.stringify(e.session) + "\n");
+        });
+        const stop = () => { target.directory.close(); process.exit(0); };
+        process.on("SIGINT", stop);
+        process.stdout.on("error", stop);
+        return;
+      }
+
       const sessions = await loadSessions(opts.host);
 
       if (opts.json) {
