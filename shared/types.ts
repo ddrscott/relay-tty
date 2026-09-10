@@ -69,6 +69,10 @@ export const WS_MSG = {
   DETACH: 0x22,
   /** Client→server: clear scrollback ring buffer (no payload). */
   CLEAR_SCROLLBACK: 0x23,
+  /** Client→server: set a user-pinned title [UTF-8]. Empty payload unpins. */
+  SET_TITLE: 0x24,
+  /** Client→server: deliver a signal to the foreground process group [1B signal number]. */
+  SIGNAL: 0x25,
 } as const;
 
 export interface CreateSessionRequest {
