@@ -16,11 +16,8 @@ const PUSH_DIR = path.join(RELAY_DIR, "push");
 const VAPID_FILE = path.join(PUSH_DIR, "vapid.json");
 const SUBSCRIPTIONS_FILE = path.join(PUSH_DIR, "subscriptions.json");
 
-export type TriggerFlags = {
-  activityStopped: boolean;
-  activitySpiked: boolean;
-  sessionExited: boolean;
-};
+import { type TriggerFlags, type TriggerName, normalizeTriggers } from "../shared/notif-triggers.js";
+export type { TriggerFlags };
 
 export interface PushSubscriptionRecord {
   /** The push endpoint URL (unique identifier) */
@@ -104,10 +101,7 @@ export class PushStore {
   }
 
   /** Get all subscriptions that should receive a notification for a given session + trigger. */
-  getSubscriptionsFor(
-    sessionId: string,
-    trigger: "activityStopped" | "activitySpiked" | "sessionExited"
-  ): PushSubscriptionRecord[] {
+  getSubscriptionsFor(sessionId: string, trigger: TriggerName): PushSubscriptionRecord[] {
     return this.subscriptions.filter(sub => {
       // Check session filter (empty = all sessions)
       if (sub.sessionIds.length > 0 && !sub.sessionIds.includes(sessionId)) return false;
@@ -127,7 +121,7 @@ export class PushStore {
     sessionId: string,
     sessionName: string,
     message: string,
-    trigger: "activityStopped" | "activitySpiked" | "sessionExited",
+    trigger: TriggerName,
     appUrl?: string
   ): Promise<number> {
     const subs = this.getSubscriptionsFor(sessionId, trigger);

@@ -1,4 +1,5 @@
 import type { SessionStore } from "./session-store.js";
+import type { TriggerName } from "../shared/notif-triggers.js";
 import type { PtyManager } from "./pty-manager.js";
 import type { PushStore } from "./push-store.js";
 import type { NotificationStore } from "./notification-store.js";
@@ -63,7 +64,7 @@ export function setupNotifications(
     sessionId: string,
     session: Session,
     message: string,
-    trigger: "activityStopped" | "activitySpiked" | "sessionExited"
+    trigger: TriggerName
   ): void {
     // Only record + send if at least one subscription has this trigger enabled
     if (pushStore && pushStore.getSubscriptionsFor(sessionId, trigger).length === 0) return;
@@ -121,6 +122,19 @@ export function setupNotifications(
   // Mirror the client-side use-smart-notifications.ts logic on the server
   // so push notifications fire even when no browser is connected.
   if (!pushStore) return;
+
+  // ── Agent blocked trigger ──
+  // pty-host computes agentState; a transition into "blocked" means an agent
+  // is waiting on a person. Fires once per transition (the session-update diff
+  // only carries changed fields).
+  ptyManager.on("session-update", (id: string, session: Session, changed?: Partial<Session>) => {
+    if (session.status !== "running") return;
+    if (changed?.agentState !== "blocked") return;
+    const who = session.foregroundProcess && !/^\d+\.\d+\.\d+$/.test(session.foregroundProcess)
+      ? session.foregroundProcess
+      : "Agent";
+    sendPushAndRecord(id, session, `${who} is waiting for input`, "agentBlocked");
+  });
 
   ptyManager.on("session-update", (id: string, session: Session) => {
     // Only track running sessions with metrics

@@ -6,6 +6,7 @@
  * Works on iOS PWA, Android, and desktop browsers.
  */
 import { useEffect, useRef, useCallback, useState } from "react";
+import { normalizeTriggers, type TriggerFlags } from "../../shared/notif-triggers";
 import { getGlobalNotifSettings, getAllSessionNotifOverrides } from "../lib/notif-settings";
 
 /** Convert a base64 URL-safe string to Uint8Array (for applicationServerKey) */
@@ -21,28 +22,17 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 /** Build trigger flags from current localStorage settings. */
-function buildTriggers(): { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean } {
-  const settings = getGlobalNotifSettings();
-  return {
-    activityStopped: settings.activityStopped,
-    activitySpiked: settings.activitySpiked,
-    sessionExited: settings.sessionExited,
-  };
+function buildTriggers(): TriggerFlags {
+  return normalizeTriggers(getGlobalNotifSettings());
 }
 
 /** Build per-session trigger overrides from localStorage. */
-function buildPerSessionTriggers(): Record<string, { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean }> | undefined {
+function buildPerSessionTriggers(): Record<string, TriggerFlags> | undefined {
   const overrides = getAllSessionNotifOverrides();
   const keys = Object.keys(overrides);
   if (keys.length === 0) return undefined;
-  const result: Record<string, { activityStopped: boolean; activitySpiked: boolean; sessionExited: boolean }> = {};
-  for (const sessionId of keys) {
-    result[sessionId] = {
-      activityStopped: overrides[sessionId].activityStopped,
-      activitySpiked: overrides[sessionId].activitySpiked,
-      sessionExited: overrides[sessionId].sessionExited,
-    };
-  }
+  const result: Record<string, TriggerFlags> = {};
+  for (const sessionId of keys) result[sessionId] = normalizeTriggers(overrides[sessionId]);
   return result;
 }
 

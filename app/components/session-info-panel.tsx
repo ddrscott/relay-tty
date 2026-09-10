@@ -13,8 +13,7 @@ import {
   Settings,
   Share2,
   TerminalSquare,
-  Zap,
-} from "lucide-react";
+  Zap, Hand } from "lucide-react";
 import { CopyableId } from "./copyable-id";
 import { NoKbButton } from "./no-kb-button";
 
@@ -237,6 +236,18 @@ export function SessionInfoPanel({
             className="toggle toggle-xs toggle-primary"
             checked={effectiveNotif.activitySpiked}
             onChange={() => onToggleNotif("activitySpiked")}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3 py-1">
+          <span className="flex items-center gap-1.5 text-[#94a3b8]">
+            <Hand className="w-3 h-3 text-[#64748b]" />
+            Agent blocked
+          </span>
+          <input
+            type="checkbox"
+            className="toggle toggle-xs toggle-primary"
+            checked={effectiveNotif.agentBlocked}
+            onChange={() => onToggleNotif("agentBlocked")}
           />
         </div>
         <div className="flex items-center justify-between gap-3 py-1">

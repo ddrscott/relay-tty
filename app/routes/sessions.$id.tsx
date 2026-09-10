@@ -407,12 +407,13 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
 
   // Update document.title when terminal title changes dynamically
   useEffect(() => {
-    const sessionLabel = termTitle || session.title || `${session.command} ${session.args.join(" ")}`.trim();
+    // A pinned title (relay rename) wins over whatever the program sets via OSC.
+    const sessionLabel = (session.titlePinned && session.title) || termTitle || session.title || `${session.command} ${session.args.join(" ")}`.trim();
     const parts = [sessionLabel];
     if (hostname) parts.push(hostname);
     parts.push("relay-tty");
     document.title = parts.join(" \u2014 ");
-  }, [termTitle, session.title, session.command, session.args, hostname]);
+  }, [termTitle, session.title, session.titlePinned, session.command, session.args, hostname]);
 
   // Web Push subscription — auto-subscribes after permission grant
   const { subscribeToPush } = usePushSubscription();
@@ -438,7 +439,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, [subscribeToPush]);
 
   const handleNotification = useCallback((message: string) => {
-    const title = termTitle || session.command;
+    const title = (session.titlePinned && session.title) || termTitle || session.command;
 
     // Always show in-app toast so the user sees the notification regardless
     // of Web Notifications API support or permission state.
@@ -485,7 +486,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     } else {
       new Notification(title, { body: message, tag: `relay-${session.id}` });
     }
-  }, [termTitle, session.command, session.id]);
+  }, [termTitle, session.title, session.titlePinned, session.command, session.id]);
 
   // ── Smart notifications: activity stopped / spiked triggers ──
   const { handleActivityUpdate: smartNotifUpdate } = useSmartNotifications({
@@ -1068,7 +1069,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
                 />
               )}
               <code className="text-sm font-mono truncate text-[#e2e8f0] leading-snug">
-                {termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
+                {(session.titlePinned && session.title) || termTitle || session.title || `${session.command} ${session.args.join(" ")}`}
               </code>
             </span>
           </button>

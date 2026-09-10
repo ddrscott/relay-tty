@@ -4,6 +4,7 @@ import { Loader } from "lucide-react";
 import type { Session } from "../../shared/types";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { CopyableId } from "./copyable-id";
+import { AgentStateChip } from "./agent-state-chip";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -59,6 +60,7 @@ export function SessionCard({ session, showCwd = true }: { session: Session; sho
             <code className="text-sm font-mono truncate text-[#e2e8f0] flex-1 min-w-0">
               {session.title || displayCommand}
             </code>
+            {isRunning && <AgentStateChip state={session.agentState} />}
             {loading ? (
               <Loader size={14} className="shrink-0 text-[#64748b] animate-spin" />
             ) : isRunning && (session.bps1 != null || session.bytesPerSecond != null) ? (

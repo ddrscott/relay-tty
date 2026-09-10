@@ -1,4 +1,5 @@
 import type { Session } from "../../shared/types";
+import { agentStateRank } from "../../shared/client/agent-state";
 
 export type SortKey = "recent" | "created" | "active" | "name";
 export type SortDir = "asc" | "desc";
@@ -44,6 +45,9 @@ export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir = "
     case "active":
       return sorted.sort((a, b) => {
         if (a.status !== b.status) return (a.status === "running" ? -1 : 1) * flip;
+        // Sessions waiting on a person outrank busy ones.
+        const rank = agentStateRank(a.agentState) - agentStateRank(b.agentState);
+        if (rank !== 0) return rank * flip;
         return ((b.bytesPerSecond ?? 0) - (a.bytesPerSecond ?? 0)) * flip || tieBreak(a, b);
       });
     case "name":

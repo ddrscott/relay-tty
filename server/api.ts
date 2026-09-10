@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { type TriggerFlags, normalizeTriggers } from "../shared/notif-triggers.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -868,18 +869,17 @@ export function createApiRouter(
     const { subscription, sessionIds = [], triggers, perSessionTriggers } = req.body as {
       subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
       sessionIds?: string[];
-      triggers?: { activityStopped?: boolean; activitySpiked?: boolean; sessionExited?: boolean };
-      perSessionTriggers?: Record<string, { activityStopped?: boolean; activitySpiked?: boolean; sessionExited?: boolean }>;
+      triggers?: Partial<TriggerFlags>;
+      perSessionTriggers?: Record<string, Partial<TriggerFlags>>;
     };
     if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
       res.status(400).json({ error: "Invalid push subscription" });
       return;
     }
-    push.subscribe(subscription, sessionIds, {
-      activityStopped: triggers?.activityStopped ?? true,
-      activitySpiked: triggers?.activitySpiked ?? true,
-      sessionExited: triggers?.sessionExited ?? true,
-    }, perSessionTriggers);
+    // Server default is all-on: a subscription is an explicit opt-in.
+    push.subscribe(subscription, sessionIds, normalizeTriggers(triggers, {
+      activityStopped: true, activitySpiked: true, sessionExited: true, agentBlocked: true,
+    }), perSessionTriggers);
     res.json({ ok: true });
   });
 

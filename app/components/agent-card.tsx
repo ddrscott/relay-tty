@@ -5,6 +5,7 @@
  */
 import { useEffect, useState, memo } from "react";
 import { Cpu, FolderOpen, Clock } from "lucide-react";
+import { AgentStateChip } from "./agent-state-chip";
 import type { Session } from "../../shared/types";
 import type { SessionMetrics } from "../hooks/use-session-metrics";
 import { displayPath } from "../lib/session-groups";
@@ -143,6 +144,7 @@ export function AgentCard({
         <span className="font-mono text-sm font-medium text-[#e2e8f0] truncate flex-1 min-w-0">
           {label}
         </span>
+        {session.status === "running" && <AgentStateChip state={session.agentState} />}
         {isAgent && (
           <Cpu className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
         )}

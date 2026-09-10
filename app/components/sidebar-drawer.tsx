@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
+import { AgentStateChip } from "./agent-state-chip";
 import { useNavigate, useLocation, useRevalidator } from "react-router";
 import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter, Monitor } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
@@ -120,6 +121,7 @@ const SidebarSessionItem = memo(function SidebarSessionItem({
         <code className="text-sm font-mono truncate text-[#e2e8f0] flex-1 min-w-0">
           {session.title || displayCommand}
         </code>
+        {isRunning && <AgentStateChip state={session.agentState} />}
         {isRunning && (session.bps1 != null || session.bytesPerSecond != null) ? (
           <span className={`shrink-0 text-xs font-mono ${isActive ? "text-[#22c55e]" : "text-[#64748b]"}`}>
             {formatRate(bps)}

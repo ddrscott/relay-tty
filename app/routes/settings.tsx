@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRevalidator } from "react-router";
-import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power, FolderGit2 } from "lucide-react";
+import { Bell, BellOff, Activity, Zap, Menu, Terminal, Check, Upload, Command, Power, FolderGit2, Hand } from "lucide-react";
+import { DEFAULT_TRIGGERS } from "../../shared/notif-triggers";
 import { PlainInput } from "../components/plain-input";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import {
@@ -26,11 +27,7 @@ export function meta() {
 
 export default function Settings() {
   const { revalidate } = useRevalidator();
-  const [settings, setSettings] = useState<NotifSettings>({
-    activityStopped: false,
-    activitySpiked: false,
-    sessionExited: true,
-  });
+  const [settings, setSettings] = useState<NotifSettings>(DEFAULT_TRIGGERS);
 
   // Custom commands state
   const [commandsText, setCommandsText] = useState("");
@@ -468,6 +465,25 @@ export default function Settings() {
               className="toggle toggle-sm toggle-primary"
               checked={settings.activitySpiked}
               onChange={() => toggle("activitySpiked")}
+            />
+          </div>
+
+          {/* Agent blocked toggle */}
+          <div className="flex items-center justify-between gap-3 py-3 border-b border-[#1e1e2e]">
+            <div className="flex items-start gap-3">
+              <Hand className="w-4 h-4 text-[#64748b] mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-mono text-[#e2e8f0]">Agent blocked</div>
+                <div className="text-xs font-mono text-[#64748b] mt-0.5">
+                  Notify when a coding agent stops to ask for permission or input
+                </div>
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              className="toggle toggle-sm toggle-primary"
+              checked={settings.agentBlocked}
+              onChange={() => toggle("agentBlocked")}
             />
           </div>
 

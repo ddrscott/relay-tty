@@ -5,31 +5,21 @@
  * Per-session override: `relay-tty-notif-${sessionId}`
  */
 
-export interface NotifSettings {
-  activityStopped: boolean;
-  activitySpiked: boolean;
-  sessionExited: boolean;
-}
+import { DEFAULT_TRIGGERS, normalizeTriggers, type TriggerFlags } from "../../shared/notif-triggers";
+
+export type NotifSettings = TriggerFlags;
 
 const GLOBAL_KEY = "relay-tty-notif-settings";
 const SESSION_KEY = (id: string) => `relay-tty-notif-${id}`;
 
-const DEFAULTS: NotifSettings = {
-  activityStopped: false,
-  activitySpiked: false,
-  sessionExited: true,
-};
+const DEFAULTS: NotifSettings = DEFAULT_TRIGGERS;
 
 function parse(raw: string | null): NotifSettings | null {
   if (!raw) return null;
   try {
     const obj = JSON.parse(raw);
     if (typeof obj !== "object" || obj === null) return null;
-    return {
-      activityStopped: typeof obj.activityStopped === "boolean" ? obj.activityStopped : DEFAULTS.activityStopped,
-      activitySpiked: typeof obj.activitySpiked === "boolean" ? obj.activitySpiked : DEFAULTS.activitySpiked,
-      sessionExited: typeof obj.sessionExited === "boolean" ? obj.sessionExited : DEFAULTS.sessionExited,
-    };
+    return normalizeTriggers(obj, DEFAULTS);
   } catch {
     return null;
   }
