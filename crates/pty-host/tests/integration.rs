@@ -9,7 +9,8 @@
 mod common;
 
 use common::*;
-use std::time::Duration;
+use std::fs;
+use std::time::{Duration, Instant};
 
 // ── Lifecycle tests ─────────────────────────────────────────────────
 
@@ -838,4 +839,44 @@ fn sync_offset_is_valid_f64() {
         "SYNC offset should be a non-negative finite f64, got {}",
         offset
     );
+}
+
+// ── Agent state tests ───────────────────────────────────────────────
+
+#[test]
+fn agent_state_blocked_on_prompt() {
+    // The classifier only applies prompt rules when the foreground process is
+    // a known agent. A shell script named `claude` will not do: proc_name on
+    // macOS reports the interpreter ("bash"). Copy this crate's own binary to
+    // <tmp>/claude instead and run it as a nested pty-host wrapping `sleep`,
+    // which gives a long-lived foreground process whose name is `claude`.
+    let handle = spawn_pty_host("/bin/sh", &[]).expect("failed to spawn");
+    let fake_agent = handle.home_dir.join("claude");
+    fs::copy(binary_path(), &fake_agent).expect("copy pty-host binary");
+
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    client.collect_frames(Duration::from_millis(500));
+
+    let cmd = format!(
+        "printf 'Do you want to proceed?\\n'; {} nested 80 24 /tmp /bin/sleep 8\r",
+        fake_agent.display()
+    );
+    client.send_data(cmd.as_bytes()).expect("send_data failed");
+
+    // The metrics task reclassifies once a second and writes JSON on change.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut last = None;
+    while Instant::now() < deadline {
+        if let Ok(meta) = read_session_json(&handle.session_path) {
+            if meta["agentState"] == "blocked" {
+                assert_eq!(meta["foregroundProcess"], "claude");
+                assert!(meta["agentStateChangedAt"].as_u64().unwrap_or(0) > 0);
+                return;
+            }
+            last = Some(meta);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("agentState never became blocked; last metadata: {:?}", last);
 }

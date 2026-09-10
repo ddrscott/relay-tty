@@ -223,7 +223,7 @@ impl SocketClient {
 // ── Spawn helpers ───────────────────────────────────────────────────
 
 /// Find the compiled pty-host binary.
-fn binary_path() -> PathBuf {
+pub fn binary_path() -> PathBuf {
     // cargo test builds debug by default
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("target");

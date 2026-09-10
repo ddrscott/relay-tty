@@ -25,6 +25,7 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time;
 
 mod agent_state;
+use agent_state::{classify, strip_ansi, AgentState, Observation};
 
 // ── WS_MSG constants (must match shared/types.ts) ────────────────────
 
@@ -55,6 +56,7 @@ const IDLE_TIMEOUT_MS: u64 = 60_000;
 const JSON_WRITE_INTERVAL_MS: u64 = 5_000;
 const METRICS_INTERVAL_MS: u64 = 1_000;
 const RESUME_TIMEOUT_MS: u64 = 100;
+const AGENT_TAIL_BYTES: usize = 4096;
 
 // ── Alt screen mode numbers ─────────────────────────────────────────
 const ALT_SCREEN_MODES: &[u16] = &[1049, 47, 1047];
@@ -523,6 +525,26 @@ impl OutputBuffer {
     #[cfg(test)]
     fn read_raw(&self) -> Vec<u8> {
         self.read_main_raw()
+    }
+
+    /// Last `n` bytes of what is on screen: the alt buffer while in alt
+    /// screen, otherwise the ring's linearized tail. No sanitization; the
+    /// caller strips escapes and may start mid-sequence.
+    fn tail(&self, n: usize) -> Vec<u8> {
+        if self.in_alt_screen {
+            let start = self.alt_buf.len().saturating_sub(n);
+            return self.alt_buf[start..].to_vec();
+        }
+        let take = n.min(self.main_size());
+        if take <= self.write_pos {
+            return self.buffer[self.write_pos - take..self.write_pos].to_vec();
+        }
+        // Wrapped: the oldest part of the tail sits at the end of the ring.
+        let from_end = take - self.write_pos;
+        let mut out = Vec::with_capacity(take);
+        out.extend_from_slice(&self.buffer[self.max_size - from_end..]);
+        out.extend_from_slice(&self.buffer[..self.write_pos]);
+        out
     }
 }
 
@@ -1223,6 +1245,10 @@ struct SessionMeta {
     /// Name of the foreground process (None when shell itself is in foreground)
     #[serde(skip_serializing_if = "Option::is_none")]
     foreground_process: Option<String>,
+    /// Heuristic agent state, recomputed every second (see agent_state.rs)
+    agent_state: AgentState,
+    /// Epoch millis of the last agent_state transition
+    agent_state_changed_at: u64,
 }
 
 // ── Throughput metrics (1/5/15m) ────────────────────────────────────
@@ -1504,6 +1530,9 @@ struct SharedState {
     /// Stops broadcasting when all three bps values hit 0.
     last_metrics_nonzero: bool,
     sparkline: SparklineRing,
+    /// Live client sockets (browser, CLI, server monitor). Feeds the
+    /// Done/Idle transition in the agent state classifier.
+    clients_attached: usize,
 }
 
 impl SharedState {
@@ -1612,6 +1641,8 @@ async fn main() {
                 bps5: 0.0,
                 bps15: 0.0,
                 foreground_process: None,
+            agent_state: AgentState::Idle,
+            agent_state_changed_at: 0,
             };
             let _ = fs::write(&session_path, serde_json::to_string(&error_meta).unwrap());
             process::exit(127);
@@ -1650,6 +1681,8 @@ async fn main() {
         bps5: 0.0,
         bps15: 0.0,
         foreground_process: None,
+        agent_state: AgentState::Idle,
+        agent_state_changed_at: now,
     };
     let _ = fs::write(&session_path, serde_json::to_string(&meta).unwrap());
 
@@ -1664,6 +1697,7 @@ async fn main() {
         title: None,
         last_metrics_nonzero: false,
         sparkline: SparklineRing::new(),
+        clients_attached: 0,
     }));
 
     // Broadcast channel for sending frames to all connected clients
@@ -2023,14 +2057,6 @@ async fn main() {
         loop {
             interval.tick().await;
 
-            // Check foreground process (outside state lock — just a syscall)
-            let fg_pgrp = unsafe { libc::tcgetpgrp(master_raw_fd) };
-            let fg_process = if fg_pgrp > 0 && fg_pgrp != child_pid {
-                get_process_name(fg_pgrp)
-            } else {
-                None
-            };
-
             // Poll shell process CWD — works even without OSC 7 support.
             // Query the shell (child_pid) since it tracks `cd` changes.
             let polled_cwd = get_process_cwd(child_pid);
@@ -2047,12 +2073,7 @@ async fn main() {
                 }
             }
 
-            // Update foreground process if changed
-            if s.meta.foreground_process != fg_process {
-                s.meta.foreground_process = fg_process;
-                s.meta_dirty = true;
-            }
-
+            // foreground_process is refreshed by the 1s metrics task.
             if s.meta_dirty {
                 // Update bps values before flush
                 s.meta.bps1 = s.throughput.bps1();
@@ -2089,9 +2110,10 @@ async fn main() {
         }
     });
 
-    // ── Metrics broadcast task (every 3s) ───────────────────────────
+    // ── Metrics + agent state task (every 1s) ───────────────────────
     let state_metrics = Arc::clone(&state);
     let broadcast_tx_metrics = broadcast_tx.clone();
+    let session_path_metrics = session_path.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_millis(METRICS_INTERVAL_MS));
         // Track whether we previously had sustained activity (for idle notification)
@@ -2099,9 +2121,24 @@ async fn main() {
 
         loop {
             interval.tick().await;
+
+            // Foreground process lookup (outside the lock; two cheap syscalls).
+            // The 5s JSON task reads the stored value instead of asking again.
+            let fg_pgrp = unsafe { libc::tcgetpgrp(master_raw_fd) };
+            let fg_process = if fg_pgrp > 0 && fg_pgrp != child_pid {
+                get_process_name(fg_pgrp)
+            } else {
+                None
+            };
+
             let mut s = state_metrics.write().await;
             if s.exit_code.is_some() {
                 break;
+            }
+
+            if s.meta.foreground_process != fg_process {
+                s.meta.foreground_process = fg_process;
+                s.meta_dirty = true;
             }
 
             let bps1 = s.throughput.bps1();
@@ -2115,6 +2152,24 @@ async fn main() {
             s.meta.bps15 = bps15;
             s.meta.bytes_per_second = bps1;
             s.sparkline.push(bps1);
+
+            // Agent state: written to disk immediately on change so
+            // `relay wait` and push triggers see it without the 5s flush.
+            let tail = strip_ansi(&s.output_buffer.tail(AGENT_TAIL_BYTES));
+            let next_state = classify(&Observation {
+                foreground_process: s.meta.foreground_process.as_deref(),
+                bps1,
+                tail: &tail,
+                clients_attached: s.clients_attached,
+                previous: s.meta.agent_state,
+            });
+            if next_state != s.meta.agent_state {
+                s.meta.agent_state = next_state;
+                s.meta.agent_state_changed_at = now_millis();
+                s.meta_dirty = true;
+                atomic_write_json(&session_path_metrics, &s.meta);
+                s.meta_dirty = false;
+            }
 
             let any_nonzero = bps1 >= 0.5 || bps5 >= 0.5 || bps15 >= 0.5;
 
@@ -2159,6 +2214,8 @@ async fn main() {
                         let (reader, writer) = stream.into_split();
                         let writer = Arc::new(Mutex::new(writer));
                         let state_client = Arc::clone(&state_accept);
+                        state_client.write().await.clients_attached += 1;
+                        let state_detach = Arc::clone(&state_accept);
                         let input_tx = input_tx.clone();
                         let resize_tx = resize_tx.clone();
                         let mut broadcast_rx = broadcast_tx_accept.subscribe();
@@ -2201,6 +2258,8 @@ async fn main() {
                         tokio::spawn(async move {
                             handle_client(reader, writer_client, state_client, input_tx, resize_tx, detach_tx, clear_tx).await;
                             broadcast_handle.abort();
+                            let mut s = state_detach.write().await;
+                            s.clients_attached = s.clients_attached.saturating_sub(1);
                         });
                     }
                     Err(_) => continue,
@@ -3545,6 +3604,8 @@ mod tests {
             bps5: 0.0,
             bps15: 0.0,
             foreground_process: None,
+            agent_state: AgentState::Idle,
+            agent_state_changed_at: 0,
         };
         let json = serde_json::to_string(&meta).unwrap();
         // camelCase fields
@@ -3585,6 +3646,8 @@ mod tests {
             bps5: 50.0,
             bps15: 25.0,
             foreground_process: None,
+            agent_state: AgentState::Idle,
+            agent_state_changed_at: 0,
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"exitCode\":0"));
@@ -3618,6 +3681,8 @@ mod tests {
             bps5: 0.0,
             bps15: 0.0,
             foreground_process: Some("vim".into()),
+            agent_state: AgentState::Idle,
+            agent_state_changed_at: 0,
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"foregroundProcess\":\"vim\""));
@@ -4181,6 +4246,38 @@ mod tests {
         assert_eq!(v0, 1.5);
     }
 
+    // ── OutputBuffer::tail tests ─────────────────────────────────────
+
+    #[test]
+    fn tail_unfilled_returns_last_n() {
+        let mut buf = OutputBuffer::new(64);
+        buf.write(b"hello world");
+        assert_eq!(buf.tail(5), b"world");
+        assert_eq!(buf.tail(100), b"hello world");
+        assert!(OutputBuffer::new(64).tail(10).is_empty());
+    }
+
+    #[test]
+    fn tail_spans_ring_wrap() {
+        let mut buf = OutputBuffer::new(16);
+        buf.write(b"0123456789"); // write_pos 10
+        buf.write(b"abcdefgh"); // wraps: write_pos 2, filled
+        assert_eq!(buf.tail(4), b"efgh");
+        assert_eq!(buf.tail(10), b"89abcdefgh");
+        assert_eq!(buf.tail(64), b"23456789abcdefgh");
+    }
+
+    #[test]
+    fn tail_uses_alt_buffer_in_alt_screen() {
+        let mut buf = OutputBuffer::new(1024);
+        buf.write(b"main stuff");
+        buf.write(b"\x1b[?1049h");
+        buf.write(b"alt screen frame");
+        assert_eq!(buf.tail(5), b"frame");
+        buf.write(b"\x1b[?1049l");
+        assert_eq!(buf.tail(1), b"l");
+    }
+
     #[test]
     fn output_buffer_clear_resets_buffer() {
         let mut buf = OutputBuffer::new(1024);
@@ -4240,6 +4337,8 @@ mod tests {
             bps5: 0.0,
             bps15: 0.0,
             foreground_process: None,
+            agent_state: AgentState::Idle,
+            agent_state_changed_at: 0,
         };
         SharedState {
             output_buffer: OutputBuffer::new(1024),
@@ -4251,6 +4350,7 @@ mod tests {
             title: None,
             last_metrics_nonzero: false,
             sparkline: SparklineRing::new(),
+            clients_attached: 0,
         }
     }
 
