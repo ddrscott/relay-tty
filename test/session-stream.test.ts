@@ -55,6 +55,15 @@ describe("SessionStream", () => {
     s.close();
   });
 
+  it("sends OBSERVE instead of RESUME in observer mode", () => {
+    const { s, transports } = make(0, { observe: true });
+    s.connect();
+    transports[0].open();
+    assert.deepEqual([...transports[0].sent[0]], [WS_MSG.OBSERVE]);
+    assert.equal(s.isObserver, true);
+    s.close();
+  });
+
   it("uses the 17-byte RESUME when maxReplayBytes is set", () => {
     const { s, transports } = make(0, { maxReplayBytes: 512 });
     s.connect();
@@ -221,6 +230,19 @@ describe("SessionStream", () => {
     await tick(12);
     assert.equal(transports[0].closedByStream, true);
     assert.ok(transports.length >= 2, "reconnected after zombie drop");
+    s.close();
+  });
+
+  it("reconnectNow connects immediately while waiting, pings while open", async () => {
+    const { s, transports } = make(0, { reconnect: { baseMs: 10_000, maxMs: 10_000 } });
+    s.connect();
+    transports[0].open();
+    s.reconnectNow();
+    assert.equal(transports[0].sent.at(-1)?.[0], WS_MSG.PING);
+    transports[0].drop();
+    assert.equal(transports.length, 1);
+    s.reconnectNow();
+    assert.equal(transports.length, 2);
     s.close();
   });
 

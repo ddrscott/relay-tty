@@ -459,9 +459,10 @@ export class PtyManager extends EventEmitter {
       transport: () => socketTransport(socketPath),
       inflate: async (b) => new Uint8Array(gunzipSync(b)),
       reconnect: false,
-      // The monitor only needs live events; a 1-byte tail limit keeps the
-      // mandatory replay tiny instead of gzipping the whole ring buffer.
-      maxReplayBytes: 1,
+      // Observer: live frames only, no replay, and pty-host does not count
+      // the server as an attached viewer (which would block the agent
+      // "done" state while the server runs).
+      observe: true,
     });
 
     stream.on("status", (status) => {

@@ -53,6 +53,7 @@ export const encodeSparklineRequest = (): Uint8Array => new Uint8Array([WS_MSG.S
 export const encodeSetTitle = (title: string): Uint8Array => withType(WS_MSG.SET_TITLE, te.encode(title));
 export const encodeSignal = (signal: number): Uint8Array => new Uint8Array([WS_MSG.SIGNAL, signal & 0xff]);
 export const encodeClipboard = (text: string): Uint8Array => withType(WS_MSG.CLIPBOARD, te.encode(text));
+export const encodeObserve = (): Uint8Array => new Uint8Array([WS_MSG.OBSERVE]);
 
 // ── Server → client ─────────────────────────────────────────────────
 

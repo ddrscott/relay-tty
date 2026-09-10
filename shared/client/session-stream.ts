@@ -66,6 +66,12 @@ export interface SessionStreamOpts {
   heartbeat?: { intervalMs: number; zombieMs: number };
   /** Consulted before every reconnect; return false to give up (status becomes "closed"). */
   shouldReconnect?: () => boolean;
+  /**
+   * Observer mode: send OBSERVE instead of RESUME. No replay or SYNC arrives,
+   * only live frames, and pty-host does not count this client as attached.
+   * For monitors and plugins, never for anything a person is looking at.
+   */
+  observe?: boolean;
 }
 
 type Listeners = { [K in keyof StreamEvents]?: Set<StreamEvents[K]> };
@@ -128,7 +134,7 @@ export class SessionStream {
       this.retryCount = 0;
       this.retryDelay = this.baseDelay();
       this.lastServerMessage = Date.now();
-      t.send(M.encodeResume(this._offset, this.opts.maxReplayBytes));
+      t.send(this.opts.observe ? M.encodeObserve() : M.encodeResume(this._offset, this.opts.maxReplayBytes));
       this.setStatus("connected");
       this.startHeartbeat(t);
     });
@@ -150,6 +156,30 @@ export class SessionStream {
       }
       this.scheduleReconnect();
     });
+  }
+
+  /** True when this stream was opened in observer mode. */
+  get isObserver(): boolean {
+    return this.opts.observe === true;
+  }
+
+  /**
+   * Foreground/network-return hook: if a reconnect is pending, do it now
+   * with the backoff reset; if connected, send a PING so a zombie link is
+   * caught by the heartbeat instead of waiting for the OS to notice.
+   */
+  reconnectNow(): void {
+    if (this.disposed || this.exited) return;
+    if (this.transport) {
+      if (this.transport.isOpen) this.transport.send(M.encodePing());
+      return;
+    }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.retryDelay = this.baseDelay();
+    this.connect();
   }
 
   close(): void {

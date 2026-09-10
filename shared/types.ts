@@ -73,6 +73,8 @@ export const WS_MSG = {
   SET_TITLE: 0x24,
   /** Client→server: deliver a signal to the foreground process group [1B signal number]. */
   SIGNAL: 0x25,
+  /** Client→server, first frame only: observe live frames with no replay; not counted as an attached client. */
+  OBSERVE: 0x26,
 } as const;
 
 export interface CreateSessionRequest {

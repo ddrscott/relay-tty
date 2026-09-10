@@ -1,6 +1,7 @@
 /**
- * Shared terminal core: xterm.js initialization, WebGL, WS connection,
- * buffer replay (chunked + delta), reconnection, and resize observer.
+ * Shared terminal core: xterm.js initialization, WebGL, the session
+ * stream (via shared/client SessionStream), buffer replay (chunked + delta),
+ * and the resize observer.
  *
  * Used by both the interactive Terminal and ReadOnlyTerminal components.
  */
@@ -9,7 +10,9 @@ import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import type { SearchAddon } from "@xterm/addon-search";
-import { WS_MSG, type Session } from "../../shared/types";
+import type { Session } from "../../shared/types";
+import type { SessionStream } from "../../shared/client/session-stream";
+import { browserStream } from "../lib/browser-stream";
 import { loadCache, deleteCache, BufferCacheWriter } from "../lib/buffer-cache";
 import { createFileLinkProvider, type FileLink, type FileLinkProvider } from "../lib/file-link-provider";
 import { createTerminalLinkHandler } from "../lib/link-handler";
@@ -193,13 +196,13 @@ export interface TerminalCoreOpts {
 
 export interface TerminalCoreRef {
   term: Terminal | null;
-  ws: WebSocket | null;
+  stream: SessionStream | null;
   fitAddon: FitAddon | null;
 }
 
 export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | null>, opts: TerminalCoreOpts) {
   const termRef = useRef<Terminal | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const streamRef = useRef<SessionStream | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
@@ -250,8 +253,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
   }, []);
 
   const sendBinary = useCallback((msg: Uint8Array) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+    streamRef.current?.send(msg);
   }, []);
 
   useEffect(() => {
@@ -261,17 +263,16 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     // Perf HUD: one token per mounted terminal instance (cell count).
     const perfToken = {};
     perfRegistry.terms.add(perfToken);
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryDelay = 1000;
-    const MAX_RETRY_DELAY = 15000;
-    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let lastServerMessage = 0;
-    let byteOffset = 0;
+    // The session stream owns the RESUME offset, reconnect and heartbeat.
+    // It is created in connect() after the cache (or pool) has supplied the
+    // starting offset.
+    let stream: SessionStream | null = null;
+    let initialOffset = 0;
     // Reported "output size" shown in the UI. This is the server's
     // meta.total_bytes_written, which the SESSION_METRICS frame carries and which
-    // resets to 0 on CLEAR_SCROLLBACK. It is deliberately SEPARATE from byteOffset
-    // (the monotonic RESUME offset): after a clear, byteOffset stays high so delta
-    // replay still works, while reportedTotalBytes drops toward zero.
+    // resets to 0 on CLEAR_SCROLLBACK. It is deliberately SEPARATE from the stream
+    // offset (the monotonic RESUME offset): after a clear, the offset stays high so
+    // delta replay still works, while reportedTotalBytes drops toward zero.
     let reportedTotalBytes = 0;
     let lastActivityActive = false; // track last known session state
     let lastActivityEmit = 0; // throttle DATA-driven activity updates
@@ -492,8 +493,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         setupMobileInput(term, xtermWrapper!);
       }
       setupTouchScrolling(term, xtermWrapper!, opts.fontSize ?? 14, scrollState, (msg: Uint8Array) => {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+        stream?.send(msg);
       }, fileLinkProvider);
 
       // Prevent iOS text-span touch issues (xterm.js #3613).
@@ -559,12 +559,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         });
         // Send to other devices via CLIPBOARD message (cap at 1MB)
         if (sel.length <= 1024 * 1024) {
-          const encoded = new TextEncoder().encode(sel);
-          const msg = new Uint8Array(1 + encoded.length);
-          msg[0] = WS_MSG.CLIPBOARD;
-          msg.set(encoded, 1);
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+          stream?.sendClipboard(sel);
         }
       });
 
@@ -579,7 +574,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         try {
           const cached = await loadCache(cacheSessionId);
           if (cached && cached.buffer.length > 0 && !disposed) {
-            byteOffset = cached.byteOffset;
+            initialOffset = cached.byteOffset;
             cacheWriter = new BufferCacheWriter(cacheSessionId, cached);
 
             // Write cached buffer into xterm before WS connect.
@@ -1242,342 +1237,173 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       }, { capture: true, passive: true });
     }
 
-    // ── WebSocket connection + message handling ─────────────────────
+    // ── Session stream + message handling ───────────────────────────
 
     function connect(term: Terminal) {
-      if (disposed) return;
+      if (disposed || stream) return;
+      const st = browserStream(opts.wsPath, {
+        initialOffset,
+        maxReplayBytes: opts.maxReplayBytes,
+      });
+      stream = st;
+      streamRef.current = st;
 
-      setStatus("connecting");
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${proto}//${location.host}${opts.wsPath}`);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
-
-      ws.onopen = () => {
+      st.on("status", (s, retries) => {
         if (disposed) return;
-        retryDelay = 1000;
-        setRetryCount(0);
-        setStatus("connected");
-        lastServerMessage = Date.now();
+        if (s !== "closed") setStatus(s);
+        setRetryCount(retries);
+      });
+      st.on("authError", (reason) => {
+        if (!disposed) opts.onAuthError?.(reason);
+      });
+      st.on("replay", (bytes, { isDelta }) => handleBufferReplay(term, bytes, isDelta));
+      st.on("cacheReset", () => {
+        // Server says our cached offset is stale — discard cache.
+        // With caching disabled (gallery cells) only the in-memory
+        // offset resets: a thumbnail's expired offset says nothing
+        // about the shared IndexedDB entry the main view owns, so
+        // deleting it here could kill a still-valid cache.
+        if (cacheEnabled && cacheSessionId) deleteCache(cacheSessionId);
+        cacheWriter?.dispose();
+        cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+      });
+      st.on("sync", (offset) => {
+        cacheWriter?.setOffset(offset);
+        // Baseline the reported size to the resume offset until the first
+        // SESSION_METRICS frame supplies the authoritative post-clear value.
+        reportedTotalBytes = offset;
+        opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: reportedTotalBytes });
+        // If SYNC arrives and content isn't ready yet, the session has
+        // no buffered output (BUFFER_REPLAY was skipped) — show terminal.
+        markContentReady();
 
-        // RESUME must be sent before RESIZE to arrive within the 100ms handshake window.
-        // With maxReplayBytes set, use the 16-byte payload form: the pty-host
-        // clamps full replays to the last N bytes (thumbnails don't need 10MB).
-        const wantsTailLimit = (opts.maxReplayBytes ?? 0) > 0;
-        const resumeMsg = new Uint8Array(wantsTailLimit ? 17 : 9);
-        resumeMsg[0] = WS_MSG.RESUME;
-        const resumeView = new DataView(resumeMsg.buffer);
-        resumeView.setFloat64(1, byteOffset, false);
-        if (wantsTailLimit) {
-          resumeView.setFloat64(9, opts.maxReplayBytes!, false);
-        }
-        ws.send(resumeMsg);
-
-        // Auto-RESIZE happens after SYNC (see handleWsMessage) when the
-        // handshake completes, not here — we need to wait for buffer replay.
-
-        // Start heartbeat: send PING every 10s, detect zombie connections after 45s silence.
-        // Tunnel connections (browser → DO → tunnel → local) can lose individual
-        // PONG responses; 45s tolerates ~4 missed heartbeats before giving up.
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        heartbeatTimer = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            if (Date.now() - lastServerMessage > 45_000) {
-              // No data from server for 45s despite pings — zombie connection
-              ws.close();
-              return;
-            }
-            ws.send(new Uint8Array([WS_MSG.PING]));
-          }
-        }, 10_000);
-      };
-
-      ws.onmessage = (event) => {
-        lastServerMessage = Date.now();
-        const data = new Uint8Array(event.data);
-        if (data.length < 1) return;
-        // PONG is just a heartbeat ack — no further handling needed
-        if (data[0] === WS_MSG.PONG) return;
-        handleWsMessage(term, data[0], data.slice(1));
-      };
-
-      ws.onclose = (event) => {
-        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-        if (disposed) return;
-        // Ignore close events from stale WebSockets — a newer connection may
-        // already be open. Without this guard, a late-firing onclose from an
-        // old WS overwrites the "connected" status of the current WS, causing
-        // the "Waiting for server connection" banner to appear even while data
-        // is flowing on the active connection.
-        if (ws !== wsRef.current) return;
-        if (event.code === 4001 || event.code === 1008) {
-          opts.onAuthError?.(event.reason || undefined);
-          return;
-        }
-        setStatus("disconnected");
-        scheduleReconnect(term);
-      };
-
-      ws.onerror = () => {};
-    }
-
-    async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
-      const ds = new DecompressionStream("gzip");
-      const writer = ds.writable.getWriter();
-      const reader = ds.readable.getReader();
-      writer.write(data as any);
-      writer.close();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      if (chunks.length === 1) return chunks[0];
-      const total = chunks.reduce((sum, c) => sum + c.length, 0);
-      const result = new Uint8Array(total);
-      let offset = 0;
-      for (const c of chunks) {
-        result.set(c, offset);
-        offset += c.length;
-      }
-      return result;
-    }
-
-    function handleWsMessage(term: Terminal, type: number, payload: Uint8Array) {
-      switch (type) {
-        case WS_MSG.BUFFER_REPLAY:
-          handleBufferReplay(term, payload);
-          break;
-        case WS_MSG.BUFFER_REPLAY_GZ:
-          decompressGzip(payload).then((decompressed) => {
-            handleBufferReplay(term, decompressed);
+        // After the handshake completes, fit xterm to the actual container
+        // size and send RESIZE to the PTY. This corrects the 80x24 default
+        // that the server uses when spawning from the web UI.
+        // Skip for fixed-size terminals (gallery thumbnails) and read-only.
+        if (activeRef.current && opts.fixedCols == null && !opts.readOnly) {
+          requestAnimationFrame(() => {
+            if (disposed || !fitAddonRef.current) return;
+            fitAddonRef.current.fit();
+            // Explicitly send RESIZE — sendResize is false in the main
+            // terminal so onResize won't propagate automatically.
+            st.sendResize(term.cols, term.rows);
           });
-          break;
-        case WS_MSG.SYNC:
-          if (payload.length >= 8) {
-            const view = new DataView(payload.buffer, payload.byteOffset);
-            const serverOffset = view.getFloat64(0, false);
-            if (serverOffset === 0 && byteOffset > 0) {
-              // Server says our cached offset is stale — discard cache.
-              // With caching disabled (gallery cells) only the in-memory
-              // offset resets: a thumbnail's expired offset says nothing
-              // about the shared IndexedDB entry the main view owns, so
-              // deleting it here could kill a still-valid cache.
-              byteOffset = 0;
-              if (cacheEnabled && cacheSessionId) deleteCache(cacheSessionId);
-              cacheWriter?.dispose();
-              cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
-            } else {
-              byteOffset = serverOffset;
-            }
-            cacheWriter?.setOffset(byteOffset);
-            // Baseline the reported size to the resume offset until the first
-            // SESSION_METRICS frame supplies the authoritative post-clear value.
-            reportedTotalBytes = byteOffset;
-            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: reportedTotalBytes });
-            // If SYNC arrives and content isn't ready yet, the session has
-            // no buffered output (BUFFER_REPLAY was skipped) — show terminal.
-            markContentReady();
+        }
+      });
+      st.on("data", (payload) => {
+        reportedTotalBytes += payload.length;
+        cacheWriter?.append(payload);
+        cacheWriter?.setOffset(st.offset);
 
-            // After the handshake completes, fit xterm to the actual container
-            // size and send RESIZE to the PTY. This corrects the 80x24 default
-            // that the server uses when spawning from the web UI.
-            // Skip for fixed-size terminals (gallery thumbnails) and read-only.
-            if (activeRef.current && opts.fixedCols == null && !opts.readOnly) {
-              requestAnimationFrame(() => {
-                if (disposed || !fitAddonRef.current) return;
-                fitAddonRef.current.fit();
-                // Explicitly send RESIZE — sendResize is false in the main
-                // terminal so onResize won't propagate automatically.
-                const ws = wsRef.current;
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  const { cols, rows } = term;
-                  const msg = new Uint8Array(5);
-                  msg[0] = WS_MSG.RESIZE;
-                  new DataView(msg.buffer).setUint16(1, cols, false);
-                  new DataView(msg.buffer).setUint16(3, rows, false);
-                  ws.send(msg);
-                }
-              });
-            }
+        // Budgeted WebGL: recent activity is the priority signal. Bump at
+        // most once per second — bumpActivity never rebalances, but there's
+        // no reason to touch the registry per DATA frame.
+        if (webglBudgeted) {
+          const bumpNow = Date.now();
+          if (bumpNow - lastWebglActivityBump > 1000) {
+            lastWebglActivityBump = bumpNow;
+            webglBudget.bumpActivity(opts.wsPath);
           }
-          break;
-        case WS_MSG.DATA: {
-          byteOffset += payload.length;
-          reportedTotalBytes += payload.length;
-          cacheWriter?.append(payload);
-          cacheWriter?.setOffset(byteOffset);
+        }
 
-          // Budgeted WebGL: recent activity is the priority signal. Bump at
-          // most once per second — bumpActivity never rebalances, but there's
-          // no reason to touch the registry per DATA frame.
-          if (webglBudgeted) {
-            const bumpNow = Date.now();
-            if (bumpNow - lastWebglActivityBump > 1000) {
-              lastWebglActivityBump = bumpNow;
-              webglBudget.bumpActivity(opts.wsPath);
-            }
+        // Throttled rendering for grid cells: accumulate and mark dirty in
+        // the shared scheduler, which flushes within a per-frame budget.
+        // The scheduler feeds perfRegistry.bytesWritten at flush time (bytes
+        // actually written to xterm); the unthrottled path counts on arrival.
+        if (throttleInterval > 0) {
+          throttleBuffer.push(payload);
+          // Lazy registration covers both init paths (fresh init and pool
+          // reattach) and keeps idle cells out of the scheduler entirely.
+          if (!throttleWriter) {
+            throttleWriter = registerThrottledWriter(() => flushThrottleBuffer(term), throttleInterval);
           }
-
-          // Throttled rendering for grid cells: accumulate and mark dirty in
-          // the shared scheduler, which flushes within a per-frame budget.
-          // The scheduler feeds perfRegistry.bytesWritten at flush time (bytes
-          // actually written to xterm); the unthrottled path counts on arrival.
-          if (throttleInterval > 0) {
-            throttleBuffer.push(payload);
-            // Lazy registration covers both init paths (fresh init and pool
-            // reattach) and keeps idle cells out of the scheduler entirely.
-            if (!throttleWriter) {
-              throttleWriter = registerThrottledWriter(() => flushThrottleBuffer(term), throttleInterval);
-            }
-            throttleWriter.markDirty();
+          throttleWriter.markDirty();
+        } else {
+          perfRegistry.bytesWritten += payload.length; // perf HUD throughput
+          if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
+            term.write(payload, () => term.scrollToBottom());
           } else {
-            perfRegistry.bytesWritten += payload.length; // perf HUD throughput
-            if (!scrollState.momentumActive && Date.now() < snapBottomUntilRef.current) {
-              term.write(payload, () => term.scrollToBottom());
-            } else {
-              term.write(payload, () => {
-                // After write, baseY may have changed while viewportY stayed
-                // put (user scrolled up). The onScroll event only fires when
-                // viewportY changes, so this catches the inverse case where
-                // the user was wrongly marked as "at bottom" and new data
-                // pushed baseY ahead.
-                if (!scrollState.momentumActive) checkAtBottom();
-              });
-            }
+            term.write(payload, () => {
+              // After write, baseY may have changed while viewportY stayed
+              // put (user scrolled up). The onScroll event only fires when
+              // viewportY changes, so this catches the inverse case where
+              // the user was wrongly marked as "at bottom" and new data
+              // pushed baseY ahead.
+              if (!scrollState.momentumActive) checkAtBottom();
+            });
           }
+        }
 
-          // Throttled activity update: emit at most every 500ms during data flow
-          if (opts.onActivityUpdate) {
-            const now = Date.now();
-            if (now - lastActivityEmit > 500) {
-              lastActivityEmit = now;
-              lastActivityActive = true;
-              opts.onActivityUpdate({ isActive: true, totalBytes: reportedTotalBytes });
-            }
+        // Throttled activity update: emit at most every 500ms during data flow
+        if (opts.onActivityUpdate) {
+          const now = Date.now();
+          if (now - lastActivityEmit > 500) {
+            lastActivityEmit = now;
+            lastActivityActive = true;
+            opts.onActivityUpdate({ isActive: true, totalBytes: reportedTotalBytes });
           }
-          break;
         }
-        case WS_MSG.EXIT: {
-          const view = new DataView(payload.buffer, payload.byteOffset);
-          const exitCode = view.getInt32(0, false);
-          markContentReady();
-          opts.onExit?.(exitCode);
-          // Clean up cache for exited sessions
-          if (cacheSessionId) deleteCache(cacheSessionId);
-          cacheWriter?.dispose();
-          cacheWriter = null;
-          break;
+      });
+      st.on("exit", (exitCode) => {
+        markContentReady();
+        opts.onExit?.(exitCode);
+        // Clean up cache for exited sessions
+        if (cacheSessionId) deleteCache(cacheSessionId);
+        cacheWriter?.dispose();
+        cacheWriter = null;
+      });
+      st.on("title", (title) => opts.onTitleChange?.(title));
+      st.on("notification", (message) => opts.onNotification?.(message));
+      st.on("state", (isActive) => {
+        lastActivityActive = isActive;
+        opts.onActivityUpdate?.({ isActive, totalBytes: reportedTotalBytes });
+      });
+      st.on("metrics", ({ bps1, bps5, bps15, totalBytes }) => {
+        // Authoritative reported output size from the server (resets on clear).
+        reportedTotalBytes = totalBytes;
+        lastActivityActive = bps1 >= 1;
+        opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes, bps1, bps5, bps15 });
+      });
+      st.on("sessionUpdate", (session) => opts.onSessionUpdate?.(session));
+      st.on("resize", ({ cols: newCols, rows: newRows }) => {
+        // Server→client PTY dimensions: resize xterm to match (don't send
+        // RESIZE back — this IS the server's size).
+        if (newCols > 0 && newRows > 0 && (term.cols !== newCols || term.rows !== newRows)) {
+          term.resize(newCols, newRows);
         }
-        case WS_MSG.TITLE: {
-          const title = new TextDecoder().decode(payload);
-          opts.onTitleChange?.(title);
-          break;
-        }
-        case WS_MSG.NOTIFICATION: {
-          const message = new TextDecoder().decode(payload);
-          opts.onNotification?.(message);
-          break;
-        }
-        case WS_MSG.SESSION_STATE: {
-          // 1-byte payload: 0x00 = idle, 0x01 = active
-          const isActive = payload.length > 0 && payload[0] === 0x01;
-          lastActivityActive = isActive;
-          opts.onActivityUpdate?.({ isActive, totalBytes: reportedTotalBytes });
-          break;
-        }
-        case WS_MSG.SESSION_METRICS: {
-          // 32-byte payload: bps1(f64) + bps5(f64) + bps15(f64) + totalBytesWritten(f64)
-          if (payload.length >= 32) {
-            const mv = new DataView(payload.buffer, payload.byteOffset);
-            const bps1 = mv.getFloat64(0, false);
-            const bps5 = mv.getFloat64(8, false);
-            const bps15 = mv.getFloat64(16, false);
-            const totalBytes = mv.getFloat64(24, false);
-            // Authoritative reported output size from the server (resets on clear).
-            reportedTotalBytes = totalBytes;
-            lastActivityActive = bps1 >= 1;
-            opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes, bps1, bps5, bps15 });
-          }
-          break;
-        }
-        case WS_MSG.SESSION_UPDATE: {
-          // UTF-8 JSON of updated Session object
-          try {
-            const json = new TextDecoder().decode(payload);
-            const session = JSON.parse(json) as Session;
-            opts.onSessionUpdate?.(session);
-          } catch {
-            // Malformed JSON — ignore
-          }
-          break;
-        }
-        case WS_MSG.RESIZE: {
-          // Server→client: PTY dimensions [cols(2 BE)][rows(2 BE)]
-          // Resize xterm to match (don't send RESIZE back — this IS the server's size)
-          if (payload.length >= 4) {
-            const view = new DataView(payload.buffer, payload.byteOffset);
-            const newCols = view.getUint16(0, false);
-            const newRows = view.getUint16(2, false);
-            if (newCols > 0 && newRows > 0 && (term.cols !== newCols || term.rows !== newRows)) {
-              term.resize(newCols, newRows);
-            }
-          }
-          break;
-        }
-        case WS_MSG.CLIPBOARD: {
-          // UTF-8 clipboard text from another device or OSC 52
-          const clipText = new TextDecoder().decode(payload);
-          if (clipText) opts.onClipboard?.(clipText);
-          break;
-        }
-        case WS_MSG.CLEAR_SCROLLBACK: {
-          // Server broadcast: a client cleared the scrollback buffer.
-          // Clear local xterm display to match, and reflect the reset reported
-          // output size immediately so the UI drops toward zero even before the
-          // next SESSION_METRICS frame arrives.
-          term.clear();
-          reportedTotalBytes = 0;
-          // Purge the stale local cache so a later reload / new tab does a clean
-          // (now cheap, post-clear) full replay from the server instead of
-          // replaying the pre-clear ≤10MB buffer — the actual >10s load cost.
-          // This runs on the broadcast-receiver path, so every connected device
-          // drops both its in-memory writer and the shared per-origin IndexedDB
-          // entry, not just the initiator. byteOffset is reset to 0 because the
-          // server reset total_written on clear; the SYNC that follows this
-          // broadcast re-baselines byteOffset to the authoritative offset and a
-          // RESUME(0) reconnect now replays an empty buffer.
-          // The shared-cache delete stays UNCONDITIONAL: a clear broadcast is
-          // authoritative for every connected client, so even a cache-disabled
-          // gallery cell purges the shared per-session IndexedDB entry. Only
-          // the writer reconstruction is gated on cacheEnabled.
-          byteOffset = 0;
-          if (cacheSessionId) deleteCache(cacheSessionId);
-          cacheWriter?.dispose();
-          cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
-          opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: 0 });
-          break;
-        }
-        case WS_MSG.IMAGE: {
-          // IMAGE format: [4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
-          if (payload.length < 5) break;
-          const idLen = new DataView(payload.buffer, payload.byteOffset).getUint32(0, false);
-          if (payload.length < 4 + idLen + 2) break; // need at least id + 1 byte mime + NUL
-          const imageId = new TextDecoder().decode(payload.slice(4, 4 + idLen));
-          // Find NUL terminator for MIME type
-          let mimeEnd = 4 + idLen;
-          while (mimeEnd < payload.length && payload[mimeEnd] !== 0) mimeEnd++;
-          const mime = new TextDecoder().decode(payload.slice(4 + idLen, mimeEnd));
-          const imageData = payload.slice(mimeEnd + 1);
-          if (imageData.length > 0) {
-            const blob = new Blob([imageData], { type: mime || "image/png" });
-            const blobUrl = URL.createObjectURL(blob);
-            opts.onImage?.({ id: imageId, blobUrl });
-          }
-          break;
-        }
-      }
+      });
+      st.on("clipboard", (clipText) => opts.onClipboard?.(clipText));
+      st.on("clearScrollback", () => {
+        // Server broadcast: a client cleared the scrollback buffer.
+        // Clear local xterm display to match, and reflect the reset reported
+        // output size immediately so the UI drops toward zero even before the
+        // next SESSION_METRICS frame arrives.
+        term.clear();
+        reportedTotalBytes = 0;
+        // Purge the stale local cache so a later reload / new tab does a clean
+        // (now cheap, post-clear) full replay from the server instead of
+        // replaying the pre-clear ≤10MB buffer — the actual >10s load cost.
+        // This runs on the broadcast-receiver path, so every connected device
+        // drops both its in-memory writer and the shared per-origin IndexedDB
+        // entry, not just the initiator. The stream has already reset its
+        // offset to 0 because the server reset total_written on clear; the
+        // SYNC that follows this broadcast re-baselines it.
+        // The shared-cache delete stays UNCONDITIONAL: a clear broadcast is
+        // authoritative for every connected client, so even a cache-disabled
+        // gallery cell purges the shared per-session IndexedDB entry. Only
+        // the writer reconstruction is gated on cacheEnabled.
+        if (cacheSessionId) deleteCache(cacheSessionId);
+        cacheWriter?.dispose();
+        cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
+        opts.onActivityUpdate?.({ isActive: lastActivityActive, totalBytes: 0 });
+      });
+      st.on("image", ({ id, mime, bytes }) => {
+        const blob = new Blob([bytes as BlobPart], { type: mime });
+        opts.onImage?.({ id, blobUrl: URL.createObjectURL(blob) });
+      });
+
+      st.connect();
     }
 
     /** Merge all buffered chunks into a single in-order write. Returns the
@@ -1596,8 +1422,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       return total;
     }
 
-    function handleBufferReplay(term: Terminal, payload: Uint8Array) {
-      const isReconnect = byteOffset > 0;
+    function handleBufferReplay(term: Terminal, payload: Uint8Array, isDelta: boolean) {
+      const isReconnect = isDelta;
       if (payload.length === 0) {
         // Empty buffer — nothing to replay. For reconnects, content is
         // already rendered from cache. For first connect (brand new session
@@ -1702,16 +1528,6 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       writeNextChunk();
     }
 
-    function scheduleReconnect(term: Terminal) {
-      if (disposed) return;
-      setRetryCount(c => c + 1);
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        connect(term);
-      }, retryDelay);
-      retryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
-    }
-
     // ── Pool check or fresh init ────────────────────────────────────
 
     const poolKey = opts.wsPath;
@@ -1728,7 +1544,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       webglRef.current = pooled.webgl;
       searchAddonRef.current = pooled.searchAddon;
       setTermReady(true);
-      byteOffset = pooled.byteOffset;
+      initialOffset = pooled.byteOffset;
       cacheWriter = pooled.cacheWriter;
 
       const wantsTail = (opts.maxReplayBytes ?? 0) > 0;
@@ -1737,7 +1553,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         // the last N bytes. Now it is the real view, so force RESUME(0) — the
         // first-connect path resets xterm and replays the full buffer — and
         // start a cache writer (neighbors run with the cache disabled).
-        byteOffset = 0;
+        initialOffset = 0;
         cacheWriter?.dispose();
         cacheWriter = cacheEnabled && cacheSessionId ? new BufferCacheWriter(cacheSessionId) : null;
         // Keep the tail hidden until the full replay lands (no half-buffer flash).
@@ -1754,7 +1570,7 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
         requestAnimationFrame(() => pooled.fitAddon.fit());
       }
 
-      // Connect fresh WS — RESUME from pooled byteOffset for fast delta
+      // Connect a fresh stream — RESUME from the pooled offset for a fast delta
       connect(pooled.term);
     } else {
       // ── NORMAL INIT ──────────────────────────────────────────────
@@ -1767,18 +1583,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     // listeners detect foreground/network return and reconnect immediately.
 
     function immediateReconnect() {
-      const term = termRef.current;
-      if (!term || disposed) return;
-      const ws = wsRef.current;
-      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-        // WS is dead — cancel pending retry and reconnect now with reset backoff
-        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-        retryDelay = 1000;
-        connect(term);
-      } else if (ws.readyState === WebSocket.OPEN) {
-        // WS looks open — send a PING to probe; heartbeat timeout will catch zombies
-        ws.send(new Uint8Array([WS_MSG.PING]));
-      }
+      if (disposed) return;
+      // Pending retry: connect now with the backoff reset. Open: probe with a
+      // PING so the heartbeat catches a zombie link.
+      stream?.reconnectNow();
     }
 
     const onVisibilityChange = () => {
@@ -1839,10 +1647,8 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       // dispose the addon — the dispose branch below owns that (budgeted
       // cells are readOnly gallery cells, which are never pooled).
       if (webglBudgeted) webglBudget.unregister(opts.wsPath);
-      if (retryTimer) clearTimeout(retryTimer);
-      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
       // Unregister from the shared write scheduler — flushes any remaining
-      // pending bytes first (byteOffset already advanced when DATA arrived).
+      // pending bytes first (the stream offset already advanced when DATA arrived).
       throttleWriter?.unregister();
       throttleWriter = null;
       if (heightDebounce) clearTimeout(heightDebounce);
@@ -1850,7 +1656,10 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
       window.removeEventListener("online", onOnline);
       blurScrollCleanup?.();
       observer?.disconnect();
-      wsRef.current?.close();
+      const finalOffset = stream?.offset ?? initialOffset;
+      stream?.close();
+      stream = null;
+      streamRef.current = null;
 
       // Pool the terminal for instant reattach on remount.
       // Read-only terminals (grid thumbnails) are not pooled — they're
@@ -1863,11 +1672,11 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
           fitAddon: fitAddonRef.current!,
           webgl: webglRef.current,
           searchAddon: searchAddonRef.current,
-          byteOffset,
+          byteOffset: finalOffset,
           cacheWriter,
           cacheSessionId,
           pooledAt: Date.now(),
-          tailLimited: byteOffset > 0 && (opts.maxReplayBytes ?? 0) > 0,
+          tailLimited: finalOffset > 0 && (opts.maxReplayBytes ?? 0) > 0,
         });
         poolEvict();
         // Clear refs without disposing — pooled for reuse
@@ -1909,5 +1718,5 @@ export function useTerminalCore(containerRef: React.RefObject<HTMLDivElement | n
     }
   }, [opts.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { termRef, wsRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef, setWebglPinned };
+  return { termRef, streamRef, fitAddonRef, searchAddonRef, status, retryCount, contentReady, termReady, fit, sendBinary, replayingRef, setWebglPinned };
 }
