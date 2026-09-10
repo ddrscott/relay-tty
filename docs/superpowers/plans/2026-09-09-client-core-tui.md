@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-09-client-core-tui-plugins-design.md` (D1 through D5 and D7 phase 1; D6 plugins are out of scope for this plan). Prefix key changed from the spec's Ctrl+] to Ctrl+B per the goal.
 
+**Status (2026-09-10):** Tasks 1 through 21 are implemented on `feat/client-core-tui`. Deviations: Task 18's `StreamPool` was dropped because a switch needs a screen repaint that only a fresh replay can provide (a 1MB tail-limited `SessionStream` per switch instead); `OBSERVE` (0x26) was added in Task 12 so server monitors are not counted as attached viewers; Task 12's integration test uses a copy of the pty-host binary named `claude` because macOS reports a shell script's process name as the shell; the CLI integration test replaces the per-command unit tests sketched in Task 16. Everything else follows the plan.
+
 ## Global Constraints
 
 - xterm.js stays at 5.5.0 (`@xterm/headless` 5.5.0 for the CLI).
