@@ -136,13 +136,19 @@ describe("SessionStream conformance against pty-host", { skip: !hasBinary && "re
     s.close();
   });
 
-  it("exit is delivered and ends reconnects", async () => {
-    const h = await spawnHost("c0nf0002", ["/bin/sh", "-c", "echo bye; exit 7"]);
+  it("exit is delivered and ends reconnects", { timeout: 10_000 }, async () => {
+    // The shell must outlive spawnHost's settle delay so the client connects
+    // before pty-host tears the socket down.
+    const h = await spawnHost("c0nf0002", ["/bin/sh", "-c", "sleep 1; echo bye; exit 7"]);
     try {
       const s = new SessionStream({ transport: () => socketTransport(h.socketPath), inflate });
       const code = await new Promise<number>((resolve) => { s.on("exit", resolve); s.connect(); });
       assert.equal(code, 7);
+      // pty-host keeps the socket open after EXIT so late clients can still
+      // read the buffer; the stream stays connected and must not be retrying.
       await wait(50);
+      assert.equal(s.status, "connected");
+      s.close();
       assert.equal(s.status, "closed");
     } finally {
       h.child.kill("SIGTERM");
