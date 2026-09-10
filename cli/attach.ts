@@ -9,6 +9,8 @@ import { gunzipSync } from "node:zlib";
 import { SessionStream } from "../shared/client/session-stream.js";
 import { socketTransport } from "../shared/client/transport-socket-node.js";
 import { diskDirectory } from "../shared/client/directory-disk-node.js";
+import { TERMINAL_RESET } from "../shared/client/terminal-reset.js";
+import { osc52, osc9, osc1337Image } from "./osc.js";
 
 export interface AttachOpts {
   sessionId?: string;
@@ -106,6 +108,10 @@ export function attachStream(stream: SessionStream, opts: AttachOpts = {}): Prom
       finished = true;
       exitRaw();
       for (const off of offs) off();
+      // Leave the terminal at defaults so whatever shows next (the user's
+      // shell, the TUI picker, another session) does not inherit this app's
+      // mouse tracking, bracketed paste, hidden cursor or alternate screen.
+      if (process.stdout.isTTY) process.stdout.write(TERMINAL_RESET);
       if (!opts.keepStream) stream.close();
       resolve(result);
     }
@@ -147,6 +153,10 @@ export function attachStream(stream: SessionStream, opts: AttachOpts = {}): Prom
         finish("exited");
         opts.onExit?.(code);
       }),
+      // Side channels pty-host lifted out of the output stream
+      stream.on("clipboard", (text) => process.stdout.write(osc52(text))),
+      stream.on("notification", (text) => process.stdout.write(osc9(text))),
+      stream.on("image", (image) => process.stdout.write(osc1337Image(image))),
       stream.on("status", (status) => {
         if (finished) return;
         if (status === "connected") {
