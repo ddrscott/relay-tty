@@ -1,250 +1,170 @@
-import * as fs from "node:fs";
-import * as net from "node:net";
-import * as path from "node:path";
-import * as os from "node:os";
-import { gunzipSync } from "node:zlib";
-import { WS_MSG } from "../shared/types.js";
-import { parseFrames } from "../shared/framing.js";
-
 /**
- * Core attach logic: connects to a PTY session via Unix socket and enters
- * raw TTY mode. Ctrl+] (0x1D) detaches cleanly.
- *
- * Auto-reconnect: if the socket drops unexpectedly, the CLI automatically
- * reconnects as long as the pty-host process is still alive.
+ * Raw-TTY attach: pipe the local terminal to a session through a
+ * SessionStream. Ctrl+] (0x1D) detaches by default. The TUI reuses
+ * `attachStream` with its own input filter (prefix key) and keeps the
+ * stream alive across switches.
  */
+import * as fs from "node:fs";
+import { gunzipSync } from "node:zlib";
+import { SessionStream } from "../shared/client/session-stream.js";
+import { socketTransport } from "../shared/client/transport-socket-node.js";
+import { diskDirectory } from "../shared/client/directory-disk-node.js";
 
-interface AttachOpts {
+export interface AttachOpts {
   sessionId?: string;
   onExit?: (code: number) => void;
   onDetach?: () => void;
+  /**
+   * Called for every stdin chunk before forwarding. Return the bytes to
+   * forward (possibly empty) or null to swallow the chunk entirely.
+   */
+  filterInput?: (data: Buffer) => Buffer | null;
+  /** Byte that detaches; default 0x1d (Ctrl+]). `null` disables. */
+  detachByte?: number | null;
+  /** Leave the stream open when the attach ends (TUI stream pool). */
+  keepStream?: boolean;
+  /** Suppress the "Detached." / reconnect status lines (TUI draws its own). */
+  quiet?: boolean;
 }
 
-// ── Shared raw mode and lifecycle management ───────────────────────────
+export type AttachResult = "detached" | "exited" | "ended";
 
-interface RawSession {
-  rawMode: boolean;
-  stdinAttached: boolean;
-  cleanExit: boolean;
-  userDetached: boolean;
-  reconnectTimer: ReturnType<typeof setTimeout> | null;
-  retryDelay: number;
-  reconnecting: boolean;
-  /** Send raw data to the active transport */
-  sendMessage: (msg: Buffer) => void;
-}
+/** Node-side gzip inflate for SessionStream. */
+export const inflateNode = async (b: Uint8Array): Promise<Uint8Array> => new Uint8Array(gunzipSync(b));
 
-const MAX_RETRY_DELAY = 5000;
-
-function createRawSession(): RawSession {
-  return {
-    rawMode: false,
-    stdinAttached: false,
-    cleanExit: false,
-    userDetached: false,
-    reconnectTimer: null,
-    retryDelay: 500,
-    reconnecting: false,
-    sendMessage: () => {},
-  };
-}
-
-function enterRaw(s: RawSession, onStdinData: (data: Buffer) => void, onResize: () => void) {
-  if (!s.rawMode && process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-    s.rawMode = true;
-  }
-  process.stdin.resume();
-  if (!s.stdinAttached) {
-    s.stdinAttached = true;
-    process.stdin.on("data", onStdinData);
-    process.on("SIGWINCH", onResize);
-    process.on("exit", () => {
-      if (s.rawMode && process.stdin.isTTY) process.stdin.setRawMode(false);
-    });
-  }
-}
-
-function exitRaw(s: RawSession, onStdinData: (data: Buffer) => void, onResize: () => void) {
-  if (s.rawMode && process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
-    s.rawMode = false;
-  }
-  if (s.stdinAttached) {
-    s.stdinAttached = false;
-    process.stdin.removeListener("data", onStdinData);
-    process.removeListener("SIGWINCH", onResize);
-  }
-}
-
-function sendData(s: RawSession, data: Buffer) {
-  const msg = Buffer.alloc(1 + data.length);
-  msg[0] = WS_MSG.DATA;
-  data.copy(msg, 1);
-  s.sendMessage(msg);
-}
-
-function sendResize(s: RawSession) {
-  if (!process.stdout.columns || !process.stdout.rows) return;
-  const msg = Buffer.alloc(5);
-  msg[0] = WS_MSG.RESIZE;
-  msg.writeUInt16BE(process.stdout.columns, 1);
-  msg.writeUInt16BE(process.stdout.rows, 3);
-  s.sendMessage(msg);
-}
-
-function handleMessage(type: number, payload: Buffer, s: RawSession, opts: AttachOpts, finish: () => void) {
-  switch (type) {
-    case WS_MSG.DATA:
-    case WS_MSG.BUFFER_REPLAY:
-      process.stdout.write(payload);
-      s.reconnecting = false;
-      break;
-    case WS_MSG.BUFFER_REPLAY_GZ:
-      process.stdout.write(gunzipSync(payload));
-      s.reconnecting = false;
-      break;
-    case WS_MSG.EXIT: {
-      const exitCode = payload.readInt32BE(0);
-      s.cleanExit = true;
-      finish();
-      opts.onExit?.(exitCode);
-      break;
-    }
-  }
-}
-
-/** Write a length-prefixed frame to a Unix socket. */
-function writeFrame(sock: net.Socket, payload: Buffer) {
-  if (sock.writable) {
-    const header = Buffer.alloc(4);
-    header.writeUInt32BE(payload.length, 0);
-    sock.write(header);
-    sock.write(payload);
-  }
-}
-
-// ── Public API ──────────────────────────────────────────────────────────
-
-/**
- * Attach directly to a pty-host Unix socket.
- * Uses length-prefixed framing: [4B uint32 BE length][payload]
- * Auto-reconnects if the socket drops unexpectedly.
- */
-export function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise<void> {
-  return new Promise((resolve) => {
-    let sock: net.Socket | null = null;
-    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-
-    const s = createRawSession();
-
-    function finish() {
-      exitRaw(s, onStdinData, onResize);
-      if (s.reconnectTimer) { clearTimeout(s.reconnectTimer); s.reconnectTimer = null; }
-      sock?.destroy();
-      resolve();
-    }
-
-    function detach() {
-      s.userDetached = true;
-      s.cleanExit = true;
-      // Send DETACH message so pty-host can SIGHUP the foreground process group
-      const detachMsg = Buffer.from([WS_MSG.DETACH]);
-      s.sendMessage(detachMsg);
-      finish();
-      process.stderr.write("\r\nDetached.\r\n");
-      opts.onDetach?.();
-    }
-
-    s.sendMessage = (msg: Buffer) => {
-      if (sock) writeFrame(sock, msg);
-    };
-
-    function onStdinData(data: Buffer) {
-      for (let i = 0; i < data.length; i++) {
-        if (data[i] === 0x1d) { detach(); return; }
-      }
-      sendData(s, data);
-    }
-
-    function onResize() { sendResize(s); }
-
-    function socketStillAlive(): boolean {
+/** Build a stream for a local session socket with the CLI's reconnect policy. */
+export function localStream(sessionId: string, opts: { initialOffset?: number; reconnect?: boolean } = {}): SessionStream {
+  const dir = diskDirectory();
+  const socketPath = dir.socketPath(sessionId);
+  return new SessionStream({
+    transport: () => socketTransport(socketPath),
+    inflate: inflateNode,
+    initialOffset: opts.initialOffset,
+    reconnect: opts.reconnect === false ? false : { baseMs: 500, maxMs: 5000, factor: 1.5 },
+    shouldReconnect: () => {
       if (!fs.existsSync(socketPath)) return false;
-      // Check session metadata on disk — pty-host writes status on exit
-      if (opts.sessionId) {
-        const metaPath = path.join(os.homedir(), ".relay-tty", "sessions", `${opts.sessionId}.json`);
-        try {
-          const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-          if (meta.status === "exited") return false;
-        } catch {
-          // Can't read — assume alive if socket exists
-        }
+      try {
+        const meta = JSON.parse(fs.readFileSync(dir.sessionPath(sessionId), "utf-8"));
+        if (meta.status === "exited") return false;
+      } catch {
+        // unreadable: assume alive while the socket exists
       }
       return true;
+    },
+  });
+}
+
+/**
+ * Attach to a pty-host Unix socket. Resolves when the user detaches, the
+ * process exits, or the session disappears.
+ */
+export async function attachSocket(socketPath: string, opts: AttachOpts = {}): Promise<void> {
+  const id = opts.sessionId ?? socketPath.replace(/^.*\//, "").replace(/\.sock$/, "");
+  const stream = localStream(id);
+  await attachStream(stream, opts);
+}
+
+/**
+ * Drive an existing SessionStream from this process's TTY. Enters raw mode,
+ * forwards stdin as DATA, mirrors output to stdout, sends RESIZE on SIGWINCH.
+ */
+export function attachStream(stream: SessionStream, opts: AttachOpts = {}): Promise<AttachResult> {
+  return new Promise((resolve) => {
+    const detachByte = opts.detachByte === undefined ? 0x1d : opts.detachByte;
+    let rawMode = false;
+    let finished = false;
+    let reconnecting = false;
+    const offs: Array<() => void> = [];
+
+    const say = (msg: string) => {
+      if (!opts.quiet) process.stderr.write(msg);
+    };
+
+    function enterRaw() {
+      if (!rawMode && process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        rawMode = true;
+      }
+      process.stdin.resume();
+      process.stdin.on("data", onStdin);
+      process.on("SIGWINCH", onResize);
     }
 
-    function scheduleReconnect() {
-      if (s.cleanExit || s.userDetached) return;
-      if (s.reconnectTimer) return;
-
-      if (!socketStillAlive()) {
-        process.stderr.write("\r\nSession ended.\r\n");
-        finish();
-        return;
+    function exitRaw() {
+      if (rawMode && process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+        rawMode = false;
       }
-
-      if (!s.reconnecting) {
-        s.reconnecting = true;
-        process.stderr.write("\r\nConnection lost. Reconnecting...\r\n");
-      }
-
-      s.reconnectTimer = setTimeout(() => {
-        s.reconnectTimer = null;
-        if (s.cleanExit || s.userDetached) return;
-        connect();
-      }, s.retryDelay);
-      s.retryDelay = Math.min(s.retryDelay * 1.5, MAX_RETRY_DELAY);
+      process.stdin.removeListener("data", onStdin);
+      process.removeListener("SIGWINCH", onResize);
     }
 
-    function connect() {
-      if (s.cleanExit || s.userDetached) return;
-
-      if (!socketStillAlive()) {
-        process.stderr.write("\r\nSession ended.\r\n");
-        finish();
-        return;
-      }
-
-      const newSock = net.createConnection(socketPath);
-      sock = newSock;
-      pending = Buffer.alloc(0);
-
-      newSock.on("connect", () => {
-        if (s.cleanExit || s.userDetached) { newSock.destroy(); return; }
-        s.retryDelay = 500;
-        if (!s.rawMode) enterRaw(s, onStdinData, onResize);
-        sendResize(s);
-      });
-
-      newSock.on("data", (chunk) => {
-        pending = Buffer.concat([pending, chunk]);
-        pending = parseFrames(pending, (type, payload) => {
-          handleMessage(type, payload, s, opts, finish);
-        });
-      });
-
-      newSock.on("error", () => {
-        sock = null;
-        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
-      });
-
-      newSock.on("close", () => {
-        if (sock === newSock) sock = null;
-        if (!s.cleanExit && !s.userDetached) scheduleReconnect();
-      });
+    function finish(result: AttachResult) {
+      if (finished) return;
+      finished = true;
+      exitRaw();
+      for (const off of offs) off();
+      if (!opts.keepStream) stream.close();
+      resolve(result);
     }
 
-    connect();
+    function onResize() {
+      if (process.stdout.columns && process.stdout.rows) {
+        stream.sendResize(process.stdout.columns, process.stdout.rows);
+      }
+    }
+
+    function onStdin(data: Buffer) {
+      let bytes: Buffer | null = data;
+      if (opts.filterInput) bytes = opts.filterInput(data);
+      if (bytes === null) return;
+      if (detachByte !== null) {
+        for (let i = 0; i < bytes.length; i++) {
+          if (bytes[i] === detachByte) {
+            stream.sendDetach();
+            finish("detached");
+            say("\r\nDetached.\r\n");
+            opts.onDetach?.();
+            return;
+          }
+        }
+      }
+      if (bytes.length) stream.sendData(bytes);
+    }
+
+    offs.push(
+      stream.on("replay", (bytes) => {
+        process.stdout.write(bytes);
+        reconnecting = false;
+      }),
+      stream.on("data", (bytes) => {
+        process.stdout.write(bytes);
+        reconnecting = false;
+      }),
+      stream.on("exit", (code) => {
+        finish("exited");
+        opts.onExit?.(code);
+      }),
+      stream.on("status", (status) => {
+        if (finished) return;
+        if (status === "connected") {
+          onResize();
+        } else if (status === "disconnected" && !reconnecting) {
+          reconnecting = true;
+          say("\r\nConnection lost. Reconnecting...\r\n");
+        } else if (status === "closed") {
+          say("\r\nSession ended.\r\n");
+          finish("ended");
+        }
+      }),
+    );
+
+    process.on("exit", () => {
+      if (rawMode && process.stdin.isTTY) process.stdin.setRawMode(false);
+    });
+
+    enterRaw();
+    if (stream.status === "closed") stream.connect();
+    else onResize();
   });
 }
