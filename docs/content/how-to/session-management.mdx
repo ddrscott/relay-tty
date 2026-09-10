@@ -60,6 +60,26 @@ Open the session info panel and tap **Stop**.
 <Callout type="warn">
 Stopping a session kills the underlying process. This is not reversible.
 </Callout>
+## Watch for an agent that needs you
+
+pty-host tracks an `agentState` per session (`working`, `blocked`, `done`, `idle`, `unknown`) for recognized coding agents such as Claude Code, Codex, and opencode. It shows as a chip in the web sidebar and as a column in the TUI picker, both of which sort blocked sessions first, and it drives the "Agent blocked" push notification.
+
+From a script:
+
+```bash
+relay wait a1b2c3d4 --state blocked --timeout 900 && say "agent needs you"
+relay events | jq -c 'select(.event == "session.agent_state")'
+```
+
+## Rename a session
+
+```bash
+relay rename a1b2c3d4 "api refactor"   # pinned: the shell's own title no longer replaces it
+relay rename a1b2c3d4 --unpin
+```
+
+In the TUI, press `,` in the picker or `Ctrl+B ,` while attached.
+
 ## Multiple viewers
 
 Multiple clients (CLI and browser) can connect to the same session simultaneously. Everyone sees the same output in real-time, and any connected client can type.

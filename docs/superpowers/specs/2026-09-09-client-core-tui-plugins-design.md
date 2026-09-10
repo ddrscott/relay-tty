@@ -1,6 +1,8 @@
 # Client Core, TUI Multiplexer, and Plugins
 
-Status: proposed. Author: Claude, at Scott's request to make the architectural call.
+Status: D1, D2, D4, D5 and D7 phase 1 implemented on `feat/client-core-tui` (September 2026); D6 (plugins) not started. Author: Claude, at Scott's request to make the architectural call.
+
+Implementation notes that differ from the text below: (1) a third message, `OBSERVE` (0x26), was added so server monitors and other event-only clients get no replay and are not counted as attached viewers, otherwise `done` could never fire while the server runs; (2) the TUI opens a fresh `SessionStream` with a 1MB tail-limited replay on every switch instead of keeping streams alive for delta resume, because a delta cannot repaint the screen and the repaint is the whole point of a switch; (3) `relay tui --host` works for listing and attaching, but creating sessions on a remote host is deferred because the CLI spawns pty-host itself.
 
 ## Why this document exists
 

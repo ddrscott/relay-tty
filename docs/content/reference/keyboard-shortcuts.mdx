@@ -9,16 +9,38 @@ title: Keyboard Shortcuts
 |----------|--------|
 | Ctrl+] | Detach from session (session keeps running) |
 
-## TUI (`relay tui`)
+## TUI picker (`relay` or `relay tui`)
 
 | Key | Action |
 |-----|--------|
 | `↑`/`↓` or `j`/`k` | Navigate sessions |
+| `1`-`9` | Select session N |
 | `Enter` | Attach to selected session |
+| `c` | New shell session (in the selected session's directory) |
+| `,` | Rename selected session (Ctrl+U clears the field, Esc cancels) |
 | `x` | Stop selected session |
 | `r` | Refresh session list |
 | `g` / `G` | Jump to top / bottom |
 | `q` or `Esc` | Quit |
+| Mouse | Click to select, click the selected row to attach, wheel to move |
+
+## TUI attached (prefix key, default `Ctrl+B`)
+
+While attached, every key goes to the program except the prefix. Change the prefix with `prefix = C-a` in [`~/.config/relay-tty/relayrc`](configuration#configrelay-ttyrelayrc). Mouse events pass through to the program.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+B` `n` / `p` | Next / previous running session |
+| `Ctrl+B` `1`-`9` | Jump to session N (picker order) |
+| `Ctrl+B` `c` | New shell session in the current session's directory, then switch to it |
+| `Ctrl+B` `,` | Rename the current session (pins the title) |
+| `Ctrl+B` `s` or `Esc` | Back to the picker |
+| `Ctrl+B` `d` | Detach and quit the TUI (session keeps running) |
+| `Ctrl+B` `x` | Interrupt the foreground process (SIGINT) |
+| `Ctrl+B` `k` | Clear scrollback |
+| `Ctrl+B` `a` | Actions menu: interrupt, clear, rename, stop session |
+| `Ctrl+B` `?` | Show this key list on the status row |
+| `Ctrl+B` `Ctrl+B` | Send a literal Ctrl+B to the program |
 
 ## Web UI — All Views
 

@@ -25,6 +25,8 @@ export interface AttachOpts {
   keepStream?: boolean;
   /** Suppress the "Detached." / reconnect status lines (TUI draws its own). */
   quiet?: boolean;
+  /** Filled by attachStream with an `end()` that resolves the attach as "detached" (TUI switching). */
+  controller?: { end?: () => void };
 }
 
 export type AttachResult = "detached" | "exited" | "ended";
@@ -162,6 +164,7 @@ export function attachStream(stream: SessionStream, opts: AttachOpts = {}): Prom
     process.on("exit", () => {
       if (rawMode && process.stdin.isTTY) process.stdin.setRawMode(false);
     });
+    if (opts.controller) opts.controller.end = () => finish("detached");
 
     enterRaw();
     if (stream.status === "closed") stream.connect();

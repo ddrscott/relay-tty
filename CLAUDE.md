@@ -46,6 +46,12 @@ Code changes require restarting pty-host or creating new sessions — running se
 
 **Critical: The CLI spawns processes, not the server.** `relay <command>` calls `spawnDirect()` so pty-host inherits the user's env. The server is only a WS bridge — discovers sessions from disk via `discoverOne()`.
 
+## Client Core (`shared/client/`)
+All session clients go through `shared/client/`: `SessionStream` (handshake, offsets, replay, reconnect, typed events) over `Transport` (`transport-socket-node.ts` for Unix sockets, `transport-ws.ts` for WebSockets) and `SessionDirectory` (`directory-disk-node.ts`, `directory-remote.ts`). Browser hooks (`use-terminal-core.ts`, `use-pty-stream.ts`), `cli/attach.ts`, `cli/preview.ts`, `cli/directory.ts`, the TUI, and `server/pty-manager.ts` monitors are consumers. Never open a raw WebSocket or Unix socket to a session anywhere else; add capability to `SessionStream` instead. Files in `shared/client/` without a `-node` suffix must stay free of `node:` imports and DOM globals. Server monitors and other event-only clients use `observe: true` (OBSERVE first frame) so they get no replay and are not counted as attached.
+
+## TUI (`cli/tui/`)
+`relay` with no arguments opens the TUI. `keys.ts` is the pure prefix-key machine (default Ctrl+B, `prefix = C-x` in `~/.config/relay-tty/relayrc` via `cli/rc.ts`); `index.ts` runs the picker and the attach loop (a fresh `SessionStream` per switch, tail-limited replay repaints the screen); `status.ts` owns the last row (status line, line prompt, menu). Agent state (`agentState` from pty-host) sorts the picker and colors the state column.
+
 ## Critical: Gallery Thumbnail SIGWINCH Policy
 Gallery views (grid, lanes) are **passive observers**. Thumbnails MUST:
 - Use the session's existing PTY cols (width) from metadata — **never send a wider RESIZE/SIGWINCH**. Wider reflows line wrapping and jumbles layouts on other connected devices.

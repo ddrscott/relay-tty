@@ -126,18 +126,17 @@ Output: share URL to stdout, metadata to stderr.
 
 ### `relay tui`
 
-Interactive session picker with a split-pane terminal UI. Shows running sessions in a navigable list with a live terminal preview. Exited sessions are hidden from the list.
+The terminal client. `relay` with no arguments opens it too. It has two modes:
 
-| Key | Action |
-|-----|--------|
-| `↑`/`↓` or `j`/`k` | Navigate sessions |
-| `Enter` | Attach to selected session |
-| `x` | Stop selected session (confirms first) |
-| `r` | Refresh session list |
-| `g` / `G` | Jump to top / bottom |
-| `q` or `Esc` | Quit |
+**Picker.** Running sessions in a list with a live preview of the selected one. Sessions whose agent is waiting on you (`BLOCKED`) sort first, then `WORKING`, then the rest by age. The list updates as sessions come and go; no manual refresh needed.
 
-Mouse support: click to select, scroll wheel to navigate, click selected session to attach.
+**Attached.** Pressing Enter attaches to a session in raw mode, exactly like `relay attach`, except that a prefix key (default `Ctrl+B`, configurable in `relayrc`) switches sessions, creates shells, renames, and returns to the picker without leaving the terminal. Think of it as the tmux workflow on top of relay sessions: detach, reattach from any machine or browser, switch between sessions with `Ctrl+B n`. The outer terminal's title follows the active session and its agent state.
+
+See [Keyboard Shortcuts](keyboard-shortcuts#tui-picker-relay-or-relay-tui) for the full key list. Mouse: click to select, click the selected row to attach, wheel to move; while attached, mouse events go to the program.
+
+| Flag | Description |
+|------|-------------|
+| `--host <url>` | Drive sessions on another relay server (sessions list and streams go over its HTTP and WebSocket API). New sessions on a remote host are not supported yet |
 
 ## Server commands
 

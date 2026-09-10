@@ -175,10 +175,17 @@ Turn on **Screen Sharing** in macOS System Settings and a **Desktop** entry appe
 ## CLI reference
 
 ```bash
+relay                        # open the TUI: picker + tmux-style prefix key (Ctrl+B)
 relay <command>              # run command, attach locally
 relay --detach <command>     # run command, print URL, return to prompt
 relay attach <id>            # reattach to an existing session
-relay list                   # list all sessions
+relay list [--json --watch]  # list all sessions (JSON, or a stream of changes)
+relay info <id> --json       # one session's metadata, including agentState
+relay send <id> --enter "y"  # type into a session from a script
+relay rename <id> <title>    # pin a title (program titles no longer overwrite it)
+relay kill <id> [-s TERM]    # signal the foreground process (default INT)
+relay wait <id> -s blocked   # block until an agent needs input (or --state exited)
+relay events                 # JSON lines: created, exited, agent_state, title, cwd
 relay stop <id>              # kill a session
 relay share <id>             # read-only share link (1h default)
 relay share <id> --ttl 86400 # 24h TTL
@@ -188,7 +195,7 @@ relay server install         # install as system service (launchd/systemd)
 relay server uninstall       # remove the system service
 ```
 
-The CLI prints session URLs to stdout and status info to stderr (POSIX). `Ctrl+]` detaches from a session without killing it.
+The CLI prints session URLs to stdout and status info to stderr (POSIX). `Ctrl+]` detaches from a session without killing it. In the TUI, `Ctrl+B n` switches to the next session, `Ctrl+B c` opens a new shell, `Ctrl+B d` detaches; set `prefix = C-a` in `~/.config/relay-tty/relayrc` to change the key. Every command takes `--host <url>` to drive sessions on another machine, so `relay wait` and `relay send` are enough for one agent to run another.
 
 ---
 

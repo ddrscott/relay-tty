@@ -131,7 +131,13 @@ export class PreviewConnection {
     return this.term !== null;
   }
 
-  connect(sessionId: string, sessionCols: number, sessionRows: number, onUpdate: () => void): void {
+  connect(
+    sessionId: string,
+    sessionCols: number,
+    sessionRows: number,
+    onUpdate: () => void,
+    makeStream: (id: string) => SessionStream = (id) => localStream(id, { reconnect: false }),
+  ): void {
     this.disconnect();
     this._sessionId = sessionId;
     this._exitCode = null;
@@ -144,7 +150,7 @@ export class PreviewConnection {
     });
     this.term = term;
 
-    const stream = localStream(sessionId, { reconnect: false });
+    const stream = makeStream(sessionId);
     this.stream = stream;
     const write = (bytes: Uint8Array) => {
       term.write(bytes);

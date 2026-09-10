@@ -29,9 +29,20 @@ graph TB
     PTY2 <-->|PTY| Shell2
     Server --- WS
 
-    CLI[relay CLI] <-->|WebSocket| WS
+    CLI[relay CLI / TUI] <-->|Unix socket| PTY1
+    CLI <-->|WebSocket, remote| WS
     CLI -.->|spawns| PTY1
 ```
+
+## One client core
+
+Every client speaks the same framed binary protocol through `shared/client/`: a `SessionStream` (RESUME/SYNC handshake, byte-offset tracking, full versus delta replay, reconnect backoff, typed events) over a `Transport` that is either a Unix socket (length-prefixed frames) or a WebSocket (raw frames). The browser, `relay attach`, the TUI, the server's per-session monitors, and the CLI control commands (`send`, `rename`, `kill`) are all consumers of that one class. A `SessionDirectory` answers "what sessions exist and what state are they in" from disk (`~/.relay-tty/sessions`, watched) or from a remote server (`/api/sessions` plus `/ws/events`), so `relay tui --host` shows another machine's sessions with no code path of its own.
+
+Clients that only need live events (server monitors, plugins) open a session with `OBSERVE` as the first frame: no replay, and pty-host does not count them as attached viewers.
+
+## Agent state
+
+pty-host computes an `agentState` for each session once a second: `working`, `blocked`, `done`, `idle`, or `unknown`. It looks at the foreground process name (Claude Code, Codex, opencode and others are recognized), the last few kilobytes of output with escape sequences stripped, and recent throughput. The field is written to the session JSON and broadcast in `SESSION_UPDATE`, so the sidebar, the TUI picker, push notifications, and `relay wait --state blocked` all read the same value. The rules are a table in `crates/pty-host/src/agent_state.rs`.
 
 ## Why process-per-session?
 

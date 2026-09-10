@@ -17,8 +17,12 @@ description: >
 |------|------|
 | `shared/types.ts` | `WS_MSG` constants (single source of truth for JS/TS) |
 | `crates/pty-host/src/main.rs` | Rust constants (`WS_MSG_*`), `OutputBuffer`, `AltScreenScanner`, client handler |
-| `app/hooks/use-terminal-core.ts` | Browser WS connect, RESUME send, message dispatch, replay logic |
-| `app/lib/ws-messages.ts` | `encodeDataMessage`, `encodeResizeMessage` helpers |
+| `crates/pty-host/src/agent_state.rs` | Agent state classifier (`agentState` in metadata) |
+| `shared/client/session-stream.ts` | The one client: RESUME/SYNC, offsets, replay classification, reconnect, heartbeat, typed events |
+| `shared/client/messages.ts` | Every encode/decode helper (`encodeResume`, `decodeSync`, ...) |
+| `shared/client/transport-*.ts` | Unix socket (length-prefixed) and WebSocket (raw) transports |
+| `app/hooks/use-terminal-core.ts` | Browser xterm side: consumes `SessionStream` events, owns replay writes and the cache |
+| `app/lib/browser-stream.ts` | Browser `SessionStream` factory (reconnect and heartbeat policy) |
 | `server/ws-handler.ts` | Node.js WS-to-Unix-socket bridge, backpressure, clipboard broadcast |
 | `app/lib/buffer-cache.ts` | IndexedDB cache for instant local replay before WS connects |
 | `docs/content/reference/protocol.mdx` | Canonical protocol documentation |
