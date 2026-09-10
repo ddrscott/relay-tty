@@ -931,6 +931,36 @@ fn set_title_pins_over_osc() {
     assert!(meta.get("titlePinned").is_none(), "titlePinned should be omitted: {:?}", meta);
 }
 
+/// `relay rename` and `relay kill` send OBSERVE plus one control frame and hang
+/// up. When both frames land in the same read, the second one sat in the
+/// handshake's leftover buffer and was dropped on EOF.
+#[test]
+fn control_frame_coalesced_with_observe_is_not_dropped() {
+    use std::io::Write;
+    let handle = spawn_pty_host("/bin/sh", &[]).expect("failed to spawn");
+
+    let mut bytes = encode_frame(&[WS_MSG_OBSERVE]);
+    let mut set_title = vec![WS_MSG_SET_TITLE];
+    set_title.extend_from_slice(b"coalesced");
+    bytes.extend_from_slice(&encode_frame(&set_title));
+    {
+        let mut stream = std::os::unix::net::UnixStream::connect(&handle.socket_path)
+            .expect("connect failed");
+        stream.write_all(&bytes).expect("write failed");
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut last = serde_json::Value::Null;
+    while Instant::now() < deadline {
+        last = read_session_json(&handle.session_path).expect("read session JSON");
+        if last["title"] == "coalesced" {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("SET_TITLE after OBSERVE was dropped; last metadata: {:?}", last);
+}
+
 #[test]
 fn signal_interrupts_foreground() {
     let handle = spawn_pty_host("/bin/sh", &["-c", "sleep 30; echo after"])

@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opening a session page no longer stalls for seconds behind the sidebar's sparkline backfill. The server fetches each running session's sparkline over a fresh pty-host socket, and the pty-host treated that first frame as a legacy client: it gzipped and sent the entire ring buffer, dropped the request, and the server sat on its 2s timeout. With a dozen sessions those dead requests queued on the browser's per-host connection limit and held the xterm modules behind them, so the terminal appeared after ~8.5s on localhost. The pty-host now answers a first-frame `SPARKLINE_REQUEST` directly; sparkline calls return in milliseconds and no phantom replays are generated. Sessions started before the upgrade keep the old binary until restarted
 - Session picker opens scrolled to the active session instead of the top of the list; no focus change, so it never raises the mobile keyboard
 - Sidebar session order no longer jitters while AI tools animate a spinner glyph in the terminal title; the name sort ignores leading symbols and every sort mode has a stable tie-breaker
+- `relay rename` and `relay kill` could report success and do nothing, because pty-host dropped a control message that arrived in the same read as the handshake; Linux hit this almost every time
 
 ## [1.21.0] - 2026-07-30
 

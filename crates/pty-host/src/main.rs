@@ -2349,18 +2349,11 @@ async fn handle_client(
         }
     }
 
-    // Continue reading client messages
+    // Continue reading client messages. Frames are parsed before each read
+    // because the handshake read can leave complete frames in `pending`
+    // (OBSERVE + SET_TITLE from a client that sends and hangs up).
     let mut read_buf = vec![0u8; 65536];
     loop {
-        let n = match reader.read(&mut read_buf).await {
-            Ok(0) => break, // Disconnected
-            Ok(n) => n,
-            Err(_) => break,
-        };
-
-        pending.extend_from_slice(&read_buf[..n]);
-
-        // Parse frames
         while pending.len() >= 4 {
             let msg_len =
                 u32::from_be_bytes([pending[0], pending[1], pending[2], pending[3]]) as usize;
@@ -2384,6 +2377,13 @@ async fn handle_client(
                 process_client_message(msg_type, data, control).await;
             }
         }
+
+        let n = match reader.read(&mut read_buf).await {
+            Ok(0) => break, // Disconnected
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        pending.extend_from_slice(&read_buf[..n]);
     }
 
     !observer
