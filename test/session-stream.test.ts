@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { WS_MSG } from "../shared/types.js";
@@ -30,7 +30,15 @@ class FakeTransport implements Transport {
 
 const f64 = (n: number) => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, n, false); return b; };
 const inflate = async (b: Uint8Array) => new Uint8Array(gunzipSync(b));
-const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Advance mocked time, then let promise callbacks run. The tests use mock
+ * timers because the stream's reconnect backoff and heartbeat are timer
+ * driven; waiting on real milliseconds made them fail on loaded CI runners.
+ */
+const tick = async (ms = 5) => {
+  mock.timers.tick(ms);
+  await new Promise((r) => setImmediate(r));
+};
 
 function make(initialOffset = 0, extra: Record<string, unknown> = {}) {
   const transports: FakeTransport[] = [];
@@ -45,6 +53,9 @@ function make(initialOffset = 0, extra: Record<string, unknown> = {}) {
 }
 
 describe("SessionStream", () => {
+  beforeEach(() => mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] }));
+  afterEach(() => mock.timers.reset());
+
   it("sends RESUME(offset) first on open", () => {
     const { s, transports } = make(42);
     s.connect();
@@ -227,8 +238,9 @@ describe("SessionStream", () => {
     transports[0].open();
     await tick(4);
     assert.ok(transports[0].sent.some((f) => f[0] === WS_MSG.PING));
-    await tick(12);
+    await tick(12); // silence passes zombieMs: the stream drops the link
     assert.equal(transports[0].closedByStream, true);
+    await tick(2); // the reconnect scheduled by the drop fires on the next tick
     assert.ok(transports.length >= 2, "reconnected after zombie drop");
     s.close();
   });
