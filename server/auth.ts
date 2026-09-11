@@ -324,7 +324,7 @@ export function verifyGrantCookie(cookieValue: string): string | null {
 export function isOwnerRequest(req: Request): boolean {
   if (isLocalhost(req)) return true;
   if (!JWT_SECRET) return true;
-  const cookies = cookie.parse(req.headers.cookie || "");
+  const cookies = cookie.parseCookie(req.headers.cookie || "");
   const token = cookies.session;
   return !!(token && verifyJwt(token));
 }
@@ -362,7 +362,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return;
   }
 
-  const cookies = cookie.parse(req.headers.cookie || "");
+  const cookies = cookie.parseCookie(req.headers.cookie || "");
 
   // Primary auth path — owner JWT
   const token = cookies.session;
@@ -431,7 +431,7 @@ export function verifyWsAuth(req: { url?: string; headers: Record<string, string
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader || typeof cookieHeader !== "string") return false;
 
-  const cookies = cookie.parse(cookieHeader);
+  const cookies = cookie.parseCookie(cookieHeader);
 
   // Owner JWT
   const token = cookies.session;
