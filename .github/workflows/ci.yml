@@ -26,7 +26,7 @@ jobs:
       # Test the pty-host built from this commit, not the last release's binary.
       RELAY_SKIP_BINARY_DOWNLOAD: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -34,7 +34,7 @@ jobs:
         with:
           workspaces: crates/pty-host
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
