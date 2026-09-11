@@ -75,7 +75,7 @@
     "@xterm/headless": "5.5.0",
     "commander": "^13.1.0",
     "compression": "^1.8.0",
-    "cookie": "^1.0.0",
+    "cookie": "^2.0.1",
     "express": "^5.1.0",
     "isbot": "^5.1.0",
     "lucide-react": "^0.575.0",
