@@ -1069,7 +1069,8 @@ fn replay_restores_terminal_modes_set_before_last_clear() {
 fn delta_resume_does_not_repeat_the_preamble() {
     let handle = spawn_pty_host(
         "/bin/sh",
-        &["-c", "printf '\\033[?2004h\\033[2Jfirst'; sleep 1; printf ' second'; sleep 3"],
+        // Outlive the reconnect below even on a slow runner; the handle kills it on drop.
+        &["-c", "printf '\\033[?2004h\\033[2Jfirst'; sleep 1; printf ' second'; sleep 30"],
     )
     .expect("failed to spawn");
     std::thread::sleep(Duration::from_millis(400));
