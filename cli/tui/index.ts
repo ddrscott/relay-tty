@@ -7,19 +7,24 @@
 import { spawnDirect, waitForSocket } from "../spawn.js";
 import { resolveShell } from "../../shared/spawn-utils.js";
 import type { Session } from "../../shared/types.js";
-import { agentStateRank } from "../../shared/client/agent-state.js";
+import { SORT_OPTIONS, countByStatus, nextSort, type SortKey } from "../../app/lib/session-groups.js";
 import { attachStream } from "../attach.js";
 import { PreviewConnection } from "../preview.js";
 import { openTarget, openStream, withSession, type CliTarget } from "../directory.js";
-import { stopSession, bold } from "../sessions.js";
+import { stopSession, bold, shortCwd } from "../sessions.js";
 import { loadRc } from "../rc.js";
 import { PrefixMachine, prefixHelp, type PrefixAction } from "./keys.js";
 import { statusLine, promptLine, promptMenu, clearStatusLine } from "./status.js";
 import {
-  render, terminalTitle, listHeightFor, listWidthFor,
+  render, terminalTitle, listHeightFor, listWidthFor, sortLabel,
   ALT_SCREEN_ON, ALT_SCREEN_OFF, CURSOR_HIDE, CURSOR_SHOW, MOUSE_ON, MOUSE_OFF, CLEAR_SCREEN,
   type PickerView,
 } from "./render.js";
+import {
+  buildTree, headerIndexFor, rowCwd, toggleCollapsed, toggleAll, commandArgv, groupKey, sessionKey,
+  type TreePrefs,
+} from "./tree.js";
+import { loadTreePrefs, saveTreePrefs } from "./prefs.js";
 
 const PREVIEW_DEBOUNCE = 150;
 const RENDER_INTERVAL = 67; // ~15fps
@@ -28,7 +33,10 @@ const ATTACH_TAIL_BYTES = 1024 * 1024; // repaint from the last 1MB, not the who
 type AfterAction = "picker" | "detach" | "new" | "rename" | "actions";
 
 interface TuiState extends PickerView {
-  selectedId: string | null;
+  /** Every session the directory reports; `tree` is the filtered, grouped view of it. */
+  sessions: Session[];
+  /** Row key (group or session) that selection follows across refreshes. */
+  selectedKey: string | null;
   running: boolean;
   attached: boolean;
   /** A line prompt or menu owns the last row; suppress picker redraws. */
@@ -42,19 +50,21 @@ interface TuiState extends PickerView {
   prefixByte: number;
 }
 
-/** Sort for the picker: sessions needing a person first, then newest. */
-function orderSessions(sessions: Session[]): Session[] {
-  return [...sessions].sort((a, b) => agentStateRank(a.agentState) - agentStateRank(b.agentState) || b.createdAt - a.createdAt);
-}
+/** The menu keys for each sort, shown on the status row by `s`. */
+const SORT_KEYS: Record<string, SortKey> = { r: "recent", a: "active", c: "created", n: "name" };
 
 export async function runTui(opts: { host?: string } = {}): Promise<void> {
   const rc = loadRc();
   const target = openTarget(opts.host);
 
+  const prefs = loadTreePrefs();
   const state: TuiState = {
     sessions: [],
+    prefs,
+    tree: buildTree([], prefs),
+    counts: { running: 0, closed: 0 },
     selectedIndex: 0,
-    selectedId: null,
+    selectedKey: null,
     scrollOffset: 0,
     cols: process.stdout.columns || 80,
     rows: process.stdout.rows || 24,
@@ -75,7 +85,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     hostLabel: target.host,
   };
 
-  state.sessions = orderSessions(await target.directory.list());
+  await refreshSessions(state);
 
   const enterPicker = () => {
     process.stdout.write(ALT_SCREEN_ON + CURSOR_HIDE + MOUSE_ON);
@@ -110,26 +120,78 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
   };
   process.on("SIGWINCH", onResize);
 
-  const actions = {
+  const actions: PickerActions = {
     attach: (session: Session) => void attachLoop(session),
     stop: (session: Session) => void doStop(session, state),
     quit: () => { state.running = false; },
     refresh: async () => { setStatus(state, "Refreshing..."); await refreshSessions(state); setStatus(state, "Refreshed"); },
-    newSession: () => void attachLoop(null),
+    newShell: () => void newSessionHere(null),
+    newCommand: () => void newSessionHere("prompt"),
     rename: () => void renameFromPicker(),
+    sortMenu: () => void sortMenu(),
+    filterMenu: () => void filterMenu(),
+    setPrefs: (next: TreePrefs) => applyPrefs(state, next),
   };
 
-  async function renameFromPicker() {
-    const session = state.sessions[state.selectedIndex];
-    if (!session) return;
+  /** Run a last-row prompt or menu with the picker's key handler detached. */
+  async function withPrompt<T>(fn: () => Promise<T>): Promise<T> {
     process.stdin.removeListener("data", onData);
     state.prompting = true;
-    const title = await promptLine(`Rename ${session.id}:`, session.title ?? "");
-    state.prompting = false;
-    process.stdin.on("data", onData);
+    try {
+      return await fn();
+    } finally {
+      state.prompting = false;
+      process.stdin.on("data", onData);
+    }
+  }
+
+  async function renameFromPicker() {
+    const row = state.tree.rows[state.selectedIndex];
+    if (row?.kind !== "session") return;
+    const session = row.session;
+    const title = await withPrompt(() => promptLine(`Rename ${session.id}:`, session.title ?? ""));
     if (title !== null) await applyRename(session, title);
     await refreshSessions(state);
     render(state);
+  }
+
+  async function sortMenu() {
+    const choices = Object.fromEntries(Object.entries(SORT_KEYS).map(([k, key]) => {
+      const label = SORT_OPTIONS.find((o) => o.key === key)?.label.toLowerCase() ?? key;
+      return [k, key === state.prefs.sortKey ? `${label} ${state.prefs.sortDir === "asc" ? "↑" : "↓"}` : label];
+    }));
+    const choice = await withPrompt(() => promptMenu(bold("Sort:"), choices));
+    if (choice) {
+      const next = nextSort({ key: state.prefs.sortKey, dir: state.prefs.sortDir }, SORT_KEYS[choice]);
+      applyPrefs(state, { ...state.prefs, sortKey: next.key, sortDir: next.dir });
+      setStatus(state, `Sort: ${sortLabel(state.prefs)}`);
+    } else render(state);
+  }
+
+  async function filterMenu() {
+    const f = state.prefs.filter;
+    const onOff = (v: boolean) => (v ? "on" : "off");
+    const choice = await withPrompt(() => promptMenu(bold("Show:"), {
+      r: `running (${state.counts.running}) ${onOff(f.showRunning)}`,
+      c: `closed (${state.counts.closed}) ${onOff(f.showClosed)}`,
+    }));
+    if (choice === "r") applyPrefs(state, { ...state.prefs, filter: { ...f, showRunning: !f.showRunning } });
+    else if (choice === "c") applyPrefs(state, { ...state.prefs, filter: { ...f, showClosed: !f.showClosed } });
+    else render(state);
+  }
+
+  /** `c` / `C`: a shell or a typed command in the selected row's directory, then attach. */
+  async function newSessionHere(mode: "prompt" | null) {
+    const cwd = rowCwd(state.tree.rows[state.selectedIndex]) ?? process.cwd();
+    let argv: string[] | undefined;
+    if (mode === "prompt") {
+      const typed = await withPrompt(() => promptLine(`Run in ${shortCwd(cwd)}:`));
+      argv = typed ? commandArgv(typed, resolveShell()) : [];
+      if (argv.length === 0) { render(state); return; }
+    }
+    const session = await spawnIn(cwd, argv);
+    if (session) void attachLoop(session);
+    else render(state);
   }
 
   async function applyRename(session: Session, title: string) {
@@ -144,14 +206,13 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     }
   }
 
-  /** Spawn a shell in the cwd of `like` (or the current directory). Local targets only. */
-  async function spawnShell(like: Session | null): Promise<Session | null> {
+  /** Spawn `argv` (default: the user's shell) in `cwd`. Local targets only. */
+  async function spawnIn(cwd: string, argv: string[] = [resolveShell()]): Promise<Session | null> {
     if (target.host) {
       setStatus(state, "New sessions on a remote host are not supported yet; use the web UI");
       return null;
     }
-    const cwd = like?.cwd ?? process.cwd();
-    const { id, socketPath, pid } = spawnDirect(resolveShell(), [], state.cols, state.rows, cwd);
+    const { id, socketPath, pid } = spawnDirect(argv[0], argv.slice(1), state.cols, state.rows, cwd);
     try {
       if (!(await waitForSocket(socketPath, 3000, pid))) throw new Error("timed out");
     } catch (err) {
@@ -162,13 +223,9 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     return state.sessions.find((s) => s.id === id) ?? (await target.directory.get(id));
   }
 
-  /**
-   * Attached mode. Runs until the user detaches to the picker or quits.
-   * `start` null means "create a shell first".
-   */
-  async function attachLoop(start: Session | null) {
-    let current: Session | null = start ?? (await spawnShell(state.sessions[state.selectedIndex] ?? null));
-    if (!current) { render(state); return; }
+  /** Attached mode. Runs until the user detaches to the picker or quits. */
+  async function attachLoop(start: Session) {
+    let current: Session | null = start;
     if (current.status !== "running") { setStatus(state, "Session not running"); return; }
 
     state.attached = true;
@@ -204,9 +261,11 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
       process.stdout.write("\x1b]0;\x07");
 
       if (result === "exited" || result === "ended") {
+        // Move to the session that followed this one in picker order.
+        const pos = Math.max(0, state.tree.cycle.findIndex((s) => s.id === session.id));
         await refreshSessions(state);
-        const idx = state.sessions.findIndex((s) => s.id === session.id);
-        current = state.sessions[idx] ?? state.sessions[0] ?? null;
+        const others = state.tree.cycle.filter((s) => s.id !== session.id);
+        current = others[Math.min(pos, others.length - 1)] ?? null;
         if (!current) { exitToPicker = true; break; }
         process.stdout.write(`\r\n${bold(session.id)} ${result === "exited" ? "exited" : "ended"}. Switching to ${current.id}.\r\n`);
         await new Promise((r) => setTimeout(r, 400));
@@ -223,7 +282,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
           exitToPicker = true;
           break;
         case "new": {
-          const created = await spawnShell(session);
+          const created = await spawnIn(session.cwd);
           current = created ?? session;
           break;
         }
@@ -247,7 +306,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
           } else if (choice === "s") {
             await stopSession(session.id, target.host ?? undefined);
             await refreshSessions(state);
-            current = state.sessions[0] ?? null;
+            current = state.tree.cycle[0] ?? null;
             if (!current) exitToPicker = true;
             break;
           }
@@ -277,7 +336,8 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
     setNext: (s: Session) => void,
     setAfter: (a: AfterAction) => void,
   ): boolean {
-    const running = state.sessions.filter((s) => s.status === "running");
+    // Same order and numbering the picker shows.
+    const running = state.tree.cycle;
     const pos = running.findIndex((s) => s.id === session.id);
     switch (action.kind) {
       case "pass":
@@ -292,7 +352,7 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
         return true;
       }
       case "jump": {
-        const t = running[action.index];
+        const t = state.tree.numbered[action.index];
         if (!t) { statusLine(`No session ${action.index + 1}`); return false; }
         if (t.id === session.id) return false;
         setNext(t);
@@ -338,31 +398,52 @@ export async function runTui(opts: { host?: string } = {}): Promise<void> {
 
 // ── Picker helpers ────────────────────────────────────────────────────
 
-async function refreshSessions(state: TuiState): Promise<void> {
-  state.sessions = orderSessions(await state.target.directory.list());
-  if (state.selectedId) {
-    const idx = state.sessions.findIndex((s) => s.id === state.selectedId);
-    if (idx >= 0) state.selectedIndex = idx;
+/** Rebuild rows from `sessions` and `prefs`, keeping the selection on the same row. */
+function rebuild(state: TuiState): void {
+  state.tree = buildTree(state.sessions, state.prefs);
+  state.counts = countByStatus(state.sessions);
+  const rows = state.tree.rows;
+  let idx = state.selectedKey ? rows.findIndex((r) => r.key === state.selectedKey) : -1;
+  if (idx < 0 && state.selectedKey?.startsWith("s:")) {
+    // The session is now hidden inside a folded group: land on its header.
+    const hidden = state.sessions.find((s) => sessionKey(s.id) === state.selectedKey);
+    if (hidden) idx = rows.findIndex((r) => r.key === groupKey(hidden.cwd));
   }
-  if (state.selectedIndex >= state.sessions.length) state.selectedIndex = Math.max(0, state.sessions.length - 1);
+  state.selectedIndex = idx >= 0 ? idx : Math.max(0, Math.min(state.selectedIndex, rows.length - 1));
+  state.selectedKey = rows[state.selectedIndex]?.key ?? null;
   clampScroll(state);
 }
 
+async function refreshSessions(state: TuiState): Promise<void> {
+  state.sessions = await state.target.directory.list();
+  rebuild(state);
+}
+
+function applyPrefs(state: TuiState, prefs: TreePrefs): void {
+  state.prefs = prefs;
+  saveTreePrefs(prefs);
+  rebuild(state);
+  render(state);
+  schedulePreview(state, state.target);
+}
+
 function selectId(state: TuiState, id: string) {
-  const idx = state.sessions.findIndex((s) => s.id === id);
-  if (idx >= 0) { state.selectedIndex = idx; state.selectedId = id; clampScroll(state); }
+  state.selectedKey = sessionKey(id);
+  rebuild(state);
 }
 
 function clampScroll(state: TuiState) {
   const h = listHeightFor(state.rows);
   if (state.selectedIndex < state.scrollOffset) state.scrollOffset = state.selectedIndex;
   else if (state.selectedIndex >= state.scrollOffset + h) state.scrollOffset = state.selectedIndex - h + 1;
+  state.scrollOffset = Math.max(0, Math.min(state.scrollOffset, Math.max(0, state.tree.rows.length - h)));
 }
 
-function moveSelection(state: TuiState, delta: number, target: CliTarget) {
-  if (state.sessions.length === 0) return;
-  state.selectedIndex = Math.max(0, Math.min(state.sessions.length - 1, state.selectedIndex + delta));
-  state.selectedId = state.sessions[state.selectedIndex]?.id ?? null;
+function selectIndex(state: TuiState, index: number, target: CliTarget) {
+  const rows = state.tree.rows;
+  if (rows.length === 0) return;
+  state.selectedIndex = Math.max(0, Math.min(rows.length - 1, index));
+  state.selectedKey = rows[state.selectedIndex].key;
   clampScroll(state);
   render(state);
   schedulePreview(state, target);
@@ -378,15 +459,17 @@ function setStatus(state: TuiState, msg: string) {
 
 function schedulePreview(state: TuiState, target: CliTarget) {
   if (state.previewDebounce) clearTimeout(state.previewDebounce);
-  const session = state.sessions[state.selectedIndex];
-  if (!session || state.cols < 80) { state.preview.disconnect(); state.lastPreviewId = null; return; }
-  if (state.lastPreviewId === session.id) return;
+  const row = state.tree.rows[state.selectedIndex];
+  if (row?.kind !== "session" || state.cols < 80) { state.preview.disconnect(); state.lastPreviewId = null; return; }
+  if (state.lastPreviewId === row.session.id) return;
   state.previewDebounce = setTimeout(() => {
-    const s = state.sessions[state.selectedIndex];
-    if (!s) return;
+    const current = state.tree.rows[state.selectedIndex];
+    if (current?.kind !== "session") return;
+    const s = current.session;
     if (s.status !== "running") { state.preview.disconnect(); state.lastPreviewId = s.id; render(state); return; }
     state.preview.connect(s.id, s.cols, s.rows, () => {
-      if (state.attached || !state.running) return;
+      // A prompt or menu owns the last row; a repaint would erase it.
+      if (state.attached || state.prompting || !state.running) return;
       const now = Date.now();
       if (now - state.lastRenderTime >= RENDER_INTERVAL) {
         state.lastRenderTime = now;
@@ -394,6 +477,7 @@ function schedulePreview(state: TuiState, target: CliTarget) {
       } else if (!state.renderThrottle) {
         state.renderThrottle = setTimeout(() => {
           state.renderThrottle = null;
+          if (state.attached || state.prompting || !state.running) return;
           state.lastRenderTime = Date.now();
           render(state);
         }, RENDER_INTERVAL - (now - state.lastRenderTime));
@@ -407,7 +491,6 @@ async function doStop(session: Session, state: TuiState) {
   const ok = await stopSession(session.id, state.target.host ?? undefined);
   setStatus(state, ok ? `Stopped ${session.id}` : `Failed to stop ${session.id}`);
   await refreshSessions(state);
-  state.selectedId = state.sessions[state.selectedIndex]?.id ?? null;
   render(state);
 }
 
@@ -416,47 +499,79 @@ interface PickerActions {
   stop: (s: Session) => void;
   quit: () => void;
   refresh: () => void;
-  newSession: () => void;
+  newShell: () => void;
+  newCommand: () => void;
   rename: () => void;
+  sortMenu: () => void;
+  filterMenu: () => void;
+  setPrefs: (prefs: TreePrefs) => void;
+}
+
+/** Fold or unfold the group a row belongs to, leaving the selection on its header. */
+function foldGroupOf(state: TuiState, actions: PickerActions, collapsed?: boolean) {
+  const h = headerIndexFor(state.tree.rows, state.selectedIndex);
+  const header = state.tree.rows[h];
+  if (header?.kind !== "group") return;
+  state.selectedKey = header.key;
+  actions.setPrefs(toggleCollapsed(state.prefs, header.group.cwd, collapsed));
 }
 
 function handlePickerInput(data: Buffer, state: TuiState, actions: PickerActions) {
   const s = data.toString();
   const target = state.target;
+  const rows = state.tree.rows;
+  const row = rows[state.selectedIndex];
+  const session = row?.kind === "session" ? row.session : null;
 
   if (state.confirmStop) {
-    if (s === "y" || s === "Y") {
-      const session = state.sessions[state.selectedIndex];
-      if (session) actions.stop(session);
-    }
+    if ((s === "y" || s === "Y") && session) actions.stop(session);
     state.confirmStop = false;
     render(state);
     return;
   }
 
-  if (s === "\x1b[A" || s === "k") return moveSelection(state, -1, target);
-  if (s === "\x1b[B" || s === "j") return moveSelection(state, 1, target);
+  if (s === "\x1b[A" || s === "k") return selectIndex(state, state.selectedIndex - 1, target);
+  if (s === "\x1b[B" || s === "j") return selectIndex(state, state.selectedIndex + 1, target);
   if (s === "\x03" || s === "\x04" || s === "q" || (s === "\x1b" && data.length === 1)) return actions.quit();
-  if (s === "g") { state.selectedIndex = 0; state.scrollOffset = 0; state.selectedId = state.sessions[0]?.id ?? null; render(state); schedulePreview(state, target); return; }
-  if (s === "G") return moveSelection(state, state.sessions.length, target);
+  if (s === "g") return selectIndex(state, 0, target);
+  if (s === "G") return selectIndex(state, rows.length - 1, target);
+  if (s === "\x1b[D" || s === "h") {
+    // Tree convention: from a session go to its folder; on an open folder, fold it.
+    if (row?.kind === "session") {
+      const h = headerIndexFor(rows, state.selectedIndex);
+      if (h >= 0) selectIndex(state, h, target);
+    } else if (row?.kind === "group" && !row.collapsed) foldGroupOf(state, actions, true);
+    return;
+  }
+  if (s === "\x1b[C" || s === "l") {
+    if (row?.kind === "group") {
+      if (row.collapsed) foldGroupOf(state, actions, false);
+      else selectIndex(state, state.selectedIndex + 1, target);
+    }
+    return;
+  }
+  if (s === " ") return foldGroupOf(state, actions);
+  if (s === "z") return actions.setPrefs(toggleAll(state.prefs, state.tree));
   if (s === "\r" || s === "\n") {
-    const session = state.sessions[state.selectedIndex];
+    if (row?.kind === "group") return foldGroupOf(state, actions);
     if (session && session.status === "running") actions.attach(session);
     else if (session) setStatus(state, "Session not running");
     return;
   }
-  if (s === "c") return actions.newSession();
+  if (s === "c") return actions.newShell();
+  if (s === "C") return actions.newCommand();
+  if (s === "s") return actions.sortMenu();
+  if (s === "f") return actions.filterMenu();
   if (s === ",") return actions.rename();
   if (s === "x") {
-    const session = state.sessions[state.selectedIndex];
     if (session && session.status === "running") { state.confirmStop = true; render(state); }
     else if (session) setStatus(state, "Session already stopped");
     return;
   }
   if (s === "r") return actions.refresh();
   if (s >= "1" && s <= "9" && s.length === 1) {
-    const idx = s.charCodeAt(0) - 0x31;
-    if (idx < state.sessions.length) { state.selectedIndex = idx; state.selectedId = state.sessions[idx].id; clampScroll(state); render(state); schedulePreview(state, target); }
+    const target_ = state.tree.numbered[s.charCodeAt(0) - 0x31];
+    if (target_) selectIndex(state, rows.findIndex((r) => r.key === sessionKey(target_.id)), target);
     return;
   }
   if (s.startsWith("\x1b[<")) return handleMouse(s, state, actions);
@@ -469,18 +584,17 @@ function handleMouse(seq: string, state: TuiState, actions: PickerActions) {
   const col = parseInt(m[2], 10);
   const row = parseInt(m[3], 10);
   const pressed = m[4] === "M";
-  if (btn === 64) return moveSelection(state, -1, state.target);
-  if (btn === 65) return moveSelection(state, 1, state.target);
+  if (btn === 64) return selectIndex(state, state.selectedIndex - 1, state.target);
+  if (btn === 65) return selectIndex(state, state.selectedIndex + 1, state.target);
   if (btn === 0 && pressed && col <= listWidthFor(state.cols)) {
     const idx = state.scrollOffset + (row - 2);
-    if (idx < 0 || idx >= state.sessions.length) return;
-    if (state.selectedIndex === idx) {
-      const session = state.sessions[idx];
-      if (session.status === "running") return actions.attach(session);
+    const clicked = state.tree.rows[idx];
+    if (!clicked) return;
+    if (clicked.kind === "group") {
+      state.selectedIndex = idx;
+      return foldGroupOf(state, actions);
     }
-    state.selectedIndex = idx;
-    state.selectedId = state.sessions[idx].id;
-    render(state);
-    schedulePreview(state, state.target);
+    if (state.selectedIndex === idx && clicked.session.status === "running") return actions.attach(clicked.session);
+    selectIndex(state, idx, state.target);
   }
 }

@@ -4,7 +4,10 @@ import { useNavigate, useLocation, useRevalidator } from "react-router";
 import { Activity, ArrowUpDown, ChevronsDownUp, ChevronsUpDown, X, Settings, Plus, Terminal, Sparkles, Loader2, List, Filter, Monitor } from "lucide-react";
 import { ProjectPicker } from "./project-picker";
 import type { Session } from "../../shared/types";
-import { groupByCwd, type SortKey, type SortDir } from "../lib/session-groups";
+import {
+  groupByCwd, filterByStatus, countByStatus, activityTimestamp, nextSort, isSortKey,
+  SORT_OPTIONS, DEFAULT_STATUS_FILTER, type SortKey, type SortDir, type StatusFilter,
+} from "../lib/session-groups";
 import { useTimeAgo } from "../hooks/use-time-ago";
 import { useSessionMetrics } from "../hooks/use-session-metrics";
 import { SidebarAgentCard } from "./agent-card";
@@ -13,29 +16,18 @@ import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { SIDEBAR_COLLAPSED_KEY } from "../lib/sidebar-toggle";
 import { revealSession } from "../lib/session-reveal";
 
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "recent", label: "Recent" },
-  { key: "active", label: "Active" },
-  { key: "created", label: "Created" },
-  { key: "name", label: "Name" },
-];
-
 function getStoredSort(): SortKey {
-  return (getWindowPref("relay-tty-sort") as SortKey) || "recent";
+  const stored = getWindowPref("relay-tty-sort");
+  return isSortKey(stored) ? stored : "recent";
 }
 
 function getStoredSortDir(): SortDir {
   return (getWindowPref("relay-tty-sort-dir") as SortDir) || "desc";
 }
 
-interface SessionFilterToggles {
-  showRunning: boolean;
-  showClosed: boolean;
-}
-
 const SESSION_FILTER_KEY = "relay-tty:session-filters";
 
-function loadSessionFilters(): SessionFilterToggles {
+function loadSessionFilters(): StatusFilter {
   try {
     const raw = getWindowPref(SESSION_FILTER_KEY);
     if (raw) {
@@ -46,10 +38,10 @@ function loadSessionFilters(): SessionFilterToggles {
       };
     }
   } catch {}
-  return { showRunning: true, showClosed: false };
+  return DEFAULT_STATUS_FILTER;
 }
 
-function saveSessionFilters(toggles: SessionFilterToggles) {
+function saveSessionFilters(toggles: StatusFilter) {
   try {
     setWindowPref(SESSION_FILTER_KEY, JSON.stringify(toggles));
   } catch {}
@@ -88,10 +80,7 @@ const SidebarSessionItem = memo(function SidebarSessionItem({
   const bps = session.bps1 ?? session.bytesPerSecond ?? 0;
   const isActive = isRunning && bps >= 1;
   const displayCommand = [session.command, ...session.args].join(" ");
-  const activityTimestamp = isRunning && session.lastActiveAt
-    ? new Date(session.lastActiveAt).getTime()
-    : session.createdAt;
-  const activityAgo = useTimeAgo(activityTimestamp);
+  const activityAgo = useTimeAgo(activityTimestamp(session));
 
   return (
     <button
@@ -167,7 +156,7 @@ export function SidebarDrawer({
   const [availableCommands, setAvailableCommands] = useState<{ tools: { name: string; label: string }[]; shells: { name: string; label: string }[] } | null>(null);
   const [pendingCommand, setPendingCommand] = useState<{ name: string; label: string; isAiTool: boolean; isCustom?: boolean } | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>(getStoredSidebarView);
-  const [filterToggles, setFilterToggles] = useState<SessionFilterToggles>(loadSessionFilters);
+  const [filterToggles, setFilterToggles] = useState<StatusFilter>(loadSessionFilters);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
@@ -276,23 +265,10 @@ export function SidebarDrawer({
   }, [location.pathname]);
 
   // Filter sessions by running/closed toggles
-  const filteredSessions = useMemo(() => {
-    return sessions.filter(s => {
-      if (s.status === "running" && !filterToggles.showRunning) return false;
-      if (s.status === "exited" && !filterToggles.showClosed) return false;
-      return true;
-    });
-  }, [sessions, filterToggles]);
+  const filteredSessions = useMemo(() => filterByStatus(sessions, filterToggles), [sessions, filterToggles]);
 
   // Count totals for filter toggle labels
-  const sessionCounts = useMemo(() => {
-    let running = 0, closed = 0;
-    for (const s of sessions) {
-      if (s.status === "running") running++;
-      else if (s.status === "exited") closed++;
-    }
-    return { running, closed };
-  }, [sessions]);
+  const sessionCounts = useMemo(() => countByStatus(sessions), [sessions]);
 
   const groups = useMemo(() => groupByCwd(filteredSessions, sortKey, sortDir), [filteredSessions, sortKey, sortDir]);
   const isSingleGroup = groups.length === 1;
@@ -349,16 +325,11 @@ export function SidebarDrawer({
   }, [groups]);
 
   const setSort = useCallback((key: SortKey) => {
-    if (key === sortKey) {
-      const newDir = sortDir === "desc" ? "asc" : "desc";
-      setSortDir(newDir);
-      setWindowPref("relay-tty-sort-dir", newDir);
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-      setWindowPref("relay-tty-sort", key);
-      setWindowPref("relay-tty-sort-dir", "desc");
-    }
+    const next = nextSort({ key: sortKey, dir: sortDir }, key);
+    setSortKey(next.key);
+    setSortDir(next.dir);
+    setWindowPref("relay-tty-sort", next.key);
+    setWindowPref("relay-tty-sort-dir", next.dir);
   }, [sortKey, sortDir]);
 
   // Close dropdowns on click outside

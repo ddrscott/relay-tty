@@ -26,6 +26,8 @@ const BINARY = path.resolve("crates/pty-host/target/release/relay-pty-host");
 const CLI = path.resolve("dist/cli/index.js");
 const hasBinary = fs.existsSync(BINARY) && fs.existsSync(CLI);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The TUI picker's header ("rly@<host>"), drawn once the session list is up. */
+const PICKER_READY = "rly@";
 
 // Short paths: Unix socket paths are capped at 104 bytes on macOS, and
 // $TMPDIR there is deep enough to exceed it.
@@ -69,6 +71,8 @@ interface Outer {
 }
 
 let outerCounter = 0;
+/** Terminals not yet closed. A failed waitFor skips close(), and a live TUI would hang the run. */
+const openOuters = new Set<Outer>();
 
 /** Run `shellCommand` inside a fresh outer pty-host acting as the user's terminal. */
 async function outerTerminal(shellCommand: string): Promise<Outer> {
@@ -103,7 +107,7 @@ async function outerTerminal(shellCommand: string): Promise<Outer> {
   stream.on("notification", (t) => { notifications.push(t); for (const w of waiters) w(); });
   stream.connect();
 
-  return {
+  const outer: Outer = {
     child,
     stream,
     clipboard,
@@ -131,10 +135,13 @@ async function outerTerminal(shellCommand: string): Promise<Outer> {
       });
     },
     close() {
+      openOuters.delete(outer);
       stream.close();
       child.kill("SIGTERM");
     },
   };
+  openOuters.add(outer);
+  return outer;
 }
 
 /** Keystroke-to-echo latency in ms, one printable character at a time. */
@@ -181,6 +188,7 @@ describe("TUI and attach parity with a plain terminal", { skip: !hasBinary && "r
   });
 
   after(async () => {
+    for (const o of [...openOuters]) o.close();
     for (const id of [shellId, appId]) if (id) await relay(["stop", id]).catch(() => {});
     try { fs.rmSync(innerHome, { recursive: true, force: true }); } catch {}
     try { fs.rmSync(outerHome, { recursive: true, force: true }); } catch {}
@@ -199,7 +207,7 @@ describe("TUI and attach parity with a plain terminal", { skip: !hasBinary && "r
     attach.close();
 
     const tui = await outerTerminal(`exec node '${CLI}'`);
-    await tui.waitFor("Sessions (");
+    await tui.waitFor(PICKER_READY);
     tui.mark();
     tui.send("\r");
     await tui.waitFor("\x1b[2J");
@@ -232,7 +240,7 @@ describe("TUI and attach parity with a plain terminal", { skip: !hasBinary && "r
 
   it("TUI switches reset the previous session's modes and restore the next one's", async () => {
     const term = await outerTerminal(`exec node '${CLI}'`);
-    await term.waitFor("Sessions (");
+    await term.waitFor(PICKER_READY);
     const shown: Array<{ kind: "app" | "shell"; text: string }> = [];
     const step = async (keys: string, first = false) => {
       term.mark();
@@ -268,7 +276,7 @@ describe("TUI and attach parity with a plain terminal", { skip: !hasBinary && "r
       const cmd = client === "attach" ? `exec node '${CLI}' attach ${shellId}` : `exec node '${CLI}'`;
       const term = await outerTerminal(cmd);
       if (client === "tui") {
-        await term.waitFor("Sessions (");
+        await term.waitFor(PICKER_READY);
         // Attach whichever row is the shell: try Enter, then move until SHELL-READY shows
         term.mark();
         term.send("\r");

@@ -4,15 +4,62 @@ import { agentStateRank } from "../../shared/client/agent-state.js";
 export type SortKey = "recent" | "created" | "active" | "name";
 export type SortDir = "asc" | "desc";
 
+export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "recent", label: "Recent" },
+  { key: "active", label: "Active" },
+  { key: "created", label: "Created" },
+  { key: "name", label: "Name" },
+];
+
+export function isSortKey(v: unknown): v is SortKey {
+  return SORT_OPTIONS.some((o) => o.key === v);
+}
+
+/** Picking the current key flips direction; a new key starts descending. */
+export function nextSort(current: { key: SortKey; dir: SortDir }, picked: SortKey): { key: SortKey; dir: SortDir } {
+  if (picked === current.key) return { key: picked, dir: current.dir === "desc" ? "asc" : "desc" };
+  return { key: picked, dir: "desc" };
+}
+
+/** Which session statuses a list shows. Closed sessions are hidden by default. */
+export interface StatusFilter {
+  showRunning: boolean;
+  showClosed: boolean;
+}
+
+export const DEFAULT_STATUS_FILTER: StatusFilter = { showRunning: true, showClosed: false };
+
+export function filterByStatus(sessions: Session[], filter: StatusFilter): Session[] {
+  return sessions.filter((s) => {
+    if (s.status === "running" && !filter.showRunning) return false;
+    if (s.status === "exited" && !filter.showClosed) return false;
+    return true;
+  });
+}
+
+export function countByStatus(sessions: Session[]): { running: number; closed: number } {
+  let running = 0, closed = 0;
+  for (const s of sessions) {
+    if (s.status === "running") running++;
+    else if (s.status === "exited") closed++;
+  }
+  return { running, closed };
+}
+
+/** The time a list row shows as "Xm ago": last output while running, creation otherwise. */
+export function activityTimestamp(s: Session): number {
+  return s.status === "running" && s.lastActiveAt ? new Date(s.lastActiveAt).getTime() : s.createdAt;
+}
+
 export interface SessionGroup {
   cwd: string;
   label: string;
   sessions: Session[];
 }
 
-/** Shorten home dir to ~ for display */
+/** Shorten a home dir (macOS /Users/<name>, Linux /home/<name>) to ~ for display */
 export function displayPath(cwd: string): string {
-  return cwd.replace(/^\/Users\/[^/]+/, "~");
+  return cwd.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }
 
 /** Name sort key. Leading non-alphanumeric characters are stripped because
