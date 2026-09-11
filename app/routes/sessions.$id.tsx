@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { useNavigate, useRevalidator, redirect } from "react-router";
 import type { Route } from "./+types/sessions.$id";
+import { appContext } from "../context";
 import type { Session } from "../../shared/types";
 import type { TerminalHandle } from "../components/terminal";
 import { Terminal } from "../components/terminal";
@@ -96,9 +97,9 @@ function getRelativeIndex(sid: string, activeId: string, allIds: string[]): numb
   return diff;
 }
 
-export function meta({ data }: Route.MetaArgs) {
-  if (!data) return [{ title: "relay-tty" }];
-  const { session, hostname } = data as { session: Session; hostname: string };
+export function meta({ loaderData }: Route.MetaArgs) {
+  if (!loaderData) return [{ title: "relay-tty" }];
+  const { session, hostname } = loaderData as { session: Session; hostname: string };
   const sessionLabel = session.title || `${session.command} ${session.args.join(" ")}`.trim();
   const parts = [sessionLabel];
   if (hostname) parts.push(hostname);
@@ -107,12 +108,13 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export async function loader({ params, context }: Route.LoaderArgs) {
-  const session = context.sessionStore.get(params.id!);
+  const { sessionStore, hostname } = context.get(appContext);
+  const session = sessionStore.get(params.id!);
   if (!session) {
     throw redirect("/");
   }
-  const allSessions = context.sessionStore.list();
-  return { session, allSessions, hostname: context.hostname };
+  const allSessions = sessionStore.list();
+  return { session, allSessions, hostname };
 }
 
 /** Absolute filesystem paths a paste event exposes for copied files, if any.
@@ -159,7 +161,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, []);
 
   // ── State-based session switching for keep-alive ──
-  // React Router v7 remounts route components on param changes, which would
+  // React Router remounts route components on param changes, which would
   // destroy all terminal instances. Instead, we track the active session in
   // state and use history.replaceState to update the URL without navigating.
   // The loader provides initial data; after that, switching is state-driven.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import type { Route } from "./+types/tiles";
+import { appContext } from "../context";
 import type { Session } from "../../shared/types";
 import {
   createEmptyLayout,
@@ -42,8 +43,8 @@ import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { TileSplitContainer } from "../components/tile-split-container";
 import { useSessionInspect } from "../hooks/use-session-inspect";
 
-export function meta({ data }: Route.MetaArgs) {
-  const hostname = data?.hostname ?? "";
+export function meta({ loaderData }: Route.MetaArgs) {
+  const hostname = loaderData?.hostname ?? "";
   const title = hostname ? `Tiles — ${hostname} — relay-tty` : "Tiles — relay-tty";
   return [
     { title },
@@ -52,8 +53,9 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const sessions = context.sessionStore.list();
-  return { sessions, version: context.version, hostname: context.hostname };
+  const { sessionStore, version, hostname } = context.get(appContext);
+  const sessions = sessionStore.list();
+  return { sessions, version, hostname };
 }
 
 const SHELL_OPTIONS = [

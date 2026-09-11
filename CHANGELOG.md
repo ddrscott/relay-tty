@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- relay-tty now requires Node.js 22.22 or newer (previously 18), because the web UI moved to React Router 8, which dropped support for older Node releases. `npm i -g relay-tty` warns on older versions and the install script offers to install a current LTS through fnm
+
 ### Fixed
 - A session could stop showing output, and its program could hang, during a sustained burst of output such as a large `cat` or a noisy build; pty-host stopped reading the pty after a 256KB batch. Seen on Linux
 

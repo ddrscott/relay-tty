@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/ddrscott/relay-tty/main/install.sh | bash
 #
 # What it does:
-#   1. Checks for Node.js >= 18 (offers to install via fnm if missing)
+#   1. Checks for Node.js >= 22.22 (offers to install via fnm if missing)
 #   2. Installs relay-tty globally via npm
 #   3. postinstall downloads the pre-built Rust pty-host binary
 #
@@ -24,7 +24,10 @@ ok()    { echo -e "${GREEN}${BOLD}relay-tty:${RESET} $*"; }
 warn()  { echo -e "${YELLOW}${BOLD}relay-tty:${RESET} $*"; }
 error() { echo -e "${RED}${BOLD}relay-tty:${RESET} $*" >&2; }
 
-REQUIRED_NODE_MAJOR=18
+# Matches package.json "engines"; React Router 8 needs Node 22.22 or newer.
+REQUIRED_NODE_MAJOR=22
+REQUIRED_NODE_MINOR=22
+REQUIRED_NODE="$REQUIRED_NODE_MAJOR.$REQUIRED_NODE_MINOR"
 
 # ── Check OS ──────────────────────────────────────────────────────────
 
@@ -47,10 +50,15 @@ check_node() {
   local ver
   ver="$(node -v 2>/dev/null | sed 's/^v//')"
   local major="${ver%%.*}"
-  if [ "$major" -lt "$REQUIRED_NODE_MAJOR" ] 2>/dev/null; then
-    return 1
+  local rest="${ver#*.}"
+  local minor="${rest%%.*}"
+  if [ "$major" -gt "$REQUIRED_NODE_MAJOR" ] 2>/dev/null; then
+    return 0
   fi
-  return 0
+  if [ "$major" -eq "$REQUIRED_NODE_MAJOR" ] 2>/dev/null && [ "$minor" -ge "$REQUIRED_NODE_MINOR" ] 2>/dev/null; then
+    return 0
+  fi
+  return 1
 }
 
 install_node() {
@@ -65,7 +73,7 @@ install_node() {
   fi
 
   if ! command -v fnm &>/dev/null; then
-    error "Failed to install fnm. Install Node.js >= $REQUIRED_NODE_MAJOR manually:"
+    error "Failed to install fnm. Install Node.js >= $REQUIRED_NODE manually:"
     error "  https://nodejs.org/"
     exit 1
   fi
@@ -93,7 +101,7 @@ else
   if [ -t 0 ]; then
     # Interactive — ask the user
     echo ""
-    warn "Node.js >= $REQUIRED_NODE_MAJOR is required but not found."
+    warn "Node.js >= $REQUIRED_NODE is required but not found."
     echo -n "Install Node.js via fnm (Fast Node Manager)? [Y/n] "
     read -r answer
     case "$answer" in
@@ -107,7 +115,7 @@ else
     esac
   else
     # Non-interactive (piped) — install automatically
-    warn "Node.js >= $REQUIRED_NODE_MAJOR not found. Installing via fnm..."
+    warn "Node.js >= $REQUIRED_NODE not found. Installing via fnm..."
     install_node
   fi
 fi
