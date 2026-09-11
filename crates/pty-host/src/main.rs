@@ -1389,6 +1389,49 @@ fn spawn_pty(
     Ok((owned, pid))
 }
 
+/// Write client input to the PTY master on a dedicated thread.
+///
+/// The master fd is non-blocking (the reader relies on that), and a pty's input
+/// buffer holds only about 1KB on macOS, so one write() takes what fits and
+/// returns. The old writer ignored the rest, and a large paste reached the
+/// program truncated to its first ~1KB. This thread writes every message in
+/// full, in order, waiting in poll(2) while the pty is full. A program that
+/// stops reading therefore blocks only this thread, never the tokio runtime.
+fn spawn_pty_writer(fd: RawFd, mut input: mpsc::Receiver<Vec<u8>>) {
+    std::thread::Builder::new()
+        .name("pty-writer".into())
+        .spawn(move || {
+            while let Some(data) = input.blocking_recv() {
+                let mut off = 0;
+                while off < data.len() {
+                    let rest = &data[off..];
+                    let n = unsafe { libc::write(fd, rest.as_ptr() as *const libc::c_void, rest.len()) };
+                    if n > 0 {
+                        off += n as usize;
+                        continue;
+                    }
+                    if n < 0 {
+                        match io::Error::last_os_error().kind() {
+                            io::ErrorKind::Interrupted => continue,
+                            io::ErrorKind::WouldBlock => {}
+                            _ => return, // EIO: the program's side of the pty is gone
+                        }
+                    }
+                    // Full: wait until the program reads. The timeout only
+                    // re-checks by retrying the write, so a missed wakeup costs
+                    // at most a second, never the input.
+                    let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+                    let rc = unsafe { libc::poll(&mut pfd, 1, 1000) };
+                    let gone = libc::POLLHUP | libc::POLLERR | libc::POLLNVAL;
+                    if rc > 0 && pfd.revents & gone != 0 && pfd.revents & libc::POLLOUT == 0 {
+                        return;
+                    }
+                }
+            }
+        })
+        .expect("failed to spawn pty writer thread");
+}
+
 /// Resize a PTY.
 ///
 /// Sets the winsize via `TIOCSWINSZ` on the master fd, then explicitly sends
@@ -1709,7 +1752,7 @@ async fn main() {
     static CLIENT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     // Channel for input data from clients -> PTY
-    let (input_tx, mut input_rx) = mpsc::channel::<Vec<u8>>(256);
+    let (input_tx, input_rx) = mpsc::channel::<Vec<u8>>(256);
 
     // Channel for resize requests from clients
     let (resize_tx, mut resize_rx) = mpsc::channel::<(u16, u16)>(16);
@@ -1923,20 +1966,8 @@ async fn main() {
         code
     });
 
-    // ── PTY write task: input from clients -> PTY ───────────────────
-    let master_raw_fd_write = master_raw_fd;
-    tokio::spawn(async move {
-        while let Some(data) = input_rx.recv().await {
-            // Write to PTY master (blocking write is fine for small input)
-            unsafe {
-                libc::write(
-                    master_raw_fd_write,
-                    data.as_ptr() as *const libc::c_void,
-                    data.len(),
-                );
-            }
-        }
-    });
+    // ── PTY writer: input from clients -> PTY ───────────────────────
+    spawn_pty_writer(master_raw_fd, input_rx);
 
     // ── Resize task ─────────────────────────────────────────────────
     let state_resize = Arc::clone(&state);

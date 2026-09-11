@@ -1103,3 +1103,39 @@ fn delta_resume_does_not_repeat_the_preamble() {
     assert!(delta.contains("second"), "delta carries new output: {:?}", delta);
     assert!(!delta.contains("?2004h"), "delta must not repeat the preamble: {:?}", delta);
 }
+
+#[test]
+fn large_input_reaches_the_program_intact() {
+    // A paste far larger than the pty's input buffer (about 1KB on macOS).
+    // The input writer used to make one non-blocking write per message and
+    // drop whatever did not fit, so the program got the first ~1KB only.
+    let handle = spawn_pty_host(
+        "/bin/sh",
+        &["-c", "stty raw -echo; cat > \"$HOME/received\"; sleep 30"],
+    )
+    .expect("failed to spawn");
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    client.collect_frames(Duration::from_millis(500)); // handshake, and let stty run
+
+    let mut payload = Vec::with_capacity(100_000);
+    for i in 0..1000 {
+        payload.extend_from_slice(format!("{:0>98}\n", i).as_bytes());
+        payload.push(b'.');
+    }
+    payload.truncate(100_000);
+    client.send_data(&payload).expect("send_data failed");
+
+    let received = handle.home_dir.join("received");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let got = std::fs::metadata(&received).map(|m| m.len()).unwrap_or(0);
+        if got as usize >= payload.len() || std::time::Instant::now() > deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let got = std::fs::read(&received).unwrap_or_default();
+    assert_eq!(got.len(), payload.len(), "program received {} of {} bytes", got.len(), payload.len());
+    assert!(got == payload, "input bytes were reordered or corrupted");
+}
