@@ -1427,6 +1427,82 @@ fn resize_pty(master_fd: RawFd, cols: u16, rows: u16) {
 
 // ── Frame helpers ───────────────────────────────────────────────────
 
+/// Largest batch the reader thread sends, and the most the async task
+/// coalesces before processing one broadcast pass.
+const PTY_DRAIN_CAP: usize = 256 * 1024;
+
+/// Read the PTY master on a dedicated thread with level-triggered poll(2) and
+/// deliver batches over a bounded channel. The channel closing means EOF.
+///
+/// The channel holds a single batch on purpose. While the session task is
+/// processing one batch, the thread blocks and the pty fills behind it, so the
+/// next read is large, which is how the old readiness loop behaved. A deeper
+/// channel lets the thread drain the pty 1KB at a time as the app writes; the
+/// app and reader then ping-pong and a sustained flood runs ~50% slower
+/// (measured: 38.5s vs 25.5s for 12MB). An idle session still gets its first
+/// byte immediately, so keystroke latency is unchanged.
+fn spawn_pty_reader(fd: RawFd) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+    std::thread::Builder::new()
+        .name("pty-reader".into())
+        .spawn(move || {
+            let mut buf = vec![0u8; 65536];
+            loop {
+                let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+                let rc = unsafe { libc::poll(&mut pfd, 1, -1) };
+                if rc < 0 {
+                    if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return;
+                }
+                let hung_up = pfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0;
+                let mut batch: Vec<u8> = Vec::new();
+                let mut eof = false;
+                loop {
+                    let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+                    if n > 0 {
+                        batch.extend_from_slice(&buf[..n as usize]);
+                        if batch.len() >= PTY_DRAIN_CAP {
+                            break;
+                        }
+                    } else if n == 0 {
+                        eof = true;
+                        break;
+                    } else {
+                        let err = io::Error::last_os_error();
+                        match err.kind() {
+                            io::ErrorKind::Interrupted => continue,
+                            // Nothing pending. After a hangup that means the slave
+                            // side is gone; otherwise wait for the next poll.
+                            io::ErrorKind::WouldBlock => {
+                                eof = hung_up && batch.is_empty();
+                                break;
+                            }
+                            // EIO once the child side closes (Linux), or a real error
+                            _ => {
+                                eof = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !batch.is_empty() && tx.blocking_send(batch).is_err() {
+                    return; // session task is gone
+                }
+                if eof {
+                    return; // dropping tx tells the session task
+                }
+            }
+        })
+        .expect("failed to spawn pty reader thread");
+    rx
+}
+
 fn encode_frame(payload: &[u8]) -> Vec<u8> {
     let len = payload.len() as u32;
     let mut frame = Vec::with_capacity(4 + payload.len());
@@ -1692,177 +1768,124 @@ async fn main() {
     let state_pty = Arc::clone(&state);
     let broadcast_tx_pty = broadcast_tx.clone();
     let session_path_pty = session_path.clone();
+    // The PTY master is read on a dedicated thread rather than through tokio's
+    // readiness events. On macOS, kqueue can drop the readability edge for a
+    // pty master under load: data sits in the pty, readable() never wakes, the
+    // app blocks writing to the full pty, and the session's output freezes for
+    // good. poll(2) is level-triggered, so it cannot miss data that is already
+    // waiting. The fd stays non-blocking (the input writer shares it).
+    let pty_chunks = spawn_pty_reader(master_raw_fd);
     let mut pty_read_handle = tokio::spawn(async move {
-        // Make PTY master non-blocking for tokio
-        let flags = unsafe { libc::fcntl(master_raw_fd, libc::F_GETFL) };
-        unsafe {
-            libc::fcntl(master_raw_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-
-        let async_fd =
-            tokio::io::unix::AsyncFd::new(unsafe { std::os::fd::BorrowedFd::borrow_raw(master_raw_fd) })
-                .expect("Failed to create AsyncFd for PTY master");
-
-        let mut buf = vec![0u8; 65536];
+        let mut pty_chunks = pty_chunks;
         let mut osc_extractor = OscExtractor::new();
 
-        // Reusable accumulator for draining multiple reads per readability event.
-        // Avoids per-read lock acquisition and broadcast overhead during bursts
-        // (e.g., fzf Ctrl+R initial render, TUI startup).
+        // Reusable accumulator: a burst that arrives as several chunks (fzf
+        // Ctrl+R initial render, TUI startup) is processed and broadcast in
+        // one pass, reducing lock acquisitions and WS frames from N to 1.
         let mut drain_buf: Vec<u8> = Vec::new();
 
         loop {
-            let ready = async_fd.readable().await;
-            match ready {
-                Ok(mut guard) => {
-                    // Drain all available data from the PTY fd in a tight loop.
-                    // This coalesces multiple small writes (common during TUI
-                    // startup) into a single processing + broadcast pass, reducing
-                    // lock acquisitions and WS frame overhead from N to 1.
-                    drain_buf.clear();
-                    let mut eof = false;
-                    let mut would_block = false;
-                    loop {
-                        let result = unsafe {
-                            libc::read(
-                                master_raw_fd,
-                                buf.as_mut_ptr() as *mut libc::c_void,
-                                buf.len(),
-                            )
-                        };
-                        if result > 0 {
-                            drain_buf.extend_from_slice(&buf[..result as usize]);
-                            // Cap drain at 256KB to avoid holding the fd too long
-                            if drain_buf.len() >= 256 * 1024 {
-                                break;
-                            }
-                        } else if result == 0 {
-                            eof = true;
-                            break;
-                        } else {
-                            let err = io::Error::last_os_error();
-                            if err.kind() == io::ErrorKind::WouldBlock {
-                                would_block = true;
-                                break; // No more data available right now
-                            }
-                            eof = true;
-                            break;
-                        }
-                    }
+            // None: the reader thread saw EOF (or an error) and hung up.
+            let Some(first) = pty_chunks.recv().await else {
+                break;
+            };
+            drain_buf.clear();
+            drain_buf.extend_from_slice(&first);
+            while drain_buf.len() < PTY_DRAIN_CAP {
+                match pty_chunks.try_recv() {
+                    Ok(more) => drain_buf.extend_from_slice(&more),
+                    Err(_) => break,
+                }
+            }
+            let data = &drain_buf[..];
 
-                    if drain_buf.is_empty() {
-                        if eof {
-                            break;
-                        }
-                        guard.clear_ready();
-                        continue;
-                    }
+            // Parse OSC title (ignored while a SET_TITLE pin is active)
+            if let Some(new_title) = parse_osc_title(data) {
+                let mut s = state_pty.write().await;
+                let title_changed =
+                    !s.title_pinned && s.title.as_deref() != Some(&new_title);
+                if title_changed {
+                    s.title = Some(new_title.clone());
+                    s.meta.title = Some(new_title.clone());
+                    s.meta_dirty = true;
+                    // Immediate flush for title changes (for discovery)
+                    atomic_write_json(&session_path_pty, &s.meta);
+                    s.meta_dirty = false;
+                    drop(s);
 
-                    let data = &drain_buf[..];
+                    // Broadcast TITLE
+                    let mut title_msg = vec![WS_MSG_TITLE];
+                    title_msg.extend_from_slice(new_title.as_bytes());
+                    let _ = broadcast_tx_pty.send(encode_frame(&title_msg));
+                }
+            }
 
-                    // Parse OSC title (ignored while a SET_TITLE pin is active)
-                    if let Some(new_title) = parse_osc_title(data) {
-                        let mut s = state_pty.write().await;
-                        let title_changed =
-                            !s.title_pinned && s.title.as_deref() != Some(&new_title);
-                        if title_changed {
-                            s.title = Some(new_title.clone());
-                            s.meta.title = Some(new_title.clone());
-                            s.meta_dirty = true;
-                            // Immediate flush for title changes (for discovery)
-                            atomic_write_json(&session_path_pty, &s.meta);
-                            s.meta_dirty = false;
-                            drop(s);
+            // Parse OSC 7 CWD notification
+            if let Some(new_cwd) = parse_osc7_cwd(data) {
+                let mut s = state_pty.write().await;
+                if s.meta.cwd != new_cwd {
+                    s.meta.cwd = new_cwd;
+                    s.meta_dirty = true;
+                }
+            }
 
-                            // Broadcast TITLE
-                            let mut title_msg = vec![WS_MSG_TITLE];
-                            title_msg.extend_from_slice(new_title.as_bytes());
-                            let _ = broadcast_tx_pty.send(encode_frame(&title_msg));
-                        }
-                    }
+            // Extract OSC sequences (stateful across read boundaries)
+            let osc_result = osc_extractor.feed(data);
+            for notif in &osc_result.notifications {
+                let mut notif_msg = vec![WS_MSG_NOTIFICATION];
+                notif_msg.extend_from_slice(notif.as_bytes());
+                let _ = broadcast_tx_pty.send(encode_frame(&notif_msg));
+            }
+            for clip_text in &osc_result.clipboard_texts {
+                let mut clip_msg = vec![WS_MSG_CLIPBOARD];
+                clip_msg.extend_from_slice(clip_text.as_bytes());
+                let _ = broadcast_tx_pty.send(encode_frame(&clip_msg));
+            }
+            let cleaned = osc_result.cleaned;
+            for img in &osc_result.inline_images {
+                // IMAGE message format:
+                // [0x17][4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
+                let id_bytes = img.id.as_bytes();
+                let mime_bytes = img.mime.as_bytes();
+                let msg_len = 1 + 4 + id_bytes.len() + mime_bytes.len() + 1 + img.data.len();
+                let mut img_msg = Vec::with_capacity(msg_len);
+                img_msg.push(WS_MSG_IMAGE);
+                img_msg.extend_from_slice(&(id_bytes.len() as u32).to_be_bytes());
+                img_msg.extend_from_slice(id_bytes);
+                img_msg.extend_from_slice(mime_bytes);
+                img_msg.push(0); // NUL terminator for MIME
+                img_msg.extend_from_slice(&img.data);
+                let _ = broadcast_tx_pty.send(encode_frame(&img_msg));
+            }
 
-                    // Parse OSC 7 CWD notification
-                    if let Some(new_cwd) = parse_osc7_cwd(data) {
-                        let mut s = state_pty.write().await;
-                        if s.meta.cwd != new_cwd {
-                            s.meta.cwd = new_cwd;
-                            s.meta_dirty = true;
-                        }
-                    }
+            if !cleaned.is_empty() {
+                // Update state
+                {
+                    let mut s = state_pty.write().await;
+                    let data_time = now_millis();
+                    let byte_len = cleaned.len();
 
-                    // Extract OSC sequences (stateful across read boundaries)
-                    let osc_result = osc_extractor.feed(data);
-                    for notif in &osc_result.notifications {
-                        let mut notif_msg = vec![WS_MSG_NOTIFICATION];
-                        notif_msg.extend_from_slice(notif.as_bytes());
-                        let _ = broadcast_tx_pty.send(encode_frame(&notif_msg));
-                    }
-                    for clip_text in &osc_result.clipboard_texts {
-                        let mut clip_msg = vec![WS_MSG_CLIPBOARD];
-                        clip_msg.extend_from_slice(clip_text.as_bytes());
-                        let _ = broadcast_tx_pty.send(encode_frame(&clip_msg));
-                    }
-                    let cleaned = osc_result.cleaned;
-                    for img in &osc_result.inline_images {
-                        // IMAGE message format:
-                        // [0x17][4B id_len BE][id UTF-8][mime UTF-8 NUL-terminated][raw image bytes]
-                        let id_bytes = img.id.as_bytes();
-                        let mime_bytes = img.mime.as_bytes();
-                        let msg_len = 1 + 4 + id_bytes.len() + mime_bytes.len() + 1 + img.data.len();
-                        let mut img_msg = Vec::with_capacity(msg_len);
-                        img_msg.push(WS_MSG_IMAGE);
-                        img_msg.extend_from_slice(&(id_bytes.len() as u32).to_be_bytes());
-                        img_msg.extend_from_slice(id_bytes);
-                        img_msg.extend_from_slice(mime_bytes);
-                        img_msg.push(0); // NUL terminator for MIME
-                        img_msg.extend_from_slice(&img.data);
-                        let _ = broadcast_tx_pty.send(encode_frame(&img_msg));
-                    }
+                    s.output_buffer.write(&cleaned);
+                    s.meta.last_activity = data_time;
+                    s.meta.total_bytes_written += byte_len as f64;
+                    s.meta.last_active_at = iso_now();
+                    s.throughput.record(byte_len);
+                    s.meta.bytes_per_second = s.throughput.bps1();
+                    s.meta_dirty = true;
 
-                    if !cleaned.is_empty() {
-                        // Update state
-                        {
-                            let mut s = state_pty.write().await;
-                            let data_time = now_millis();
-                            let byte_len = cleaned.len();
-
-                            s.output_buffer.write(&cleaned);
-                            s.meta.last_activity = data_time;
-                            s.meta.total_bytes_written += byte_len as f64;
-                            s.meta.last_active_at = iso_now();
-                            s.throughput.record(byte_len);
-                            s.meta.bytes_per_second = s.throughput.bps1();
-                            s.meta_dirty = true;
-
-                            // Transition idle -> active
-                            if !s.session_active {
-                                s.session_active = true;
-                                let state_msg = vec![WS_MSG_SESSION_STATE, 0x01];
-                                let _ = broadcast_tx_pty.send(encode_frame(&state_msg));
-                            }
-                        }
-
-                        // Broadcast DATA to all clients
-                        let mut data_msg = Vec::with_capacity(1 + cleaned.len());
-                        data_msg.push(WS_MSG_DATA);
-                        data_msg.extend_from_slice(&cleaned);
-                        let _ = broadcast_tx_pty.send(encode_frame(&data_msg));
-                    }
-
-                    if eof {
-                        break;
-                    }
-                    // Readiness is edge-triggered, so clear it only after the fd
-                    // said WouldBlock. After the 256KB cap there is still data in
-                    // the pty; clearing then waits for an edge that never comes,
-                    // because a writer blocked on the full pty writes nothing
-                    // more, and the session's output freezes. Keeping readiness
-                    // makes the next readable() return at once.
-                    if would_block {
-                        guard.clear_ready();
+                    // Transition idle -> active
+                    if !s.session_active {
+                        s.session_active = true;
+                        let state_msg = vec![WS_MSG_SESSION_STATE, 0x01];
+                        let _ = broadcast_tx_pty.send(encode_frame(&state_msg));
                     }
                 }
-                Err(_) => break,
+
+                // Broadcast DATA to all clients
+                let mut data_msg = Vec::with_capacity(1 + cleaned.len());
+                data_msg.push(WS_MSG_DATA);
+                data_msg.extend_from_slice(&cleaned);
+                let _ = broadcast_tx_pty.send(encode_frame(&data_msg));
             }
         }
 
