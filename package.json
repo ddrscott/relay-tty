@@ -110,6 +110,6 @@
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
-    "vite-tsconfig-paths": "^4.3.0"
+    "vite-tsconfig-paths": "^6.1.1"
   }
 }
