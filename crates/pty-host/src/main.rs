@@ -1721,6 +1721,7 @@ async fn main() {
                     // lock acquisitions and WS frame overhead from N to 1.
                     drain_buf.clear();
                     let mut eof = false;
+                    let mut would_block = false;
                     loop {
                         let result = unsafe {
                             libc::read(
@@ -1741,6 +1742,7 @@ async fn main() {
                         } else {
                             let err = io::Error::last_os_error();
                             if err.kind() == io::ErrorKind::WouldBlock {
+                                would_block = true;
                                 break; // No more data available right now
                             }
                             eof = true;
@@ -1850,7 +1852,15 @@ async fn main() {
                     if eof {
                         break;
                     }
-                    guard.clear_ready();
+                    // Readiness is edge-triggered, so clear it only after the fd
+                    // said WouldBlock. After the 256KB cap there is still data in
+                    // the pty; clearing then waits for an edge that never comes,
+                    // because a writer blocked on the full pty writes nothing
+                    // more, and the session's output freezes. Keeping readiness
+                    // makes the next readable() return at once.
+                    if would_block {
+                        guard.clear_ready();
+                    }
                 }
                 Err(_) => break,
             }

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A session could stop showing output, and its program could hang, during a sustained burst of output such as a large `cat` or a noisy build; pty-host stopped reading the pty after a 256KB batch. Seen on Linux
+
 ## [1.22.0] - 2026-09-10
 
 ### Added
