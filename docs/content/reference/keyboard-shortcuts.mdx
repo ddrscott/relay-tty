@@ -11,18 +11,29 @@ title: Keyboard Shortcuts
 
 ## TUI picker (`relay` or `relay tui`)
 
+Sessions are grouped by working directory, as in the web sidebar. Rows are either a directory header or a session.
+
 | Key | Action |
 |-----|--------|
-| `↑`/`↓` or `j`/`k` | Navigate sessions |
-| `1`-`9` | Select session N |
-| `Enter` | Attach to selected session |
-| `c` | New shell session (in the selected session's directory) |
+| `↑`/`↓` or `j`/`k` | Move between rows |
+| `←` or `h` | On a session, go to its directory; on an open directory, fold it |
+| `→` or `l` | On a folded directory, unfold it; on an open one, go to its first session |
+| `Space` | Fold or unfold the selected directory |
+| `z` | Fold every directory, or unfold all when all are folded |
+| `1`-`9` | Select session N (the numbers shown in the list) |
+| `Enter` | Attach to the selected session, or fold/unfold a directory |
+| `c` | New shell in the selected directory, then attach |
+| `C` | Run a command in the selected directory, then attach. Plain commands are split into words; anything with shell syntax (`&&`, pipes, `$VAR`, globs) runs through your shell |
+| `s` | Sort menu: `r` recent, `a` active, `c` created, `n` name. Picking the current sort flips its direction |
+| `f` | Filter menu: toggle `r` running and `c` closed sessions |
 | `,` | Rename selected session (Ctrl+U clears the field, Esc cancels) |
 | `x` | Stop selected session |
 | `r` | Refresh session list |
 | `g` / `G` | Jump to top / bottom |
 | `q` or `Esc` | Quit |
-| Mouse | Click to select, click the selected row to attach, wheel to move |
+| Mouse | Click a directory to fold it, click a session to select it, click the selected session to attach, wheel to move |
+
+Sort, filter, and folded directories are saved in `~/.relay-tty/tui.json` and restored the next time the TUI opens.
 
 ## TUI attached (prefix key, default `Ctrl+B`)
 
@@ -30,8 +41,8 @@ While attached, every key goes to the program except the prefix. Change the pref
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+B` `n` / `p` | Next / previous running session |
-| `Ctrl+B` `1`-`9` | Jump to session N (picker order) |
+| `Ctrl+B` `n` / `p` | Next / previous running session in picker order, including sessions in folded directories |
+| `Ctrl+B` `1`-`9` | Jump to session N (the numbers the picker shows) |
 | `Ctrl+B` `c` | New shell session in the current session's directory, then switch to it |
 | `Ctrl+B` `,` | Rename the current session (pins the title) |
 | `Ctrl+B` `s` or `Esc` | Back to the picker |

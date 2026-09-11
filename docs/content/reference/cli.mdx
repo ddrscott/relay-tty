@@ -128,7 +128,7 @@ Output: share URL to stdout, metadata to stderr.
 
 The terminal client. `relay` with no arguments opens it too. It has two modes:
 
-**Picker.** Running sessions in a list with a live preview of the selected one. Sessions whose agent is waiting on you (`BLOCKED`) sort first, then `WORKING`, then the rest by age. The list updates as sessions come and go; no manual refresh needed.
+**Picker.** Sessions grouped by working directory, the same way the web sidebar groups them, with a live preview of the selected session. Each directory header shows how many sessions are running and how many are blocked on you, and it folds so you can think in projects and open only the ones you care about. Rows show the title, the agent state, the output rate while a session is producing output, and how long ago it was last active. The default sort (Active) puts sessions whose agent is waiting on you (`BLOCKED`) first within each directory; `s` switches to Recent, Created, or Name, and `f` shows closed sessions. `c` opens a shell in the selected directory and `C` runs a command there. Sort, filter, and folded directories persist in `~/.relay-tty/tui.json`. The list updates as sessions come and go; no manual refresh needed.
 
 **Attached.** Pressing Enter attaches to a session in raw mode, exactly like `relay attach`, except that a prefix key (default `Ctrl+B`, configurable in `relayrc`) switches sessions, creates shells, renames, and returns to the picker without leaving the terminal. Think of it as the tmux workflow on top of relay sessions: detach, reattach from any machine or browser, switch between sessions with `Ctrl+B n`. The outer terminal's title follows the active session and its agent state.
 
