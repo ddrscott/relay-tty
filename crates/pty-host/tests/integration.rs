@@ -337,11 +337,13 @@ fn handshake_resume_valid_offset_gets_delta() {
 
 #[test]
 fn handshake_resume_stale_offset_sends_cache_reset() {
-    // Write >20MB to guarantee the ring buffer (10MB) wraps past offset 1.0.
-    // Use `yes` piped through `head` for fast, reliable output.
+    // Write 12MB so the 10MB ring buffer wraps past offset 1.0 (the pty's
+    // CRLF translation makes it 18MB, but 12MB already wraps). More output
+    // only slows the test: tests run the debug pty-host, which drains `yes`
+    // at a few MB/s, and far slower on a loaded CI runner.
     let handle = spawn_pty_host(
         "/bin/sh",
-        &["-c", "yes | head -c 20971520; touch \"$HOME/written\"; sleep 30"],
+        &["-c", "yes | head -c 12582912; touch \"$HOME/written\"; sleep 30"],
     )
     .expect("failed to spawn");
 
@@ -349,9 +351,9 @@ fn handshake_resume_stale_offset_sends_cache_reset() {
     // a few KB), so the marker means the ring has wrapped. A fixed sleep was
     // too short on loaded CI runners.
     let marker = handle.home_dir.join("written");
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + Duration::from_secs(180);
     while !marker.exists() {
-        assert!(Instant::now() < deadline, "20MB of output did not drain within 60s");
+        assert!(Instant::now() < deadline, "12MB of output did not drain within 180s");
         std::thread::sleep(Duration::from_millis(50));
     }
 
