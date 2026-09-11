@@ -21,6 +21,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A hung integration test otherwise holds the runner for GitHub's 6h default.
+    timeout-minutes: 20
     env:
       CARGO_TERM_COLOR: always
       # Test the pty-host built from this commit, not the last release's binary.
