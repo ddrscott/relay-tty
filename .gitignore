@@ -21,3 +21,9 @@ scripts/screenshots/_raw/
 
 # Claude Code local settings
 .claude/settings.local.json
+# Agent worktrees (Claude Code's EnterWorktree and isolation: "worktree").
+# They are full copies of the repo inside the project root; Tailwind's source
+# scan follows .gitignore, so without this it scans them, registers their
+# files as CSS dependencies, and the dev server throws ENOENT on every
+# stylesheet request once a worktree is removed, until restarted.
+.claude/worktrees/
