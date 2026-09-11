@@ -15,7 +15,9 @@ trap 'rm -f "$log"' EXIT
 npm test 2>&1 | tee "$log"
 
 # A skipped integration suite is a silent pass, so treat any skip as a failure.
-if ! grep -q '^# skipped 0$' "$log"; then
+# A suite skipped with describe({ skip }) prints "# SKIP" on its own line but is
+# not counted in the "# skipped" summary, so check for both.
+if grep -q '# SKIP' "$log" || ! grep -q '^# skipped 0$' "$log"; then
   echo "check: tests were skipped; the integration suites need the pty-host binary and dist/" >&2
   exit 1
 fi
