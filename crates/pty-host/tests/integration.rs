@@ -341,12 +341,19 @@ fn handshake_resume_stale_offset_sends_cache_reset() {
     // Use `yes` piped through `head` for fast, reliable output.
     let handle = spawn_pty_host(
         "/bin/sh",
-        &["-c", "yes | head -c 20971520 && sleep 30"],
+        &["-c", "yes | head -c 20971520; touch \"$HOME/written\"; sleep 30"],
     )
     .expect("failed to spawn");
 
-    // Wait for all output to be written and ring buffer to wrap
-    std::thread::sleep(Duration::from_secs(5));
+    // head can only exit once pty-host has read nearly all 20MB (a pty buffers
+    // a few KB), so the marker means the ring has wrapped. A fixed sleep was
+    // too short on loaded CI runners.
+    let marker = handle.home_dir.join("written");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "20MB of output did not drain within 60s");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 
     // Connect with offset 1.0 — definitely overwritten by the 10MB ring buffer
     let mut client = connect(&handle.socket_path).expect("connect failed");
@@ -949,7 +956,9 @@ fn control_frame_coalesced_with_observe_is_not_dropped() {
         stream.write_all(&bytes).expect("write failed");
     }
 
-    let deadline = Instant::now() + Duration::from_secs(2);
+    // Generous because loaded CI runners can delay the title task by seconds;
+    // the loop exits as soon as the title lands.
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = serde_json::Value::Null;
     while Instant::now() < deadline {
         last = read_session_json(&handle.session_path).expect("read session JSON");
