@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useRevalidator } from "react-router";
 import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/grid";
+import { appContext } from "../context";
 import type { Session } from "../../shared/types";
 import { sortSessions, type SortKey, type SortDir } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
@@ -15,8 +16,8 @@ import { useSessionReveal, relaxFiltersForSession, persistRelaxation, type Sessi
 import { PerfHud } from "../components/perf-hud";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 
-export function meta({ data }: Route.MetaArgs) {
-  const hostname = data?.hostname ?? "";
+export function meta({ loaderData }: Route.MetaArgs) {
+  const hostname = loaderData?.hostname ?? "";
   const title = hostname ? `Grid — ${hostname} — relay-tty` : "Grid — relay-tty";
   return [
     { title },
@@ -25,8 +26,9 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const sessions = context.sessionStore.list();
-  return { sessions, version: context.version, hostname: context.hostname };
+  const { sessionStore, version, hostname } = context.get(appContext);
+  const sessions = sessionStore.list();
+  return { sessions, version, hostname };
 }
 
 const SHELL_OPTIONS = [

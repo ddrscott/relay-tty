@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/desktop";
+import { appContext } from "../context";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { Menu, Monitor, Eye, EyeOff, Keyboard, ClipboardPaste, Maximize2, Move, Unplug, RefreshCw, Loader2, Gauge } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
@@ -171,16 +172,17 @@ type Phase =
 
 const USERNAME_KEY = "relay-desktop-username";
 
-export function meta({ data }: Route.MetaArgs) {
-  const hostname = data?.hostname ?? "";
+export function meta({ loaderData }: Route.MetaArgs) {
+  const hostname = loaderData?.hostname ?? "";
   const title = hostname ? `Desktop — ${hostname} — relay-tty` : "Desktop — relay-tty";
   return [{ title }, { name: "description", content: "Remote desktop of the relay host" }];
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const available = context.desktopAvailable ? await context.desktopAvailable() : false;
-  const displays = available && context.desktopDisplays ? await context.desktopDisplays() : [];
-  return { available, hostname: context.hostname, displays };
+  const { desktopAvailable, desktopDisplays, hostname } = context.get(appContext);
+  const available = desktopAvailable ? await desktopAvailable() : false;
+  const displays = available && desktopDisplays ? await desktopDisplays() : [];
+  return { available, hostname, displays };
 }
 
 /** Pull the bridge's WS close reason out of noVNC's "Connection closed (code: N, reason: X)" text. */

@@ -2,6 +2,7 @@ import { useMemo, useCallback } from "react";
 import { useNavigate, useRevalidator } from "react-router";
 import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/activity";
+import { appContext } from "../context";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
 import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
@@ -11,8 +12,8 @@ import { QuickLaunch } from "../components/quick-launch";
 import { useSessionMetrics, type SessionMetrics } from "../hooks/use-session-metrics";
 import { AgentCard } from "../components/agent-card";
 
-export function meta({ data }: Route.MetaArgs) {
-  const hostname = data?.hostname ?? "";
+export function meta({ loaderData }: Route.MetaArgs) {
+  const hostname = loaderData?.hostname ?? "";
   const title = hostname ? `Activity — ${hostname} — relay-tty` : "Activity — relay-tty";
   return [
     { title },
@@ -21,8 +22,9 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const sessions = context.sessionStore.list();
-  return { sessions, version: context.version, hostname: context.hostname };
+  const { sessionStore, version, hostname } = context.get(appContext);
+  const sessions = sessionStore.list();
+  return { sessions, version, hostname };
 }
 
 export default function ActivityPage({ loaderData }: Route.ComponentProps) {

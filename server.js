@@ -5,6 +5,7 @@ import { homedir, hostname } from "node:os";
 import express from "express";
 import compression from "compression";
 import morgan from "morgan";
+import { createContext, RouterContextProvider } from "react-router";
 
 const PKG_VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8")).version;
 const HOSTNAME = hostname();
@@ -118,6 +119,24 @@ async function loadModules(load) {
   return { sessionStore, ptyManager, wsHandler, pairStore, sweepTimer, verifyWsAuth: authModule.verifyWsAuth, generateToken: authModule.generateToken, generateAccessToken: authModule.generateAccessToken, verifyAccessToken: authModule.verifyAccessToken, readCustomCommands: apiModule.readCustomCommands, readUploadDir: apiModule.readUploadDir, desktopAvailable: desktopModule.desktopAvailable, desktopDisplays: desktopModule.desktopDisplays };
 }
 
+// React Router 8 requires getLoadContext to return a RouterContextProvider.
+// Loaders read these values with context.get(appContext) from app/context.ts,
+// which fetches the same key from the global symbol registry.
+const appContextKey = (globalThis[Symbol.for("relay-tty.appContext")] ??= createContext());
+
+function createLoadContext(modules) {
+  const context = new RouterContextProvider();
+  context.set(appContextKey, {
+    sessionStore: modules.sessionStore,
+    version: PKG_VERSION,
+    hostname: HOSTNAME,
+    readCustomCommands: modules.readCustomCommands,
+    desktopAvailable: modules.desktopAvailable,
+    desktopDisplays: modules.desktopDisplays,
+  });
+  return context;
+}
+
 async function start() {
   let modules;
 
@@ -135,9 +154,7 @@ async function start() {
     app.use(
       createRequestHandler({
         build: () => viteServer.ssrLoadModule("virtual:react-router/server-build"),
-        getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands, desktopAvailable: modules.desktopAvailable, desktopDisplays: modules.desktopDisplays };
-        },
+        getLoadContext: () => createLoadContext(modules),
       })
     );
   } else {
@@ -161,9 +178,7 @@ async function start() {
     app.use(
       createRequestHandler({
         build,
-        getLoadContext() {
-          return { sessionStore: modules.sessionStore, version: PKG_VERSION, hostname: HOSTNAME, readCustomCommands: modules.readCustomCommands, desktopAvailable: modules.desktopAvailable, desktopDisplays: modules.desktopDisplays };
-        },
+        getLoadContext: () => createLoadContext(modules),
       })
     );
   }

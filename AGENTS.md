@@ -43,7 +43,7 @@ Tests must not depend on the machine they run on. CI has no `JWT_SECRET`, no `~/
 
 ## Issues
 
-GitHub Issues are the work queue. Older items still sit in `.claude/work-queue/` until they are moved over, so don't add new ones there. An issue is ready to work when the affected code can be located, the expected outcome is testable (the "Done when" list in the issue forms), and it fits the architecture in CLAUDE.md.
+GitHub Issues are the work queue. `.claude/work-queue/` is an archive of work finished before the move to Issues, so don't add to it. An issue is ready to work when the affected code can be located, the expected outcome is testable (the "Done when" list in the issue forms), and it fits the architecture in CLAUDE.md.
 
 | Label | Meaning |
 | --- | --- |
@@ -61,7 +61,7 @@ An issue carries at most one state label. Claim an issue by adding `in-progress`
 - Work in a git worktree when the main checkout has someone else's uncommitted changes, which is common here.
 - Name branches `issue/<N>-<slug>` for issue work.
 - Commits follow Conventional Commits with the area as scope: `feat(tui): …`, `fix(pty-host): …`, `docs(changelog): …`, `test(client): …`. Scopes in use are `pty-host`, `cli`, `tui`, `web`, `client`, `server`, and `docs`.
-- Agents open pull requests as drafts, with `Fixes #N` on the first line and the body following `.github/pull_request_template.md`. A maintainer marks them ready and merges. Agents never merge, and they never push to `main`.
+- Agents open pull requests as drafts, with `Fixes #N` on the first line and the body following `.github/pull_request_template.md`. A maintainer marks them ready and merges with squash or rebase, since merge commits are disabled to keep history linear. Agents never merge, and they never push to `main`. A ruleset blocks force-pushes to and deletion of `main`.
 - Keep the diff to what the issue asks for. Put unrelated fixes you notice in a new issue.
 
 ## Changelog and docs
@@ -76,7 +76,7 @@ Releases are cut by a maintainer with the `/release` command (`.claude/commands/
 
 - Tag only a commit that is green in CI on `main`.
 - The tag must equal `v` plus the `package.json` version. The publish workflow refuses a mismatch, because postinstall downloads the binary by that tag.
-- Never move or delete a pushed tag. npm versions are immutable and installs fetch binaries by tag, so a broken release is fixed by releasing the next patch version.
+- Never move or delete a pushed tag. npm versions are immutable and installs fetch binaries by tag, so a broken release is fixed by releasing the next patch version. A ruleset on `refs/tags/v*` enforces this with no bypass.
 
 ## Things that have bitten agents before
 

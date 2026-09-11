@@ -11,6 +11,7 @@ import {
 } from "react-router";
 import { useKeyboardViewport } from "./hooks/use-keyboard-viewport";
 import type { Route } from "./+types/root";
+import { appContext } from "./context";
 import { SidebarDrawer } from "./components/sidebar-drawer";
 import { useSessionEvents } from "./hooks/use-session-events";
 import "./app.css";
@@ -28,10 +29,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   // Don't expose session list to unauthenticated share viewers
   const isShare = url.pathname.startsWith("/share/");
-  const sessions = isShare ? [] : context.sessionStore.list({ includeExited: true });
-  const customCommands: string[] = !isShare && context.readCustomCommands ? context.readCustomCommands() : [];
-  const desktopAvailable = !isShare && context.desktopAvailable ? await context.desktopAvailable() : false;
-  return { sessions, version: context.version, hostname: context.hostname, customCommands, desktopAvailable };
+  const app = context.get(appContext);
+  const sessions = isShare ? [] : app.sessionStore.list({ includeExited: true });
+  const customCommands: string[] = !isShare && app.readCustomCommands ? app.readCustomCommands() : [];
+  const desktopAvailable = !isShare && app.desktopAvailable ? await app.desktopAvailable() : false;
+  return { sessions, version: app.version, hostname: app.hostname, customCommands, desktopAvailable };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {

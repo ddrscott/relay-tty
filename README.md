@@ -62,7 +62,7 @@ relay-tty is a **terminal relay**: a small local server that hosts terminal sess
 curl -fsSL https://raw.githubusercontent.com/ddrscott/relay-tty/main/install.sh | bash
 ```
 
-Or if you already have Node.js (≥ 18):
+Or if you already have Node.js (≥ 22.22):
 
 ```bash
 npm i -g relay-tty
@@ -469,7 +469,7 @@ Binaries are built via GitHub Actions on each tagged release (`v*`). The workflo
 
 ## Tech stack
 
-- **Frontend**: React Router v7 (SSR) + Tailwind v4 + DaisyUI v5 + xterm.js v5
+- **Frontend**: React Router v8 (SSR) + Tailwind v4 + DaisyUI v5 + xterm.js v5
 - **Backend**: Express 5 + ws
 - **PTY Host**: Rust (tokio + forkpty)
 - **CLI**: Commander

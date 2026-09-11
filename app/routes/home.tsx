@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useNewSessionShortcut } from "../hooks/use-new-session-shortcut";
 import type { Route } from "./+types/home";
+import { appContext } from "../context";
 import { Terminal, type TerminalHandle } from "../components/terminal";
 import type { Session } from "../../shared/types";
 import { sortSessions } from "../lib/session-groups";
@@ -10,8 +11,8 @@ import { Maximize, Minimize, Menu } from "lucide-react";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { QuickLaunch } from "../components/quick-launch";
 
-export function meta({ data }: Route.MetaArgs) {
-  const hostname = data?.hostname ?? "";
+export function meta({ loaderData }: Route.MetaArgs) {
+  const hostname = loaderData?.hostname ?? "";
   const title = hostname ? `${hostname} — relay-tty` : "relay-tty";
   return [
     { title },
@@ -20,8 +21,9 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const sessions = context.sessionStore.list();
-  return { sessions, version: context.version, hostname: context.hostname };
+  const { sessionStore, version, hostname } = context.get(appContext);
+  const sessions = sessionStore.list();
+  return { sessions, version, hostname };
 }
 
 /** xterm.js font stack -- must match use-terminal-core.ts */
