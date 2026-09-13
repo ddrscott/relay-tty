@@ -12,7 +12,10 @@ cargo build --release --manifest-path "$manifest"
 
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-npm test 2>&1 | tee "$log"
+# Force TAP: the summary below is parsed, and node's default reporter depends on
+# the node version (>=23 prints the spec format even when piped) and on whether
+# stdout is a terminal.
+TEST_REPORTER=tap npm test 2>&1 | tee "$log"
 
 # A skipped integration suite is a silent pass, so treat any skip as a failure.
 # A suite skipped with describe({ skip }) prints "# SKIP" on its own line but is
