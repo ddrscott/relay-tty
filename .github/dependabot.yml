@@ -12,6 +12,10 @@ updates:
       # addons are pinned to v5-compatible releases. See CLAUDE.md.
       - dependency-name: "@xterm/*"
     groups:
+      # react-router and @react-router/* must move together: their peer
+      # dependencies pin each other, so a PR for one alone cannot install.
+      react-router:
+        patterns: ["react-router", "@react-router/*"]
       minor-and-patch:
         update-types: [minor, patch]
 

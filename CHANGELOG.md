@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `c` in the TUI picker opens a shell in the selected directory, and the new `C` runs a typed command there
 
 ### Fixed
+- React Router updated to 7.18.3, which carries security fixes for the router that serves the web UI
 - Pastes and other input longer than about 1KB reach the program intact; pty-host wrote each input message once to the non-blocking pty and dropped whatever did not fit, so a long paste from the browser, the scratchpad, `relay send` or the TUI arrived cut off (on macOS, after 1,022 bytes)
 - A session could stop showing output, and its program could hang, during a sustained burst of output such as a large `cat` or a noisy build. On Linux pty-host stopped reading the pty after a 256KB batch; on macOS the kernel could drop the wakeup for output already waiting in the pty. pty-host now reads the pty on its own thread with `poll(2)`, which cannot miss waiting output, at the same throughput and keystroke latency as before
 - TUI prompts and menus on the last row are no longer erased by the live preview while the selected session is producing output
