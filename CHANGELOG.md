@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-09-15
+
 ### Changed
 - The TUI picker groups sessions by directory like the web sidebar: foldable headers with running and blocked counts, the web's Recent/Active/Created/Name sorts, a running/closed filter, and rows with agent state, output rate, and last activity; the view is remembered between runs
 - `c` in the TUI picker opens a shell in the selected directory, and the new `C` runs a typed command there
