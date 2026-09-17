@@ -62,6 +62,12 @@ relay-tty is a **terminal relay**: a small local server that hosts terminal sess
 curl -fsSL https://raw.githubusercontent.com/ddrscott/relay-tty/main/install.sh | bash
 ```
 
+Or with Homebrew, which also installs the pre-built `relay-pty-host`:
+
+```bash
+brew install ddrscott/tap/relay-tty
+```
+
 Or if you already have Node.js (≥ 18):
 
 ```bash
