@@ -7,8 +7,7 @@ import { Terminal } from "../components/terminal";
 import type { ChatTerminalHandle } from "../components/chat-terminal";
 import { ChatTerminal } from "../components/chat-terminal";
 import type { FileLink } from "../lib/file-link-provider";
-import { groupByCwd } from "../lib/session-groups";
-import { toggleSidebarDrawer } from "../lib/sidebar-toggle";
+import { openSidebarDrawer, toggleSidebarDrawer } from "../lib/sidebar-toggle";
 import { getWindowPref, setWindowPref } from "../lib/window-prefs";
 import { useCarouselSwipe } from "../hooks/use-carousel-swipe";
 import { IOSHomeScreenBanner } from "../components/ios-homescreen-banner";
@@ -18,7 +17,6 @@ import { ShareDialog } from "../components/share-dialog";
 import { PairHostDialog } from "../components/pair-host-dialog";
 import { SessionTextViewer } from "../components/session-text-viewer";
 import { ClipboardPanel } from "../components/clipboard-panel";
-import { SessionPicker } from "../components/session-picker";
 import { LayoutSwitcher } from "../components/layout-switcher";
 import { SearchBar } from "../components/search-bar";
 import { NoKbButton } from "../components/no-kb-button";
@@ -255,8 +253,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     session.status === "exited" ? (session.exitCode ?? 0) : null
   );
   const [termTitle, setTermTitle] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [ctrlOn, setCtrlOn] = useState(false);
   const [altOn, setAltOn] = useState(false);
@@ -333,7 +329,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     fileBrowserPathRef.current = null;
     setTextViewerOpen(false);
     setSearchOpen(false);
-    setPickerOpen(false);
     setInfoOpen(false);
     setCtrlOn(false);
     setAltOn(false);
@@ -889,22 +884,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     await uploadAndInsert(Array.from(files));
   }, [uploadAndInsert]);
 
-  const groups = useMemo(() => groupByCwd(allSessions), [allSessions]);
-
   const currentIndex = allSessions.findIndex((s) => s.id === session.id);
-
-  // Close picker on outside click; revalidate to get fresh titles when opening
-  useEffect(() => {
-    if (!pickerOpen) return;
-    revalidate();
-    function onClickOutside(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [pickerOpen, revalidate]);
 
   // Close info popover on outside click
   useEffect(() => {
@@ -949,7 +929,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
   }, [fileBrowserOpen, FileBrowserComponent]);
 
   function goTo(id: string) {
-    setPickerOpen(false);
     // Switch session via state (keeps all terminals alive) and update URL
     // without triggering a React Router navigation (which would remount).
     setActiveId(id);
@@ -961,7 +940,7 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
     sessionIds,
     activeId,
     goTo,
-    enabled: isMobile && !textViewerOpen && !pickerOpen && allSessions.length > 1,
+    enabled: isMobile && !textViewerOpen && allSessions.length > 1,
     onSwipeStart: unlockNeighbors,
   });
 
@@ -1050,11 +1029,18 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
           </span>
         )}
 
-        {/* Session title -- tap to open picker */}
-        <div className="relative flex-1 min-w-0 flex items-center" ref={pickerRef}>
+        {/* Session title -- tap to open the session sidebar. Revalidate so
+            the sidebar shows fresh titles. */}
+        <div className="relative flex-1 min-w-0 flex items-center">
           <button
             className="text-left w-full truncate cursor-pointer hover:bg-[#1a1a2e] rounded px-1 -mx-1 transition-colors"
-            onClick={() => setPickerOpen(!pickerOpen)}
+            onClick={() => {
+              revalidate();
+              openSidebarDrawer();
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            tabIndex={-1}
+            aria-label="Open session sidebar"
           >
             <span className="flex items-center gap-1.5">
               {/* Activity dot — inline before session name */}
@@ -1073,15 +1059,6 @@ export default function SessionView({ loaderData }: Route.ComponentProps) {
               </code>
             </span>
           </button>
-
-          {/* Session picker dropdown — grouped by cwd */}
-          {pickerOpen && allSessions.length > 1 && (
-            <SessionPicker
-              groups={groups}
-              activeSessionId={session.id}
-              onSelect={goTo}
-            />
-          )}
         </div>
 
         {/* Guest chip — shown when viewing a session via a pair grant */}

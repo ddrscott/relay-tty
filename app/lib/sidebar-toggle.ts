@@ -19,3 +19,20 @@ export function toggleSidebarDrawer() {
     if (checkbox) checkbox.checked = !checkbox.checked;
   }
 }
+
+/**
+ * Open the sidebar drawer without ever closing it. On desktop this expands a
+ * collapsed sidebar and leaves an open one alone; on mobile it opens the
+ * drawer. Used by the session title, where a tap means "show me the sessions".
+ */
+export function openSidebarDrawer() {
+  const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
+  if (isDesktop) {
+    if (getWindowPref(SIDEBAR_COLLAPSED_KEY) !== "true") return;
+    setWindowPref(SIDEBAR_COLLAPSED_KEY, "false");
+    window.dispatchEvent(new CustomEvent("relay-sidebar-toggle"));
+  } else {
+    const checkbox = document.getElementById("sidebar-drawer") as HTMLInputElement;
+    if (checkbox) checkbox.checked = true;
+  }
+}

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Tapping the session title in the terminal view opens the session sidebar instead of the small dropdown picker, so you get the full list with grouping, sort, and filter
+
 ## [1.23.0] - 2026-09-15
 
 ### Changed
