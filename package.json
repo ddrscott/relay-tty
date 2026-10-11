@@ -108,7 +108,7 @@
     "@xterm/xterm": "5.5.0",
     "daisyui": "^5.0.0",
     "tailwindcss": "^4.1.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^6.0.0",
     "vite-tsconfig-paths": "^6.1.1"
   }
