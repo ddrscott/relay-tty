@@ -23,6 +23,9 @@ export interface TunnelClientOptions {
   slug: string;
   localPort: number;
   tunnelUrl?: string; // default: wss://relaytty.com/ws/tunnel (or RELAY_API env var)
+  heartbeatIntervalMs?: number; // default: 20s
+  heartbeatTimeoutMs?: number; // default: 45s of silence before the socket is declared dead
+  handshakeTimeoutMs?: number; // default: 15s for the WS upgrade to answer
   onConnected?: (url: string, isReconnect: boolean) => void;
   onDisconnected?: (code: number, reason: string) => void;
   onError?: (err: Error) => void;
@@ -35,6 +38,8 @@ export class TunnelClient {
   private maxReconnectDelay = 30000;
   private stopped = false;
   private hasConnected = false;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private lastSeen = 0;
   private opts: TunnelClientOptions;
 
   constructor(opts: TunnelClientOptions) {
@@ -48,6 +53,7 @@ export class TunnelClient {
 
   stop(): void {
     this.stopped = true;
+    this.stopHeartbeat();
     // Close all local WS connections
     for (const [id, ws] of this.localWs) {
       ws.close(1000, "Tunnel stopping");
@@ -68,7 +74,12 @@ export class TunnelClient {
     const tunnelUrl = this.opts.tunnelUrl || defaultTunnelUrl;
     const url = `${tunnelUrl}?key=${encodeURIComponent(this.opts.apiKey)}`;
 
-    const ws = new WebSocket(url);
+    // Without a handshake timeout an upgrade that never answers would hang
+    // forever and end the retry loop. On timeout ws emits 'error', which
+    // schedules the reconnect below.
+    const ws = new WebSocket(url, {
+      handshakeTimeout: this.opts.handshakeTimeoutMs ?? 15000,
+    });
     ws.binaryType = "nodebuffer";
 
     ws.on("open", () => {
@@ -76,6 +87,7 @@ export class TunnelClient {
       const isReconnect = this.hasConnected;
       this.hasConnected = true;
       this.reconnectDelay = 1000; // reset backoff
+      this.startHeartbeat(ws);
       // Derive public URL from tunnel URL
       // workers.dev domains don't support subdomain routing — use /t/<slug> path instead
       const tunnelHost = new URL(tunnelUrl).hostname;
@@ -85,13 +97,17 @@ export class TunnelClient {
       this.opts.onConnected?.(publicUrl, isReconnect);
     });
 
-    ws.on("message", (data: Buffer) => {
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      this.lastSeen = Date.now();
+      // Text messages are heartbeat "pong" replies, not tunnel frames
+      if (!isBinary) return;
       this.handleFrame(data);
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.stopHeartbeat();
       // Clean up local WS connections — they can't send through a dead tunnel
       for (const [id, local] of this.localWs) {
         local.close(1000, "Tunnel disconnected");
@@ -131,8 +147,42 @@ export class TunnelClient {
 
     // Respond to server pings
     ws.on("ping", () => {
+      this.lastSeen = Date.now();
       ws.pong();
     });
+  }
+
+  /**
+   * Detect a tunnel socket that died without a close frame (NAT expiry, a
+   * recycled edge connection, a sleeping host). Neither side would otherwise
+   * probe the link, so the relay would answer "Tunnel not connected" while
+   * this client still believed it was connected.
+   *
+   * The relay's Durable Object auto-responds to the text "ping" with "pong"
+   * (setWebSocketAutoResponse) without waking from hibernation. It does not
+   * answer protocol-level pings, so this must stay a text message.
+   */
+  private startHeartbeat(ws: WebSocket): void {
+    this.stopHeartbeat();
+    const interval = this.opts.heartbeatIntervalMs ?? 20000;
+    const timeout = this.opts.heartbeatTimeoutMs ?? 45000;
+    this.lastSeen = Date.now();
+    this.heartbeat = setInterval(() => {
+      if (Date.now() - this.lastSeen > timeout) {
+        // terminate() emits 'close' with 1006, which runs the reconnect path
+        ws.terminate();
+        return;
+      }
+      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+    }, interval);
+    this.heartbeat.unref();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
   }
 
   private scheduleReconnect(): void {

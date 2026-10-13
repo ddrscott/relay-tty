@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Tapping the session title in the terminal view opens the session sidebar instead of the small dropdown picker, so you get the full list with grouping, sort, and filter
 
+### Fixed
+- `relay server start --tunnel` notices a tunnel connection that died silently and reconnects within about a minute. Neither side probed the link, so after a network blip the public URL could answer "Tunnel not connected" for as long as it took the OS to give up on the socket, while the server still reported the tunnel as up. The client now pings relaytty.com every 20 seconds and redials after 45 seconds of silence, and a connection attempt that never answers times out instead of ending the retry loop
+
 ## [1.23.0] - 2026-09-15
 
 ### Changed

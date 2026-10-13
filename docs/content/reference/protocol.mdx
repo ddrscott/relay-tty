@@ -272,4 +272,4 @@ close local WS             ◀──
 - The tunnel client strips `cf-*` headers and sets `Host: localhost:<port>` on proxied HTTP requests so the local server's localhost bypass works correctly.
 - The relay service enforces limits: 1 tunnel per account, 2 concurrent browser viewers per tunnel (free tier).
 - API keys are stored as SHA-256 hashes; the plaintext is only shown once at provisioning.
-- The tunnel WebSocket uses auto-ping/pong for keepalive (relay sends pings, tunnel responds with pongs).
+- The tunnel client keeps the tunnel WebSocket alive with a text-message heartbeat: it sends the text `ping` every 20 seconds and the relay answers with the text `pong`. These are text messages, not tunnel frames and not protocol-level ping/pong, so both sides ignore them when decoding frames. After 45 seconds with nothing received, the client drops the socket and reconnects.
