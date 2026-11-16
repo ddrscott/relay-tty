@@ -25,12 +25,16 @@ prefix = C-b
 
 # Default server URL for every command's --host
 # host = https://laptop.example.com
+
+# Auto-park Claude sessions quiet this long (off when unset)
+# park_after = 24h
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `prefix` | `C-b` | Control chord that starts a TUI command while attached. Press it twice to send it literally. |
 | `host` | local server | Server URL used when `--host` is not given. Set this to drive sessions on another machine through the tunnel. |
+| `park_after` | unset (off) | The server runs `relay park --idle <park_after>` every 5 minutes, without `--force`. Read on each run, so no restart is needed. `RELAY_PARK_AFTER` in the server's environment overrides it. |
 
 ## `~/.relay-tty/`
 
@@ -40,6 +44,7 @@ Runtime data directory:
 |------|-------------|
 | `sessions/<id>.json` | Session metadata (command, created time, status) |
 | `sockets/<id>.sock` | Unix socket for pty-host communication |
+| `parked/<conversation>.json` | One file per parked Claude conversation, used by `relay unpark` after the session is gone |
 
 Session metadata is created by the pty-host process and persists across server restarts. Socket files are cleaned up when the pty-host process exits.
 

@@ -1,0 +1,66 @@
+---
+title: Park Idle Claude Sessions
+---
+
+Claude Code sessions are easy to start and easy to forget. Each idle `claude` process still holds a few hundred megabytes, so a machine with twenty of them left open spends gigabytes on conversations nobody is looking at. Parking stops the Claude process and keeps everything around it: the relay session, its shell, its scrollback, and its place in your layout. Unparking types the resume command back into the same shell, so the conversation comes back where it was.
+
+## Park one session
+
+```bash
+relay park a1b2c3d4
+# Parked a1b2c3d4: claude my-project (a6f4f848-...) stopped (pid 10604, SIGTERM)
+# Resume with: relay unpark a1b2c3d4
+```
+
+relay finds the Claude in the session through `~/.claude/sessions/<pid>.json`, which Claude Code writes for each running process. It saves the conversation id, the directory, and the launch flags in the session's `parked` field, then sends `SIGTERM` (and `SIGKILL` five seconds later if Claude is still running). `relay list` shows `PARKED` next to the session.
+
+Park refuses, and says why, in these cases:
+
+- The agent is working, or a permission prompt is waiting for you.
+- Claude reports itself busy.
+- You typed into the session after Claude last went idle. That usually means a draft is sitting unsent in the prompt, and parking would lose it.
+- There is no Claude in the session.
+
+`--force` skips the first three checks. Nothing parks a session that has no Claude in it.
+
+## Unpark
+
+```bash
+relay unpark a1b2c3d4
+# Unparked into a1b2c3d4: claude --resume a6f4f848-... --dangerously-skip-permissions --model opus
+```
+
+The resume line keeps every launch flag except the ones that pick a conversation (`--resume`, `--continue`, `--session-id`, `--fork-session`) and the original prompt, which would otherwise be sent a second time. Unpark refuses while another program is in the session's foreground, because it types into the shell.
+
+If the relay session is gone, after a reboot for example, pass the Claude conversation id instead. relay starts a new session in the conversation's directory and types the command there:
+
+```bash
+relay unpark a6f4f848-5d3c-4a8e-9b1f-0c2d7e6a1b90
+# Unparked into new session 7c1e09ab: claude --resume a6f4f848-... --model opus
+```
+
+## Park everything idle
+
+```bash
+relay park --idle 24h --dry-run
+# SESSION   NAME             QUIET  RESULT      REASON
+# 3f2a9c10  ahr-chi-2027-da  31d    would-park
+# 8b7e44d2  relay-tty-c7     2h     skipped     active recently
+# 51c0aa7e  thunder-lead     4d     skipped     marked keep
+```
+
+A session counts as quiet when it has had neither output nor input for the whole duration. Drop `--dry-run` to park the sessions marked `would-park`.
+
+## Turn on auto-park
+
+Add `park_after` to `~/.config/relay-tty/relayrc`:
+
+```ini
+park_after = 24h
+```
+
+The server runs the same check every five minutes and never uses `--force`, so busy sessions and unsent drafts are always left alone. The setting is read on each run, so you don't need to restart anything. To exempt a session, run `relay keep <id>` (and `relay keep --off <id>` to undo it).
+
+## From another program
+
+Max Pane and scripts use the HTTP routes: `POST /api/sessions/:id/park`, `POST /api/sessions/:id/unpark`, `POST /api/sessions/:id/keep`, and `POST /api/park/idle`. The request bodies, responses, and refusal codes are in [PROTOCOL.md](https://github.com/ddrscott/relay-tty/blob/main/PROTOCOL.md#park-http-api).

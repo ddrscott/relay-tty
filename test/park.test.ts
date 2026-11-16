@@ -82,6 +82,13 @@ describe("parkRefusal", () => {
     assert.equal(parkRefusal({ ...idle, lastInputAt: 3000 }, { status: "idle" }), "unsent-draft");
     assert.equal(parkRefusal({ ...idle, agentState: "working", lastInputAt: 3000 }, { status: "busy" }, { force: true }), null);
   });
+  it("measures drafts against Claude's statusUpdatedAt when present", () => {
+    // Typing echoes, which moves agentStateChangedAt past the draft.
+    const echoed = { ...idle, agentState: "done" as const, lastInputAt: 3000, agentStateChangedAt: 4000 };
+    assert.equal(parkRefusal(echoed, { status: "idle", statusUpdatedAt: 1000 }), "unsent-draft");
+    assert.equal(parkRefusal(echoed, { status: "idle", statusUpdatedAt: 3500 }), null);
+    assert.equal(parkRefusal(echoed, { status: "idle" }), null);
+  });
   it("refuses with no Claude, already parked, or not running, even when forced", () => {
     assert.equal(parkRefusal(idle, null, { force: true }), "no-claude");
     const parked = { agent: "claude", sessionId: "x", cwd: "/", flags: [], parkedAt: 1 } as ParkedAgent;

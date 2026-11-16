@@ -176,6 +176,18 @@ Combine with `relay share` to give others read-only links without exposing your 
 
 Turn on **Screen Sharing** in macOS System Settings and a **Desktop** entry appears in the web UI. It opens the host's screen in the browser, through the same tunnel and login as your terminals, signed in with your macOS account. Handy when you need a browser on the host's network or a GUI app you cannot drive from a shell. On Linux, any VNC server on port 5900 works. See the [Remote Desktop guide](https://docs.relaytty.com/how-to/remote-desktop).
 
+## Park idle Claude sessions
+
+Twenty forgotten Claude Code sessions can hold several gigabytes of memory. `relay park <id>` stops the Claude in a session while the shell, the scrollback, and the session itself stay, and it records the conversation id and launch flags. `relay unpark <id>` types `claude --resume <id>` with the same flags back into that shell. Your `--mcp-config` and `--dangerously-skip-permissions` survive, and the original prompt is not sent again.
+
+```bash
+relay park --idle 24h --dry-run   # table of what would be parked, and why the rest would not
+relay park --idle 24h             # park them
+relay unpark a1b2c3d4             # resume one (or pass the Claude conversation id)
+```
+
+Park refuses while the agent is working, waiting on a prompt, or has a draft you typed but did not send; `--force` overrides those checks. To park automatically, add `park_after = 24h` to `~/.config/relay-tty/relayrc` and the server checks every 5 minutes. `relay keep <id>` exempts a session. See the [park guide](https://docs.relaytty.com/how-to/park-claude).
+
 ---
 
 ## CLI reference
@@ -192,6 +204,9 @@ relay rename <id> <title>    # pin a title (program titles no longer overwrite i
 relay kill <id> [-s TERM]    # signal the foreground process (default INT)
 relay wait <id> -s blocked   # block until an agent needs input (or --state exited)
 relay events                 # JSON lines: created, exited, agent_state, title, cwd
+relay park <id>              # stop an idle Claude, keep its shell (relay unpark resumes it)
+relay park --idle 24h -n     # what would be parked, and why the rest would not
+relay keep <id>              # never auto-park this session
 relay stop <id>              # kill a session
 relay share <id>             # read-only share link (1h default)
 relay share <id> --ttl 86400 # 24h TTL

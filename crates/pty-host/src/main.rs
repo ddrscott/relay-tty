@@ -2853,30 +2853,70 @@ fn parse_procargs2(bytes: &[u8]) -> Option<Vec<String>> {
     if out.len() as i32 == argc { Some(out) } else { None }
 }
 
-/// Whether client DATA is a keystroke for `lastInputAt`. Terminals send
-/// focus reports (CSI I / CSI O) and SGR mouse reports (CSI < ... M/m) on
-/// their own when a window gains focus or the pointer moves; counting those
-/// would make every glance at a session look like typing a draft.
+/// Whether client DATA is a keystroke for `lastInputAt`. Terminals send some
+/// sequences on their own: focus reports (CSI I / CSI O), SGR mouse reports
+/// (CSI < ... M/m), replies to the program's queries (DA1/DA2 `CSI ? ... c`,
+/// `CSI > ... c`, DECRPM `CSI ? ... $ y`, kitty flags `CSI ? ... u`) and OSC
+/// replies (colors). Counting those would make attaching a browser, or
+/// glancing at a window, look like typing a draft.
 fn counts_as_input(data: &[u8]) -> bool {
     let mut i = 0;
     while i < data.len() {
-        if data[i..].starts_with(b"\x1b[I") || data[i..].starts_with(b"\x1b[O") {
-            i += 3;
-            continue;
+        match terminal_report_len(&data[i..]) {
+            Some(n) => i += n,
+            None => return true,
         }
-        if data[i..].starts_with(b"\x1b[<") {
-            let rest = &data[i + 3..];
-            match rest.iter().position(|&b| b == b'M' || b == b'm') {
-                Some(end) if rest[..end].iter().all(|b| b.is_ascii_digit() || *b == b';') => {
-                    i += 3 + end + 1;
-                    continue;
-                }
-                _ => return true,
-            }
-        }
-        return true;
     }
     false
+}
+
+/// Length of the terminal-generated sequence at the start of `s`, or None
+/// when it starts with anything a person could have typed.
+fn terminal_report_len(s: &[u8]) -> Option<usize> {
+    if s.len() < 3 || s[0] != 0x1b {
+        return None;
+    }
+    if s[1] == b']' {
+        // OSC ... BEL or ST
+        let mut j = 2;
+        while j < s.len() {
+            if s[j] == 0x07 {
+                return Some(j + 1);
+            }
+            if s[j] == 0x1b && s.get(j + 1) == Some(&b'\\') {
+                return Some(j + 2);
+            }
+            j += 1;
+        }
+        return None;
+    }
+    if s[1] != b'[' {
+        return None;
+    }
+    let mut j = 2;
+    while j < s.len() && (0x30..=0x3f).contains(&s[j]) {
+        j += 1;
+    }
+    let params = &s[2..j];
+    let inter_start = j;
+    while j < s.len() && (0x20..=0x2f).contains(&s[j]) {
+        j += 1;
+    }
+    let inter = &s[inter_start..j];
+    let fin = *s.get(j)?;
+    if !(0x40..=0x7e).contains(&fin) {
+        return None;
+    }
+    let lead = params.first().copied();
+    let report = match fin {
+        b'I' | b'O' => params.is_empty() && inter.is_empty(),
+        b'M' | b'm' => lead == Some(b'<'),
+        b'c' => lead == Some(b'?') || lead == Some(b'>'),
+        b'u' => lead == Some(b'?'),
+        b'y' => inter == b"$",
+        _ => false,
+    };
+    if report { Some(j + 1) } else { None }
 }
 
 /// Apply a SET_META payload: a JSON object whose `parked` key (object or
@@ -4675,6 +4715,12 @@ mod tests {
         assert!(counts_as_input(b"\r"));
         assert!(counts_as_input(b"\x1b[A"));
         assert!(counts_as_input(b"\x1b[<garbage"));
+        // Replies to the program's own queries are not keystrokes.
+        assert!(!counts_as_input(b"\x1b[?62;22c\x1b[>1;10;0c"));
+        assert!(!counts_as_input(b"\x1b[?2026;2$y\x1b[?0u"));
+        assert!(!counts_as_input(b"\x1b]11;rgb:0000/0000/0000\x07\x1b]10;rgb:ffff/ffff/ffff\x1b\\"));
+        assert!(counts_as_input(b"\x1b[1;5D"));
+        assert!(counts_as_input(b"\x1b"));
     }
 
     fn meta_for_patch() -> SessionMeta {

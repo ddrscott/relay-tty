@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "session-management",
+    "park-claude",
     "web-ui-views",
     "remote-desktop",
     "input-tools",

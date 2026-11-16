@@ -123,6 +123,8 @@ export interface ClaudeSessionFile {
   name?: string;
   /** "busy" | "idle" | "shell" in current builds */
   status?: string;
+  /** Epoch ms when `status` last changed. Typing a draft does not move it. */
+  statusUpdatedAt?: number;
   /** "interactive" for a person's conversation; `-p` runs and SDK children are something else */
   kind?: string;
   updatedAt?: number;
@@ -146,6 +148,7 @@ export function parseClaudeSessionFile(text: string): ClaudeSessionFile | null {
     status: typeof o.status === "string" ? o.status : undefined,
     kind: typeof o.kind === "string" ? o.kind : undefined,
     updatedAt: typeof o.updatedAt === "number" ? o.updatedAt : undefined,
+    statusUpdatedAt: typeof o.statusUpdatedAt === "number" ? o.statusUpdatedAt : undefined,
   };
 }
 
@@ -166,10 +169,16 @@ export type ParkRefusal =
  * Why a session with this Claude in it cannot be parked, or null when it can.
  * `force` skips only the busy and draft checks; a session with no Claude, or
  * one already parked, is refused either way.
+ *
+ * The draft check asks whether a keystroke arrived after the agent last went
+ * idle. "Went idle" is Claude's own `statusUpdatedAt` when its file has one,
+ * because pty-host's `agentStateChangedAt` moves when typing echoes: the echo
+ * is output, output reads as working, and the settle back to done lands after
+ * the draft. `agentStateChangedAt` is the fallback for Claude builds without it.
  */
 export function parkRefusal(
   session: Pick<Session, "status" | "parked" | "agentState" | "agentStateChangedAt" | "lastInputAt">,
-  claude: Pick<ClaudeSessionFile, "status"> | null,
+  claude: Pick<ClaudeSessionFile, "status" | "statusUpdatedAt"> | null,
   opts: { force?: boolean } = {},
 ): ParkRefusal | null {
   if (session.status !== "running") return "not-running";
@@ -179,7 +188,8 @@ export function parkRefusal(
   if (session.agentState === "working") return "agent-working";
   if (session.agentState === "blocked") return "agent-blocked";
   if (claude.status === "busy") return "claude-busy";
-  if ((session.lastInputAt ?? 0) > (session.agentStateChangedAt ?? 0)) return "unsent-draft";
+  const idleSince = claude.statusUpdatedAt ?? session.agentStateChangedAt ?? 0;
+  if ((session.lastInputAt ?? 0) > idleSince) return "unsent-draft";
   return null;
 }
 
