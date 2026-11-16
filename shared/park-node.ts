@@ -18,6 +18,8 @@ import { gunzipSync } from "node:zlib";
 import type { ParkedAgent, Session } from "./types.js";
 import {
   isInteractive,
+  isLegacyHost,
+  legacyHostNote,
   parkRefusal,
   parseClaudeSessionFile,
   quietFor,
@@ -26,6 +28,7 @@ import {
   resumeLine,
   type ClaudeSessionFile,
   type ParkRefusal,
+  type QuietSource,
 } from "./park.js";
 import { RELAY_DIR, diskDirectory, isPidAlive } from "./client/directory-disk-node.js";
 import { SessionStream } from "./client/session-stream.js";
@@ -142,7 +145,10 @@ export interface FoundClaude {
  * otherwise the nearest process under the pty-host that has one.
  */
 export function findClaude(session: Pick<Session, "pid" | "foregroundPid">, dir = claudeSessionsDir()): FoundClaude | null {
-  const parents = processParents();
+  return findClaudeIn(session, processParents(), dir);
+}
+
+function findClaudeIn(session: Pick<Session, "pid" | "foregroundPid">, parents: Map<number, number>, dir: string): FoundClaude | null {
   if (session.foregroundPid) {
     const file = readClaudeFile(session.foregroundPid, dir);
     // The foreground pid must really be under this session's pty-host.
@@ -289,8 +295,18 @@ export function localParkIo(spawnShell: (cwd: string) => Promise<string> = spawn
 // ── Park ────────────────────────────────────────────────────────────
 
 export type ParkResult =
-  | { ok: true; session: string; parked: ParkedAgent; pid: number; signal: "SIGTERM" | "SIGKILL" }
-  | { ok: false; session: string; reason: ParkRefusal | "not-found" | "kill-failed" | "shell-died"; message: string };
+  | {
+      ok: true;
+      session: string;
+      parked: ParkedAgent;
+      pid: number;
+      signal: "SIGTERM" | "SIGKILL";
+      /** The pty-host predates parking: the session won't show PARKED, so unpark by conversation id. */
+      legacyHost?: boolean;
+      /** One line for the user when legacyHost is set */
+      note?: string;
+    }
+  | { ok: false; session: string; reason: ParkRefusal | "not-found" | "kill-failed" | "shell-died" | "no-record"; message: string };
 
 export interface ParkOptions {
   force?: boolean;
@@ -331,7 +347,14 @@ export async function parkSession(io: ParkIo, id: string, opts: ParkOptions = {}
     ...(file.name ? { name: file.name } : {}),
     parkedAt: Date.now(),
   };
-  writeLedger({ ...parked, relaySessionId: id }, opts.ledgerRoot);
+  // The ledger copy is the only record a legacy pty-host keeps (it ignores
+  // SET_META), so a park that can't write it doesn't happen.
+  try {
+    writeLedger({ ...parked, relaySessionId: id }, opts.ledgerRoot);
+  } catch {}
+  if (readLedger(parked.sessionId, opts.ledgerRoot)?.sessionId !== parked.sessionId) {
+    return { ok: false, session: id, reason: "no-record", message: `could not write ${parkedDir(opts.ledgerRoot)}, so the conversation would not be recoverable` };
+  }
   await io.setMeta(id, { parked });
 
   let signal: "SIGTERM" | "SIGKILL" = "SIGTERM";
@@ -355,7 +378,11 @@ export async function parkSession(io: ParkIo, id: string, opts: ParkOptions = {}
   if (!shellAlive) {
     return { ok: false, session: id, reason: "shell-died", message: "Claude stopped, but the session's shell exited with it; unpark by conversation id to start a new one" };
   }
-  return { ok: true, session: id, parked, pid: file.pid, signal };
+  const legacy = isLegacyHost(session);
+  return {
+    ok: true, session: id, parked, pid: file.pid, signal,
+    ...(legacy ? { legacyHost: true, note: legacyHostNote(parked.sessionId) } : {}),
+  };
 }
 
 // ── Unpark ──────────────────────────────────────────────────────────
@@ -442,6 +469,10 @@ export interface IdleRow {
   session: string;
   name: string;
   quietMs: number;
+  /** "claude" when measured from Claude's session file, "output" when from pty output */
+  quietSource: QuietSource;
+  /** The pty-host predates parking (see isLegacyHost) */
+  legacyHost?: boolean;
   /** "parked", "would-park" (dry run), or "skipped" */
   result: "parked" | "would-park" | "skipped";
   reason?: string;
@@ -449,7 +480,8 @@ export interface IdleRow {
 }
 
 /**
- * Park every session quiet (no output and no input) for at least `idleMs`.
+ * Park every session quiet for at least `idleMs`, measured by `quietFor`:
+ * from Claude's own status when it has a session file, from output otherwise.
  * Sessions marked `keep` are skipped. Sessions with no Claude are skipped
  * silently unless `includeAll`, so the table lists only agent sessions.
  */
@@ -461,11 +493,15 @@ export async function parkIdle(
   const now = Date.now();
   for (const s of await io.listSessions()) {
     if (s.status !== "running") continue;
-    const quietMs = quietFor(s, now);
     const found = s.parked ? null : findClaude(s, opts.claudeDir);
+    const quiet = quietFor(s, found?.file ?? null, now);
+    const quietMs = quiet.ms;
     const name = found?.file.name ?? s.parked?.name ?? s.title ?? path.basename(s.cwd);
+    const legacyHost = found ? isLegacyHost(s) : false;
     const row = (result: IdleRow["result"], reason?: string): IdleRow => ({
-      session: s.id, name, quietMs, result, reason, conversation: found?.file.sessionId ?? s.parked?.sessionId,
+      session: s.id, name, quietMs, quietSource: quiet.source, result, reason,
+      conversation: found?.file.sessionId ?? s.parked?.sessionId,
+      ...(legacyHost ? { legacyHost } : {}),
     });
     if (s.parked) {
       if (opts.includeAll) rows.push(row("skipped", "already parked"));
@@ -496,4 +532,32 @@ export async function parkIdle(
     rows.push(r.ok ? row("parked") : row("skipped", r.message));
   }
   return rows;
+}
+
+// ── Agent quiet time for API clients ────────────────────────────────
+
+// The process table is read at most every 2s here: on macOS it is a `ps`
+// exec, and clients poll the session list.
+let parentsCache: { at: number; parents: Map<number, number> } | null = null;
+function cachedParents(): Map<number, number> {
+  if (!parentsCache || Date.now() - parentsCache.at > 2000) parentsCache = { at: Date.now(), parents: processParents() };
+  return parentsCache.parents;
+}
+
+/**
+ * Add `agentQuietSince` and `agentQuietSource` to each running session with a
+ * Claude in it, from the same rule `--idle` uses, so Max Pane can show and
+ * filter on it. Sessions without a Claude are returned unchanged.
+ */
+export function withAgentQuiet<T extends Session>(sessions: T[], dir = claudeSessionsDir()): T[] {
+  if (!sessions.some((s) => s.status === "running")) return sessions;
+  let parents: Map<number, number> | null = null;
+  return sessions.map((s) => {
+    if (s.status !== "running" || s.parked || !s.pid) return s;
+    parents ??= cachedParents();
+    const found = findClaudeIn(s, parents, dir);
+    if (!found) return s;
+    const q = quietFor(s, found.file);
+    return { ...s, agentQuietSince: q.since, agentQuietSource: q.source };
+  });
 }

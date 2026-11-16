@@ -186,7 +186,7 @@ relay park --idle 24h             # park them
 relay unpark a1b2c3d4             # resume one (or pass the Claude conversation id)
 ```
 
-Park refuses while the agent is working, waiting on a prompt, or has a draft you typed but did not send; `--force` overrides those checks. To park automatically, add `park_after = 24h` to `~/.config/relay-tty/relayrc` and the server checks every 5 minutes. `relay keep <id>` exempts a session. See the [park guide](https://docs.relaytty.com/how-to/park-claude).
+Quiet time comes from Claude's own status file and your last keystroke, not from screen output, which Claude repaints on every resize and reconnect. Park refuses while the agent is working, waiting on a prompt, or has a draft you typed but did not send; `--force` overrides those checks. To park automatically, add `park_after = 24h` to `~/.config/relay-tty/relayrc` and the server checks every 5 minutes. `relay keep <id>` exempts a session. See the [park guide](https://docs.relaytty.com/how-to/park-claude).
 
 ---
 

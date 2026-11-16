@@ -18,7 +18,7 @@ function serverParkIo(ptyManager: PtyManager): ParkIo {
   return localParkIo(async (cwd) => (await ptyManager.spawn(resolveShell(), [], 120, 40, cwd)).id);
 }
 
-const STATUS: Record<string, number> = { "not-found": 404, "kill-failed": 500, "shell-died": 500 };
+const STATUS: Record<string, number> = { "not-found": 404, "kill-failed": 500, "shell-died": 500, "no-record": 500 };
 
 function ownerOnly(req: Request, res: Response): boolean {
   if (isOwnerRequest(req)) return true;

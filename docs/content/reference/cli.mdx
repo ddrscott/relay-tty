@@ -95,18 +95,20 @@ Deliver a signal to the session's foreground process group. Defaults to `INT`, w
 
 Stop the idle Claude Code in a session while its shell, scrollback, and session id stay. The conversation id and launch flags are saved in the session as `parked`, then Claude gets `SIGTERM`, and `SIGKILL` after 5 seconds if it is still running. `relay unpark` brings it back.
 
-Parking is refused when the agent is working or waiting on a prompt, when Claude reports itself busy, when a keystroke arrived after Claude last went idle (an unsent draft is probably in the prompt), and when the session has no Claude at all.
+On a session whose pty-host predates parking (started by relay 1.23 or older), the park still happens, but the session won't show PARKED; `relay park` prints the conversation id to unpark instead.
+
+Parking is refused when the agent is waiting on a prompt, when Claude reports itself busy (or, for a Claude that reports no status, when its output looks like work), when a keystroke arrived after Claude last went idle (an unsent draft is probably in the prompt), and when the session has no Claude at all.
 
 ```bash
 relay park a1b2c3d4                 # park one session
 relay park --idle 24h --dry-run     # list what would be parked, and why the rest would not
-relay park --idle 24h               # park every Claude quiet (no output, no input) for 24h
+relay park --idle 24h               # park every Claude quiet for 24h
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--force`, `-f` | Park even when Claude is busy or a draft may be unsent. Never parks a session without Claude. |
-| `--idle <duration>` | Park every session whose output and input have both been quiet this long (`30m`, `24h`, `2d`). Sessions marked with `relay keep` are skipped. |
+| `--idle <duration>` | Park every Claude quiet this long (`30m`, `24h`, `2d`), measured from Claude's own status and the last keystroke, or from output when Claude has no session file. The QUIET column shows `(claude)` or `(output)`. Sessions marked with `relay keep` are skipped. |
 | `--dry-run`, `-n` | With `--idle`: print the table without parking anything |
 | `--json` | Print the result as JSON |
 
