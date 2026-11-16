@@ -51,6 +51,7 @@ const WS_MSG_CLEAR_SCROLLBACK: u8 = 0x23;
 const WS_MSG_SET_TITLE: u8 = 0x24;
 const WS_MSG_SIGNAL: u8 = 0x25;
 const WS_MSG_OBSERVE: u8 = 0x26;
+const WS_MSG_SET_META: u8 = 0x27;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -1170,6 +1171,25 @@ struct SessionMeta {
     agent_state: AgentState,
     /// Epoch millis of the last agent_state transition
     agent_state_changed_at: u64,
+    /// Process-group leader pid of the foreground job (None when the shell
+    /// itself is in the foreground). Same lifetime as foreground_process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    foreground_pid: Option<i32>,
+    /// Epoch millis of the last keyboard input written to the pty (focus
+    /// and mouse reports excluded, see `counts_as_input`). 0 = never.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    last_input_at: u64,
+    /// Parked agent record set by `relay park` through SET_META. Opaque to
+    /// pty-host: stored and persisted as given (see PROTOCOL.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parked: Option<serde_json::Value>,
+    /// Never auto-park this session (`relay keep`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    keep: bool,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 // ── Throughput metrics (1/5/15m) ────────────────────────────────────
@@ -1686,6 +1706,10 @@ async fn main() {
                 foreground_process: None,
             agent_state: AgentState::Idle,
             agent_state_changed_at: 0,
+            foreground_pid: None,
+            last_input_at: 0,
+            parked: None,
+            keep: false,
             };
             let _ = fs::write(&session_path, serde_json::to_string(&error_meta).unwrap());
             process::exit(127);
@@ -1727,6 +1751,10 @@ async fn main() {
         foreground_process: None,
         agent_state: AgentState::Idle,
         agent_state_changed_at: now,
+        foreground_pid: None,
+        last_input_at: 0,
+        parked: None,
+        keep: false,
     };
     let _ = fs::write(&session_path, serde_json::to_string(&meta).unwrap());
 
@@ -1768,6 +1796,14 @@ async fn main() {
 
     // Channel for SIGNAL (signal number for the foreground process group)
     let (signal_tx, mut signal_rx) = mpsc::channel::<i32>(4);
+
+    // Channel for SET_META (JSON patch of client-owned metadata fields)
+    let (meta_tx, mut meta_rx) = mpsc::channel::<Vec<u8>>(4);
+
+    // Epoch millis of the last keystroke from any client. Written lock-free
+    // on the input path (keystroke latency is a parity guarantee) and copied
+    // into meta by the 1s metrics task.
+    let last_input_at = Arc::new(AtomicU64::new(0));
 
     // Create Unix socket listener
     let std_listener = StdUnixListener::bind(&socket_path)
@@ -2075,6 +2111,19 @@ async fn main() {
         }
     });
 
+    // ── SET_META handler: client-owned metadata (parked, keep) ──────
+    let state_meta = Arc::clone(&state);
+    let session_path_meta = session_path.clone();
+    tokio::spawn(async move {
+        while let Some(raw) = meta_rx.recv().await {
+            let mut s = state_meta.write().await;
+            if apply_meta_patch(&mut s.meta, &raw) {
+                atomic_write_json(&session_path_meta, &s.meta);
+                s.meta_dirty = false;
+            }
+        }
+    });
+
     // ── SIGNAL handler: deliver to the foreground process group ─────
     tokio::spawn(async move {
         while let Some(sig) = signal_rx.recv().await {
@@ -2155,6 +2204,7 @@ async fn main() {
     let state_metrics = Arc::clone(&state);
     let broadcast_tx_metrics = broadcast_tx.clone();
     let session_path_metrics = session_path.clone();
+    let last_input_at_metrics = Arc::clone(&last_input_at);
     tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_millis(METRICS_INTERVAL_MS));
         // Track whether we previously had sustained activity (for idle notification)
@@ -2171,14 +2221,21 @@ async fn main() {
             } else {
                 None
             };
+            let fg_pid = if fg_process.is_some() { Some(fg_pgrp) } else { None };
+            let input_at = last_input_at_metrics.load(Ordering::Relaxed);
 
             let mut s = state_metrics.write().await;
             if s.exit_code.is_some() {
                 break;
             }
 
-            if s.meta.foreground_process != fg_process {
+            if s.meta.foreground_process != fg_process || s.meta.foreground_pid != fg_pid {
                 s.meta.foreground_process = fg_process;
+                s.meta.foreground_pid = fg_pid;
+                s.meta_dirty = true;
+            }
+            if input_at > s.meta.last_input_at {
+                s.meta.last_input_at = input_at;
                 s.meta_dirty = true;
             }
 
@@ -2297,6 +2354,8 @@ async fn main() {
                         let clear_tx = clear_tx.clone();
                         let title_tx = title_tx.clone();
                         let signal_tx = signal_tx.clone();
+                        let meta_tx = meta_tx.clone();
+                        let last_input_at = Arc::clone(&last_input_at);
                         tokio::spawn(async move {
                             let control = ClientControl {
                                 input_tx,
@@ -2305,6 +2364,8 @@ async fn main() {
                                 clear_tx,
                                 title_tx,
                                 signal_tx,
+                                meta_tx,
+                                last_input_at,
                             };
                             let counted = handle_client(reader, writer_client, state_client, &control).await;
                             broadcast_handle.abort();
@@ -2338,6 +2399,8 @@ struct ClientControl {
     clear_tx: mpsc::Sender<()>,
     title_tx: mpsc::Sender<String>,
     signal_tx: mpsc::Sender<i32>,
+    meta_tx: mpsc::Sender<Vec<u8>>,
+    last_input_at: Arc<AtomicU64>,
 }
 
 /// Serve one client socket until it disconnects. Returns whether the client
@@ -2668,6 +2731,9 @@ async fn send_replay(writer: &ClientWriter, state: &Arc<RwLock<SharedState>>, bu
 async fn process_client_message(msg_type: u8, data: &[u8], control: &ClientControl) {
     match msg_type {
         WS_MSG_DATA => {
+            if counts_as_input(data) {
+                control.last_input_at.store(now_millis(), Ordering::Relaxed);
+            }
             let _ = control.input_tx.send(data.to_vec()).await;
         }
         WS_MSG_RESIZE => {
@@ -2692,6 +2758,9 @@ async fn process_client_message(msg_type: u8, data: &[u8], control: &ClientContr
                 let _ = control.signal_tx.send(sig as i32).await;
             }
         }
+        WS_MSG_SET_META => {
+            let _ = control.meta_tx.send(data.to_vec()).await;
+        }
         _ => {
             // Ignore other message types (RESUME handled separately)
         }
@@ -2699,6 +2768,60 @@ async fn process_client_message(msg_type: u8, data: &[u8], control: &ClientContr
 }
 
 // ── Utility functions ───────────────────────────────────────────────
+
+/// Whether client DATA is a keystroke for `lastInputAt`. Terminals send
+/// focus reports (CSI I / CSI O) and SGR mouse reports (CSI < ... M/m) on
+/// their own when a window gains focus or the pointer moves; counting those
+/// would make every glance at a session look like typing a draft.
+fn counts_as_input(data: &[u8]) -> bool {
+    let mut i = 0;
+    while i < data.len() {
+        if data[i..].starts_with(b"\x1b[I") || data[i..].starts_with(b"\x1b[O") {
+            i += 3;
+            continue;
+        }
+        if data[i..].starts_with(b"\x1b[<") {
+            let rest = &data[i + 3..];
+            match rest.iter().position(|&b| b == b'M' || b == b'm') {
+                Some(end) if rest[..end].iter().all(|b| b.is_ascii_digit() || *b == b';') => {
+                    i += 3 + end + 1;
+                    continue;
+                }
+                _ => return true,
+            }
+        }
+        return true;
+    }
+    false
+}
+
+/// Apply a SET_META payload: a JSON object whose `parked` key (object or
+/// null) and `keep` key (bool) replace the stored values. Other keys are
+/// ignored. Returns true when anything changed.
+fn apply_meta_patch(meta: &mut SessionMeta, raw: &[u8]) -> bool {
+    let Ok(serde_json::Value::Object(patch)) = serde_json::from_slice::<serde_json::Value>(raw) else {
+        return false;
+    };
+    let mut changed = false;
+    if let Some(v) = patch.get("parked") {
+        let next = match v {
+            serde_json::Value::Object(_) => Some(v.clone()),
+            serde_json::Value::Null => None,
+            _ => meta.parked.clone(),
+        };
+        if next != meta.parked {
+            meta.parked = next;
+            changed = true;
+        }
+    }
+    if let Some(serde_json::Value::Bool(k)) = patch.get("keep") {
+        if *k != meta.keep {
+            meta.keep = *k;
+            changed = true;
+        }
+    }
+    changed
+}
 
 fn now_millis() -> u64 {
     SystemTime::now()
@@ -3696,6 +3819,10 @@ mod tests {
             foreground_process: None,
             agent_state: AgentState::Idle,
             agent_state_changed_at: 0,
+            foreground_pid: None,
+            last_input_at: 0,
+            parked: None,
+            keep: false,
         };
         let json = serde_json::to_string(&meta).unwrap();
         // camelCase fields
@@ -3739,6 +3866,10 @@ mod tests {
             foreground_process: None,
             agent_state: AgentState::Idle,
             agent_state_changed_at: 0,
+            foreground_pid: None,
+            last_input_at: 0,
+            parked: None,
+            keep: false,
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"exitCode\":0"));
@@ -3775,6 +3906,10 @@ mod tests {
             foreground_process: Some("vim".into()),
             agent_state: AgentState::Idle,
             agent_state_changed_at: 0,
+            foreground_pid: None,
+            last_input_at: 0,
+            parked: None,
+            keep: false,
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"foregroundProcess\":\"vim\""));
@@ -4366,6 +4501,10 @@ mod tests {
             foreground_process: None,
             agent_state: AgentState::Idle,
             agent_state_changed_at: 0,
+            foreground_pid: None,
+            last_input_at: 0,
+            parked: None,
+            keep: false,
         };
         SharedState {
             output_buffer: OutputBuffer::new(1024),
@@ -4437,5 +4576,51 @@ mod tests {
             state.output_buffer.total_written,
             offset_at_clear + second.len() as f64
         );
+    }
+
+    // ── counts_as_input / SET_META ──────────────────────────────────
+
+    #[test]
+    fn counts_as_input_ignores_focus_and_mouse_reports() {
+        assert!(!counts_as_input(b""));
+        assert!(!counts_as_input(b"\x1b[I"));
+        assert!(!counts_as_input(b"\x1b[O\x1b[I"));
+        assert!(!counts_as_input(b"\x1b[<0;10;5M\x1b[<0;10;5m"));
+        assert!(counts_as_input(b"a"));
+        assert!(counts_as_input(b"\x1b[Ia"));
+        assert!(counts_as_input(b"\r"));
+        assert!(counts_as_input(b"\x1b[A"));
+        assert!(counts_as_input(b"\x1b[<garbage"));
+    }
+
+    fn meta_for_patch() -> SessionMeta {
+        let mut meta: SessionMeta = serde_json::from_str(
+            r#"{"id":"m1","command":"zsh","args":[],"cwd":"/tmp","createdAt":1,"lastActivity":1,
+                "status":"running","cols":80,"rows":24,"pid":1,"startedAt":"","totalBytesWritten":0,
+                "lastActiveAt":"","bytesPerSecond":0,"bps1":0,"bps5":0,"bps15":0,
+                "agentState":"idle","agentStateChangedAt":0}"#,
+        )
+        .unwrap();
+        meta.keep = false;
+        meta
+    }
+
+    #[test]
+    fn apply_meta_patch_sets_and_clears_parked_and_keep() {
+        let mut meta = meta_for_patch();
+        assert!(!apply_meta_patch(&mut meta, b"not json"));
+        assert!(!apply_meta_patch(&mut meta, b"[1]"));
+        assert!(apply_meta_patch(&mut meta, br#"{"parked":{"sessionId":"s"},"keep":true}"#));
+        assert_eq!(meta.parked.as_ref().unwrap()["sessionId"], "s");
+        assert!(meta.keep);
+        // Same values again: no change, so no disk write.
+        assert!(!apply_meta_patch(&mut meta, br#"{"keep":true}"#));
+        // A non-object, non-null parked is ignored.
+        assert!(!apply_meta_patch(&mut meta, br#"{"parked":5}"#));
+        assert!(apply_meta_patch(&mut meta, br#"{"parked":null,"keep":false}"#));
+        assert!(meta.parked.is_none());
+        assert!(!meta.keep);
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(!json.contains("parked") && !json.contains("keep") && !json.contains("lastInputAt"));
     }
 }

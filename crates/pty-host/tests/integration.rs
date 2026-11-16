@@ -1139,3 +1139,65 @@ fn large_input_reaches_the_program_intact() {
     assert_eq!(got.len(), payload.len(), "program received {} of {} bytes", got.len(), payload.len());
     assert!(got == payload, "input bytes were reordered or corrupted");
 }
+
+// ── SET_META / lastInputAt / foregroundPid ──────────────────────────
+
+fn wait_for_json(handle: &PtyHostHandle, pred: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last = serde_json::Value::Null;
+    while Instant::now() < deadline {
+        if let Ok(v) = read_session_json(&handle.session_path) {
+            if pred(&v) {
+                return v;
+            }
+            last = v;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("session JSON never matched; last: {:?}", last);
+}
+
+/// `relay park` sends OBSERVE plus SET_META and hangs up, so the frame must
+/// survive being coalesced with OBSERVE in one read.
+#[test]
+fn set_meta_coalesced_with_observe_persists_parked_and_keep() {
+    use std::io::Write;
+    let handle = spawn_pty_host("/bin/sh", &[]).expect("failed to spawn");
+
+    let mut bytes = encode_frame(&[WS_MSG_OBSERVE]);
+    let mut set_meta = vec![WS_MSG_SET_META];
+    set_meta.extend_from_slice(br#"{"parked":{"agent":"claude","sessionId":"abc","flags":["--x"]},"keep":true}"#);
+    bytes.extend_from_slice(&encode_frame(&set_meta));
+    {
+        let mut stream = std::os::unix::net::UnixStream::connect(&handle.socket_path).expect("connect failed");
+        stream.write_all(&bytes).expect("write failed");
+    }
+    let v = wait_for_json(&handle, |v| v["parked"]["sessionId"] == "abc");
+    assert_eq!(v["keep"], true);
+    assert_eq!(v["parked"]["flags"][0], "--x");
+
+    // null clears parked; keep untouched when absent from the patch.
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_observe().expect("observe");
+    client.send_frame(WS_MSG_SET_META, br#"{"parked":null}"#).expect("set_meta");
+    let v = wait_for_json(&handle, |v| v.get("parked").is_none());
+    assert_eq!(v["keep"], true);
+}
+
+#[test]
+fn last_input_at_and_foreground_pid_are_recorded() {
+    let handle = spawn_pty_host("/bin/sh", &[]).expect("failed to spawn");
+    let mut client = connect(&handle.socket_path).expect("connect failed");
+    client.send_resume(0.0).expect("send_resume failed");
+    client.wait_for_message(WS_MSG_SYNC, Duration::from_secs(2)).expect("no SYNC");
+
+    let before = read_session_json(&handle.session_path).expect("read");
+    assert!(before.get("lastInputAt").is_none(), "no input yet: {:?}", before);
+
+    // A focus report alone is not input.
+    client.send_data(b"\x1b[I").expect("send focus");
+    std::thread::sleep(Duration::from_millis(1500));
+    client.send_data(b"set -m; sleep 30\r").expect("send_data failed");
+    let v = wait_for_json(&handle, |v| v["foregroundPid"].as_i64().unwrap_or(0) > 0 && v["lastInputAt"].as_u64().unwrap_or(0) > 0);
+    assert!(v["lastInputAt"].as_u64().unwrap() >= before["createdAt"].as_u64().unwrap());
+}

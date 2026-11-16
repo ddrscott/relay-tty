@@ -30,6 +30,7 @@ pub const WS_MSG_SPARKLINE_HISTORY: u8 = 0x19;
 pub const WS_MSG_SET_TITLE: u8 = 0x24;
 pub const WS_MSG_SIGNAL: u8 = 0x25;
 pub const WS_MSG_OBSERVE: u8 = 0x26;
+pub const WS_MSG_SET_META: u8 = 0x27;
 
 // ── Frame encoding/decoding ─────────────────────────────────────────
 
