@@ -4,10 +4,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
-import { parkRefusal, parseDuration, resumeFlags, resumeLine, parseClaudeSessionFile, quietFor } from "../shared/park.js";
-import { parkSession, unparkSession, parkIdle, readLedger, descendants, processParents, type ParkIo } from "../shared/park-node.js";
+import { parkRefusal, parseDuration, resumeFlags, resumeLine, parseClaudeSessionFile, quietFor, isLegacyHost, legacyHostNote } from "../shared/park.js";
+import { parkSession, unparkSession, parkIdle, readLedger, descendants, processParents, withAgentQuiet, type ParkIo } from "../shared/park-node.js";
 import { formatIdleTable } from "../cli/commands/park.js";
 import type { ParkedAgent, Session } from "../shared/types.js";
+import { isPidAlive } from "../shared/client/directory-disk-node.js";
 
 describe("resumeFlags", () => {
   it("keeps flags and drops the program word", () => {
@@ -76,11 +77,15 @@ describe("parkRefusal", () => {
     assert.equal(parkRefusal(idle, { status: "idle" }), null);
   });
   it("refuses working, blocked, busy, and drafts unless forced", () => {
-    assert.equal(parkRefusal({ ...idle, agentState: "working" }, { status: "idle" }), "agent-working");
+    assert.equal(parkRefusal({ ...idle, agentState: "working" }, {}), "agent-working");
     assert.equal(parkRefusal({ ...idle, agentState: "blocked" }, { status: "idle" }), "agent-blocked");
     assert.equal(parkRefusal(idle, { status: "busy" }), "claude-busy");
     assert.equal(parkRefusal({ ...idle, lastInputAt: 3000 }, { status: "idle" }), "unsent-draft");
     assert.equal(parkRefusal({ ...idle, agentState: "working", lastInputAt: 3000 }, { status: "busy" }, { force: true }), null);
+  });
+  it("trusts Claude's own status over pty-host's output-rate working (a repaint)", () => {
+    assert.equal(parkRefusal({ ...idle, agentState: "working" }, { status: "idle" }), null);
+    assert.equal(parkRefusal({ ...idle, agentState: "working" }, { status: "busy" }), "claude-busy");
   });
   it("measures drafts against Claude's statusUpdatedAt when present", () => {
     // Typing echoes, which moves agentStateChangedAt past the draft.
@@ -105,20 +110,42 @@ describe("parseClaudeSessionFile / quietFor", () => {
     assert.equal(parseClaudeSessionFile('{"pid":1,"cwd":"/x"}'), null);
     assert.equal(parseClaudeSessionFile("nope"), null);
   });
-  it("quietFor uses the later of output and input", () => {
-    assert.equal(quietFor({ createdAt: 0, lastActivity: 100, lastInputAt: 500 }, 1000), 500);
+  it("quietFor without a Claude file uses the later of output and input", () => {
+    assert.deepEqual(quietFor({ createdAt: 0, lastActivity: 100, lastInputAt: 500 }, null, 1000), { since: 500, ms: 500, source: "output" });
+  });
+  it("quietFor with a Claude file ignores output and uses statusUpdatedAt or input", () => {
+    // Claude repainted 3h ago (lastActivity), but its status last moved 31 days ago.
+    const now = 40 * 86400e3;
+    const s = { createdAt: 0, lastActivity: now - 3 * 3600e3 };
+    const q = quietFor(s, { statusUpdatedAt: now - 31 * 86400e3, updatedAt: now - 3600e3 }, now);
+    assert.deepEqual(q, { since: now - 31 * 86400e3, ms: 31 * 86400e3, source: "claude" });
+    // Typing after Claude went idle moves it.
+    assert.equal(quietFor({ ...s, lastInputAt: now - 86400e3 }, { statusUpdatedAt: now - 31 * 86400e3 }, now).ms, 86400e3);
+    // updatedAt stands in when statusUpdatedAt is missing.
+    assert.equal(quietFor(s, { updatedAt: now - 2 * 86400e3 }, now).ms, 2 * 86400e3);
+    // A Claude file with neither timestamp falls back to output.
+    assert.equal(quietFor(s, {}, now).source, "output");
+  });
+  it("isLegacyHost: a foreground job with no foregroundPid and no lastInputAt", () => {
+    assert.equal(isLegacyHost({ foregroundProcess: "claude" }), true);
+    assert.equal(isLegacyHost({ foregroundProcess: "claude", foregroundPid: 42 }), false);
+    assert.equal(isLegacyHost({ foregroundProcess: "claude", lastInputAt: 1 }), false);
+    assert.equal(isLegacyHost({}), false);
+    assert.match(legacyHostNote("conv-9"), /won't show as PARKED; relay unpark conv-9 brings the conversation back in a new session/);
   });
 });
 
 describe("formatIdleTable", () => {
   it("aligns columns and shows reasons", () => {
     const out = formatIdleTable([
-      { session: "aaaa1111", name: "proj", quietMs: 2 * 86400e3, result: "would-park" },
-      { session: "bbbb2222", name: "other", quietMs: 3600e3, result: "skipped", reason: "active recently" },
+      { session: "aaaa1111", name: "proj", quietMs: 2 * 86400e3, quietSource: "claude", result: "would-park" },
+      { session: "bbbb2222", name: "other", quietMs: 3600e3, quietSource: "output", result: "skipped", reason: "active recently" },
+      { session: "cccc3333", name: "old", quietMs: 31 * 86400e3, quietSource: "claude", result: "would-park", legacyHost: true },
     ]);
     assert.match(out, /^SESSION\s+NAME\s+QUIET\s+RESULT\s+REASON\n/);
-    assert.match(out, /aaaa1111\s+proj\s+2d\s+would-park\n/);
-    assert.match(out, /bbbb2222\s+other\s+1h\s+skipped\s+active recently\n/);
+    assert.match(out, /aaaa1111\s+proj\s+2d \(claude\)\s+would-park\n/);
+    assert.match(out, /bbbb2222\s+other\s+1h \(output\)\s+skipped\s+active recently\n/);
+    assert.match(out, /cccc3333\s+old\s+31d \(claude\)\s+would-park\s+old pty-host: won't show PARKED, unpark by conversation id\n/);
   });
 });
 
@@ -161,10 +188,17 @@ describe("parkSession / unparkSession", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  function startClaude(status: string) {
+  async function stopClaude() {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise((r) => child.once("exit", r));
+    child.kill("SIGKILL");
+    await exited;
+  }
+
+  function startClaude(status: string, extra: Record<string, unknown> = {}) {
     child = spawn("sleep", ["30"], { stdio: "ignore" });
     fs.writeFileSync(path.join(claudeDir, `${child.pid}.json`), JSON.stringify({
-      pid: child.pid, sessionId: "conv-1", cwd: tmp, status, name: "demo", kind: "interactive",
+      pid: child.pid, sessionId: "conv-1", cwd: tmp, status, name: "demo", kind: "interactive", ...extra,
     }));
     session = {
       id: "sess0001", command: "zsh", args: [], cwd: tmp, createdAt: 0, lastActivity: 0, status: "running",
@@ -249,6 +283,52 @@ describe("parkSession / unparkSession", () => {
     assert.equal(session.parked, undefined);
     rows = await parkIdle(io, { idleMs: 5 * 86400e3, dryRun: true, claudeDir, ledgerRoot });
     assert.equal(rows[0].reason, "active recently");
-    child.kill("SIGKILL");
+    assert.equal(rows[0].quietSource, "output");
+    await stopClaude();
+  });
+
+  it("parkIdle picks a Claude whose status is older than its last repaint", async () => {
+    // Repainted a minute ago, but Claude's own status last moved 31 days ago.
+    startClaude("idle", { statusUpdatedAt: Date.now() - 31 * 86400e3 });
+    session = { ...session, lastActivity: Date.now() - 60e3, lastInputAt: Date.now() - 40 * 86400e3, keep: false };
+    const rows = await parkIdle(io, { idleMs: 86400e3, dryRun: true, claudeDir, ledgerRoot });
+    assert.equal(rows[0].result, "would-park", JSON.stringify(rows[0]));
+    assert.equal(rows[0].quietSource, "claude");
+    assert.ok(Math.abs(rows[0].quietMs - 31 * 86400e3) < 5000);
+    assert.equal(rows[0].legacyHost, undefined);
+    const [withQuiet] = withAgentQuiet([session], claudeDir);
+    assert.equal(withQuiet.agentQuietSource, "claude");
+    assert.ok(Math.abs(Date.now() - withQuiet.agentQuietSince! - 31 * 86400e3) < 5000);
+    await stopClaude();
+  });
+
+  it("parks on a legacy pty-host through the process tree and says so", async () => {
+    // A 1.23 host: foregroundProcess but no foregroundPid or lastInputAt, and SET_META is a no-op.
+    startClaude("idle", { statusUpdatedAt: Date.now() - 86400e3 });
+    session = { ...session, foregroundPid: undefined, foregroundProcess: "claude", lastInputAt: undefined, parked: undefined };
+    const legacyIo: ParkIo = { ...io, setMeta: async () => {} };
+    const rows = await parkIdle(legacyIo, { idleMs: 3600e3, dryRun: true, claudeDir, ledgerRoot });
+    assert.equal(rows[0].result, "would-park");
+    assert.equal(rows[0].legacyHost, true);
+    const exited = new Promise((r) => child.once("exit", r));
+    const r = await parkSession(legacyIo, session.id, { claudeDir, ledgerRoot });
+    assert.ok(r.ok, JSON.stringify(r));
+    await exited;
+    assert.equal(r.ok && r.pid, child.pid, "signalled the stand-in");
+    assert.equal(r.ok && r.legacyHost, true);
+    assert.match(r.ok ? r.note! : "", /relay unpark conv-1 brings the conversation back in a new session/);
+    assert.equal(session.parked, undefined, "a legacy host keeps no parked field");
+    assert.equal(readLedger("conv-1", ledgerRoot)?.relaySessionId, "sess0001");
+  });
+
+  it("refuses to park when the ledger copy can't be written", async () => {
+    startClaude("idle");
+    session = { ...session, foregroundPid: child.pid, lastInputAt: 1000, parked: undefined };
+    const blocked = path.join(tmp, "not-a-dir");
+    fs.writeFileSync(blocked, "");
+    const r = await parkSession(io, session.id, { claudeDir, ledgerRoot: blocked });
+    assert.equal(!r.ok && r.reason, "no-record");
+    assert.equal(isPidAlive(child.pid!), true, "nothing signalled");
+    await stopClaude();
   });
 });

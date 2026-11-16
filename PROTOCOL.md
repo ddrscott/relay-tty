@@ -96,9 +96,26 @@ All routes are owner-only (403 for guest grants). Refusals return 409 with `{ok:
 
 | Route | Body | Result |
 |-------|------|--------|
-| `POST /api/sessions/:id/park` | `{force?: boolean}` | `{ok: true, session, parked, pid, signal}`. `reason` on refusal: `not-running`, `already-parked`, `no-claude`, `agent-working`, `agent-blocked`, `claude-busy`, `unsent-draft` (409), `not-found` (404), `kill-failed`, `shell-died` (500). `force` skips only the four busy and draft checks. |
+| `POST /api/sessions/:id/park` | `{force?: boolean}` | `{ok: true, session, parked, pid, signal, legacyHost?, note?}`. `legacyHost` is true when the session's pty-host predates parking (below), and `note` is the line to show the user. `reason` on refusal: `not-running`, `already-parked`, `no-claude`, `agent-working`, `agent-blocked`, `claude-busy`, `unsent-draft` (409), `not-found` (404), `kill-failed`, `shell-died`, `no-record` (500, the `parked/` copy could not be written, so nothing was signalled). `force` skips only the four busy and draft checks. |
 | `POST /api/sessions/:id/unpark` | none | `:id` is a relay session id or a Claude conversation id. `{ok: true, session, conversation, line, spawned}`; `spawned` is true when the old session was gone and a new one was started in `parked.cwd`. `reason` on refusal: `not-found` (404), `not-parked`, `foreground-busy`, `already-open` (409). |
 | `POST /api/sessions/:id/keep` | `{keep: boolean}` | `{ok: true, session, keep}` |
-| `POST /api/park/idle` | `{idle: "24h", dryRun?, force?}` | `{rows: [{session, name, quietMs, result: "parked" \| "would-park" \| "skipped", reason?, conversation?}]}` |
+| `POST /api/park/idle` | `{idle: "24h", dryRun?, force?}` | `{rows: [{session, name, quietMs, quietSource: "claude" \| "output", result: "parked" \| "would-park" \| "skipped", reason?, conversation?, legacyHost?}]}` |
+
+`agent-working` comes from pty-host's output-rate heuristic, which one Claude repaint raises for about a minute, so it is checked only when Claude's session file has no `status`; otherwise `claude-busy` decides.
 
 The draft check compares `lastInputAt` with Claude's own `statusUpdatedAt` from `~/.claude/sessions/<pid>.json` when present, and with `agentStateChangedAt` otherwise. Typing echoes output, which briefly makes `agentState` read `working`, so `agentStateChangedAt` lands after the draft and can't detect one by itself.
+
+### Quiet time
+
+A Claude's quiet time runs from the later of its own `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (its `updatedAt` when that is missing) and the session's `lastInputAt`. Pty output does not count, because Claude Code repaints its screen on every resize, attach, and status-line refresh, so output time is never old. A session whose Claude has no session file falls back to the later of output and input. The rule is `quietFor` in `shared/park.ts`; `--idle`, auto-park, and the fields below all use it.
+
+`GET /api/sessions` and `GET /api/sessions/:id` add two fields to each running, unparked session that has a Claude in it. They are computed by the server on each request and are not in the session file or in `SESSION_UPDATE`.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `agentQuietSince` | number (epoch ms) | When the session's Claude went quiet, by the rule above. Quiet for = now − `agentQuietSince`. |
+| `agentQuietSource` | `"claude" \| "output"` | `claude` when measured from Claude's session file, `output` when it fell back to pty output. |
+
+### Legacy pty-hosts
+
+A session started by relay 1.23 or older keeps that release's pty-host, which has no `lastInputAt` or `foregroundPid` and ignores `SET_META`. Park still finds Claude by walking the process tree, writes the `parked/` copy before signalling, and refuses (`no-record`) when it cannot. The session never shows `parked`, so unpark it by conversation id, which starts a new session. Such a host is recognized by a `foregroundProcess` with no `foregroundPid` and no `lastInputAt`; `--idle` rows carry `legacyHost: true`. Without `lastInputAt`, typing is invisible to the draft check and to quiet time on these hosts.

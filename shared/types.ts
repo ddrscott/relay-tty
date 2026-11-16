@@ -44,6 +44,10 @@ export interface Session {
   parked?: ParkedAgent;
   /** Never auto-park this session (`relay keep`) */
   keep?: boolean;
+  /** HTTP API only: epoch ms the Claude in this session went quiet, by the rule `relay park --idle` uses */
+  agentQuietSince?: number;
+  /** HTTP API only: "claude" when agentQuietSince comes from Claude's session file, "output" when from pty output */
+  agentQuietSource?: "claude" | "output";
 }
 
 /** A Claude Code conversation stopped by `relay park`, enough to resume it. */

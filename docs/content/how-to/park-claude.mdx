@@ -43,13 +43,17 @@ relay unpark a6f4f848-5d3c-4a8e-9b1f-0c2d7e6a1b90
 
 ```bash
 relay park --idle 24h --dry-run
-# SESSION   NAME             QUIET  RESULT      REASON
-# 3f2a9c10  ahr-chi-2027-da  31d    would-park
-# 8b7e44d2  relay-tty-c7     2h     skipped     active recently
-# 51c0aa7e  thunder-lead     4d     skipped     marked keep
+# SESSION   NAME             QUIET         RESULT      REASON
+# 3f2a9c10  ahr-chi-2027-da  31d (claude)  would-park
+# 8b7e44d2  relay-tty-c7     2h (claude)   skipped     active recently
+# 51c0aa7e  thunder-lead     4d (claude)   skipped     marked keep
 ```
 
-A session counts as quiet when it has had neither output nor input for the whole duration. Drop `--dry-run` to park the sessions marked `would-park`.
+A Claude's quiet time runs from the later of its own `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (its `updatedAt` when that is missing) and the session's `lastInputAt`. Pty output does not count, because Claude Code repaints its screen on every resize, attach, and status-line refresh, so output time is never old. A session whose Claude has no session file falls back to the later of output and input. The QUIET column says which one it used: `(claude)` or `(output)`. Drop `--dry-run` to park the sessions marked `would-park`.
+
+## Sessions started by relay 1.23 or older
+
+Running sessions keep the pty-host they started with. One from 1.23 or older can still be parked, because relay finds Claude through the process tree and saves the conversation in `~/.relay-tty/parked/` before stopping it. That host ignores the `parked` mark, though, so the session won't show PARKED, and `relay park` says so. Unpark it with the conversation id it prints, which resumes the conversation in a new session. The dry-run table marks these sessions `old pty-host`. An old host also does not record keystrokes, so it cannot tell when you have typed a draft without sending it.
 
 ## Turn on auto-park
 

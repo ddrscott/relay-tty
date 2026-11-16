@@ -19,6 +19,7 @@ import {
   isOwnerRequest,
 } from "./auth.js";
 import { registerParkRoutes } from "./park.js";
+import { withAgentQuiet } from "../shared/park-node.js";
 import { discoverProjects, readProjectRootsRaw, writeProjectRoots, invalidateProjectCache } from "./projects.js";
 import type {
   CreateSessionRequest,
@@ -136,7 +137,7 @@ export function createApiRouter(
   // Pass ?includeExited=1 to include recently exited sessions
   router.get("/sessions", (req, res) => {
     const includeExited = req.query.includeExited === "1" || req.query.includeExited === "true";
-    const sessions = sessionStore.list({ includeExited });
+    const sessions = withAgentQuiet(sessionStore.list({ includeExited }));
     const response: SessionListResponse = { sessions };
     res.json(response);
   });
@@ -148,7 +149,7 @@ export function createApiRouter(
       res.status(404).json({ error: "Session not found" });
       return;
     }
-    res.json({ session });
+    res.json({ session: withAgentQuiet([session])[0] });
   });
 
   // GET /api/sessions/:id/sparkline — fetch sparkline ring buffer from pty-host

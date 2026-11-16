@@ -170,6 +170,9 @@ export type ParkRefusal =
  * `force` skips only the busy and draft checks; a session with no Claude, or
  * one already parked, is refused either way.
  *
+ * `agent-working` applies only when Claude's file has no `status`: pty-host
+ * derives "working" from output rate, which a repaint is enough to raise.
+ *
  * The draft check asks whether a keystroke arrived after the agent last went
  * idle. "Went idle" is Claude's own `statusUpdatedAt` when its file has one,
  * because pty-host's `agentStateChangedAt` moves when typing echoes: the echo
@@ -185,7 +188,10 @@ export function parkRefusal(
   if (session.parked) return "already-parked";
   if (!claude) return "no-claude";
   if (opts.force) return null;
-  if (session.agentState === "working") return "agent-working";
+  // pty-host's "working" is an output-rate heuristic, and Claude's repaints
+  // (resize, attach, status line) trip it for about a minute. When Claude
+  // reports its own status, "busy" below is the authority.
+  if (session.agentState === "working" && claude.status === undefined) return "agent-working";
   if (session.agentState === "blocked") return "agent-blocked";
   if (claude.status === "busy") return "claude-busy";
   const idleSince = claude.statusUpdatedAt ?? session.agentStateChangedAt ?? 0;
@@ -207,8 +213,57 @@ export function refusalMessage(code: ParkRefusal): string {
   }
 }
 
-/** How long since this session last saw output or input, in ms. */
-export function quietFor(session: Pick<Session, "lastActivity" | "lastInputAt" | "createdAt">, now = Date.now()): number {
-  const last = Math.max(session.lastActivity ?? 0, session.lastInputAt ?? 0, session.createdAt ?? 0);
-  return now - last;
+/** Where a quiet time came from: Claude's own session file, or pty output. */
+export type QuietSource = "claude" | "output";
+
+export interface Quiet {
+  /** Epoch ms the session went quiet */
+  since: number;
+  /** now - since */
+  ms: number;
+  source: QuietSource;
+}
+
+/**
+ * How long a session has been quiet.
+ *
+ * With a Claude in it, quiet runs from the later of Claude's `statusUpdatedAt`
+ * (its `updatedAt` when that is missing) and `lastInputAt`. Pty output is
+ * ignored, because Claude Code repaints its TUI on every resize, attach,
+ * reconnect, and status-line refresh, so `lastActivity` is never old. Typing
+ * doesn't move `statusUpdatedAt`; `lastInputAt` covers it.
+ *
+ * Without a Claude file (or one with neither timestamp) it falls back to the
+ * later of `lastActivity`, `lastInputAt`, and `createdAt`.
+ */
+export function quietFor(
+  session: Pick<Session, "lastActivity" | "lastInputAt" | "createdAt">,
+  claude: Pick<ClaudeSessionFile, "statusUpdatedAt" | "updatedAt"> | null = null,
+  now = Date.now(),
+): Quiet {
+  const claudeAt = claude?.statusUpdatedAt ?? claude?.updatedAt;
+  if (claudeAt !== undefined) {
+    const since = Math.max(claudeAt, session.lastInputAt ?? 0);
+    return { since, ms: now - since, source: "claude" };
+  }
+  const since = Math.max(session.lastActivity ?? 0, session.lastInputAt ?? 0, session.createdAt ?? 0);
+  return { since, ms: now - since, source: "output" };
+}
+
+/**
+ * True when the session's pty-host predates parking (relay 1.23 and older):
+ * it ignores SET_META, so the session never shows PARKED, and it has no
+ * `lastInputAt`, so typing is invisible to the draft check and quiet time.
+ *
+ * Detected from a session with a foreground job: new hosts write
+ * `foregroundPid` next to `foregroundProcess`, old ones only the name. A new
+ * host also writes `lastInputAt` once anyone has typed.
+ */
+export function isLegacyHost(session: Pick<Session, "foregroundProcess" | "foregroundPid" | "lastInputAt">): boolean {
+  return session.foregroundProcess !== undefined && session.foregroundPid === undefined && session.lastInputAt === undefined;
+}
+
+/** The one line `relay park` prints after parking on a legacy pty-host. */
+export function legacyHostNote(conversation: string): string {
+  return `This session's pty-host predates parking, so it won't show as PARKED; relay unpark ${conversation} brings the conversation back in a new session.`;
 }

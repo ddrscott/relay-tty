@@ -22,7 +22,12 @@ function fail(message: string): never {
 export function formatIdleTable(rows: IdleRow[]): string {
   if (rows.length === 0) return "No Claude sessions\n";
   const head = ["SESSION", "NAME", "QUIET", "RESULT", "REASON"];
-  const cells = rows.map((r) => [r.session, r.name, timeAgo(Date.now() - r.quietMs), r.result, r.reason ?? ""]);
+  const cells = rows.map((r) => {
+    // Old servers don't send quietSource; their quiet time is output-based.
+    const quiet = `${timeAgo(Date.now() - r.quietMs)} (${r.quietSource ?? "output"})`;
+    const notes = [r.reason, r.legacyHost ? "old pty-host: won't show PARKED, unpark by conversation id" : undefined].filter(Boolean);
+    return [r.session, r.name, quiet, r.result, notes.join("; ")];
+  });
   const widths = head.map((h, i) => Math.max(h.length, ...cells.map((c) => c[i].length)));
   const line = (c: string[]) => c.map((v, i) => (i === c.length - 1 ? v : v.padEnd(widths[i]))).join("  ").trimEnd();
   return [line(head), ...cells.map(line)].join("\n") + "\n";
@@ -34,7 +39,7 @@ export function registerParkCommands(program: Command) {
     .description("stop the idle Claude in a session, keeping its shell and scrollback (relay unpark resumes it)")
     .option("-H, --host <url>", "server URL")
     .option("-f, --force", "park even if Claude is busy or a draft may be unsent")
-    .option("--idle <duration>", "park every session quiet (no output, no input) this long, e.g. 24h")
+    .option("--idle <duration>", "park every Claude quiet this long, e.g. 24h (measured from Claude's own status, or from output when it has none)")
     .option("-n, --dry-run", "with --idle: list what would be parked without parking")
     .option("--json", "print the result as JSON")
     .action(async (id: string | undefined, opts) => {
@@ -64,7 +69,8 @@ export function registerParkCommands(program: Command) {
       if (!opts.json) {
         const label = r.parked.name ? `${r.parked.name} (${r.parked.sessionId})` : r.parked.sessionId;
         process.stderr.write(`Parked ${bold(id)}: claude ${label} stopped (pid ${r.pid}, ${r.signal})\n`);
-        process.stderr.write(dim(`Resume with: relay unpark ${id}\n`));
+        if (r.legacyHost) process.stderr.write(`${yellow(r.note)}\n`);
+        else process.stderr.write(dim(`Resume with: relay unpark ${id}\n`));
       }
     });
 

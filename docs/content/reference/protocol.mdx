@@ -132,6 +132,8 @@ pty-host is the only writer of `~/.relay-tty/sessions/<id>.json`. The server wat
 | `parked` | object (omitted when not parked) | Set by `relay park` through `SET_META`: `{agent: "claude", sessionId, cwd, flags, name?, parkedAt}`. `sessionId` is the Claude Code conversation, `flags` the launch flags a resume passes back. Cleared by `relay unpark`. |
 | `keep` | boolean (omitted when false) | Set by `relay keep` through `SET_META`. Auto-park and `relay park --idle` skip the session. |
 
+The HTTP API (`GET /api/sessions`, `GET /api/sessions/:id`) adds `agentQuietSince` (epoch ms) and `agentQuietSource` (`"claude"` or `"output"`) to running sessions with a Claude in them. They are computed per request and are not in the file. A Claude's quiet time runs from the later of its own `statusUpdatedAt` in `~/.claude/sessions/<pid>.json` (its `updatedAt` when that is missing) and the session's `lastInputAt`. Pty output does not count, because Claude Code repaints its screen on every resize, attach, and status-line refresh, so output time is never old. A session whose Claude has no session file falls back to the later of output and input.
+
 The rule tables live in `crates/pty-host/src/agent_state.rs`; adding an agent or a prompt pattern is a one-line change with unit tests alongside.
 
 ---

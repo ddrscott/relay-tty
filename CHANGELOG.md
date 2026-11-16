@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `relay park` stops an idle Claude Code in a session while the shell, scrollback, and session id stay, and `relay unpark` types `claude --resume <id>` with the original flags back into that shell (or into a new session after a reboot). `relay park --idle 24h [--dry-run]` parks every quiet session and prints what it skipped and why, `relay keep` exempts a session, and `park_after = 24h` in relayrc turns on auto-park in the server. The HTTP API is `POST /api/sessions/:id/park`, `/unpark`, `/keep`, and `/api/park/idle`
 - Session metadata carries `lastInputAt`, `foregroundPid`, `parked`, and `keep`
+- `relay park --idle` and auto-park measure a Claude's quiet time from its own `statusUpdatedAt` and the last keystroke, because Claude repaints on every resize and reconnect, so its output time is never old. The QUIET column shows `(claude)` or `(output)`, and `GET /api/sessions` carries the same value as `agentQuietSince`
+- `relay park` works on sessions started by relay 1.23 or older: it parks through the process tree, says the session won't show PARKED, and names the conversation id to unpark with. It refuses when it cannot write the `~/.relay-tty/parked/` copy
 
 ### Changed
 - Tapping the session title in the terminal view opens the session sidebar instead of the small dropdown picker, so you get the full list with grouping, sort, and filter
