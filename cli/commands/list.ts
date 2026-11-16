@@ -10,6 +10,7 @@ import {
   dim,
   green,
   bold,
+  yellow,
 } from "../sessions.js";
 
 export function registerListCommand(program: Command) {
@@ -80,12 +81,15 @@ export function registerListCommand(program: Command) {
         // Line 1: dot  ID  command  cwd  status  rate  age
         // Pad using raw (non-ANSI) lengths — ANSI escapes are invisible but consume string length
         const rateField = rateStr ? `  ${rateStr}` : "";
-        console.log(`  ${dot} ${bold(s.id)}  ${cmd.padEnd(24)}  ${dim(cwd.padEnd(24))}  ${statusText}${rateField}  ${dim(age)}`);
+        const marks = [s.parked ? yellow("PARKED") : "", s.keep ? dim("KEEP") : ""].filter(Boolean).join(" ");
+        const markField = marks ? `  ${marks}` : "";
+        console.log(`  ${dot} ${bold(s.id)}  ${cmd.padEnd(24)}  ${dim(cwd.padEnd(24))}  ${statusText}${rateField}${markField}  ${dim(age)}`);
 
         // Line 2: title + total bytes (indented under command column)
-        if (s.title || totalStr) {
+        const parkedNote = s.parked ? yellow(`claude ${s.parked.name ?? s.parked.sessionId} parked ${timeAgo(s.parked.parkedAt)} ago`) : "";
+        if (s.title || totalStr || parkedNote) {
           const indent = " ".repeat(14); // 2 + dot + space + 8-char id + 2 spaces
-          const parts = [s.title ? dim(s.title) : "", totalStr].filter(Boolean);
+          const parts = [parkedNote, s.title ? dim(s.title) : "", totalStr].filter(Boolean);
           console.log(`${indent}${parts.join("  ")}`);
         }
       }

@@ -219,6 +219,9 @@ export class SessionStream {
   sendSignal(signal: number): void {
     this.send(M.encodeSignal(signal));
   }
+  sendSetMeta(patch: { parked?: unknown; keep?: boolean }): void {
+    this.send(M.encodeSetMeta(patch));
+  }
   sendSparklineRequest(): void {
     this.send(M.encodeSparklineRequest());
   }

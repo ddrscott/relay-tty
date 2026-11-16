@@ -18,6 +18,7 @@ import { registerRenameCommand } from "./commands/rename.js";
 import { registerKillCommand } from "./commands/kill.js";
 import { registerWaitCommand } from "./commands/wait.js";
 import { registerEventsCommand } from "./commands/events.js";
+import { registerParkCommands } from "./commands/park.js";
 import { ensureRcFile } from "./rc.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,6 +51,7 @@ registerRenameCommand(program);
 registerKillCommand(program);
 registerWaitCommand(program);
 registerEventsCommand(program);
+registerParkCommands(program);
 registerServerCommand(program);
 
 // Create ~/.config/relay-tty/relayrc with commented defaults if it is

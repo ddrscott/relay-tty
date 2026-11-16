@@ -18,6 +18,7 @@ import {
   verifyGrantCookie,
   isOwnerRequest,
 } from "./auth.js";
+import { registerParkRoutes } from "./park.js";
 import { discoverProjects, readProjectRootsRaw, writeProjectRoots, invalidateProjectCache } from "./projects.js";
 import type {
   CreateSessionRequest,
@@ -102,6 +103,8 @@ export function createApiRouter(
   options: ApiOptions = {}
 ): Router {
   const router = Router();
+
+  registerParkRoutes(router, ptyManager);
 
   // POST /api/sessions — create a new session
   router.post("/sessions", async (req, res) => {

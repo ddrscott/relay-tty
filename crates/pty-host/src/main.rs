@@ -1618,6 +1618,17 @@ impl SharedState {
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
+    // relay-pty-host --print-argv <pid>: the process's exact argv as a JSON
+    // array, for `relay park` on macOS where `ps` cannot keep word boundaries.
+    if args.len() == 3 && args[1] == "--print-argv" {
+        match args[2].parse::<i32>().ok().and_then(process_argv) {
+            Some(argv) => {
+                println!("{}", serde_json::to_string(&argv).unwrap());
+                process::exit(0);
+            }
+            None => process::exit(1),
+        }
+    }
     // relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]
     if args.len() < 6 {
         eprintln!("Usage: relay-pty-host <id> <cols> <rows> <cwd> <command> [args...]");
@@ -2229,10 +2240,13 @@ async fn main() {
                 break;
             }
 
+            // Written immediately: `relay unpark` refuses unless the shell is
+            // in front, so a 5s-stale foregroundPid would refuse a fresh park.
             if s.meta.foreground_process != fg_process || s.meta.foreground_pid != fg_pid {
                 s.meta.foreground_process = fg_process;
                 s.meta.foreground_pid = fg_pid;
-                s.meta_dirty = true;
+                atomic_write_json(&session_path_metrics, &s.meta);
+                s.meta_dirty = false;
             }
             if input_at > s.meta.last_input_at {
                 s.meta.last_input_at = input_at;
@@ -2768,6 +2782,76 @@ async fn process_client_message(msg_type: u8, data: &[u8], control: &ClientContr
 }
 
 // ── Utility functions ───────────────────────────────────────────────
+
+/// A process's argv, or None when it cannot be read (gone, or not ours).
+fn process_argv(pid: i32) -> Option<Vec<String>> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+        let mut size: libc::size_t = 0;
+        let rc = unsafe {
+            libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0)
+        };
+        if rc != 0 || size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size];
+        let rc = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                3,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if rc != 0 {
+            return None;
+        }
+        buf.truncate(size);
+        parse_procargs2(&buf)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let raw = fs::read(format!("/proc/{}/cmdline", pid)).ok()?;
+        if raw.is_empty() {
+            return None;
+        }
+        let trimmed = raw.strip_suffix(&[0]).unwrap_or(&raw);
+        Some(trimmed.split(|&b| b == 0).map(|w| String::from_utf8_lossy(w).into_owned()).collect())
+    }
+}
+
+/// Parse a `KERN_PROCARGS2` buffer: argc (native i32), the executable path,
+/// NUL padding, then argc NUL-terminated words.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_procargs2(bytes: &[u8]) -> Option<Vec<String>> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    let argc = i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    if argc <= 0 {
+        return None;
+    }
+    let mut i = 4;
+    while i < bytes.len() && bytes[i] != 0 {
+        i += 1;
+    }
+    while i < bytes.len() && bytes[i] == 0 {
+        i += 1;
+    }
+    let mut out = Vec::new();
+    while (out.len() as i32) < argc && i < bytes.len() {
+        let start = i;
+        while i < bytes.len() && bytes[i] != 0 {
+            i += 1;
+        }
+        out.push(String::from_utf8_lossy(&bytes[start..i]).into_owned());
+        i += 1;
+    }
+    if out.len() as i32 == argc { Some(out) } else { None }
+}
 
 /// Whether client DATA is a keystroke for `lastInputAt`. Terminals send
 /// focus reports (CSI I / CSI O) and SGR mouse reports (CSI < ... M/m) on
@@ -4622,5 +4706,23 @@ mod tests {
         assert!(!meta.keep);
         let json = serde_json::to_string(&meta).unwrap();
         assert!(!json.contains("parked") && !json.contains("keep") && !json.contains("lastInputAt"));
+    }
+
+    #[test]
+    fn parse_procargs2_reads_argv_words() {
+        let mut buf = 3i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/usr/local/bin/claude\0\0\0claude\0--mcp-config\0/a b.json\0FOO=bar\0");
+        assert_eq!(
+            parse_procargs2(&buf).unwrap(),
+            vec!["claude", "--mcp-config", "/a b.json"]
+        );
+        assert!(parse_procargs2(&buf[..10]).is_none());
+        assert!(parse_procargs2(&0i32.to_ne_bytes()).is_none());
+    }
+
+    #[test]
+    fn process_argv_reads_own_argv() {
+        let argv = process_argv(std::process::id() as i32).expect("own argv");
+        assert!(!argv.is_empty());
     }
 }
