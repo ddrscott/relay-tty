@@ -91,6 +91,35 @@ Deliver a signal to the session's foreground process group. Defaults to `INT`, w
 |------|-------------|
 | `--signal <name>`, `-s` | Signal name or number (`INT`, `TERM`, `HUP`, `9`, ...) |
 
+### `relay park [id]`
+
+Stop the idle Claude Code in a session while its shell, scrollback, and session id stay. The conversation id and launch flags are saved in the session as `parked`, then Claude gets `SIGTERM`, and `SIGKILL` after 5 seconds if it is still running. `relay unpark` brings it back.
+
+Parking is refused when the agent is working or waiting on a prompt, when Claude reports itself busy, when a keystroke arrived after Claude last went idle (an unsent draft is probably in the prompt), and when the session has no Claude at all.
+
+```bash
+relay park a1b2c3d4                 # park one session
+relay park --idle 24h --dry-run     # list what would be parked, and why the rest would not
+relay park --idle 24h               # park every Claude quiet (no output, no input) for 24h
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force`, `-f` | Park even when Claude is busy or a draft may be unsent. Never parks a session without Claude. |
+| `--idle <duration>` | Park every session whose output and input have both been quiet this long (`30m`, `24h`, `2d`). Sessions marked with `relay keep` are skipped. |
+| `--dry-run`, `-n` | With `--idle`: print the table without parking anything |
+| `--json` | Print the result as JSON |
+
+### `relay unpark <id>`
+
+Type `claude --resume <conversation> <flags>` into the parked session's shell and clear `parked`. `<id>` can be the relay session id or the Claude conversation id. When the relay session is gone (after a reboot, say), unparking by conversation id starts a new session in the conversation's directory and types the command there.
+
+Unparking is refused while another program is in the session's foreground, and when a running `claude` already has that conversation open.
+
+### `relay keep <id>`
+
+Mark a session so auto-park and `relay park --idle` skip it. `relay keep --off <id>` clears the mark. `relay list` shows `KEEP` and `PARKED` next to the status.
+
 ### `relay wait <id> --state <state>`
 
 Block until the session reaches an agent state or exits. States: `blocked`, `working`, `done`, `idle`, `unknown`, `exited`. Exit code 0 when the state is reached, 2 on timeout, 1 when the session does not exist.

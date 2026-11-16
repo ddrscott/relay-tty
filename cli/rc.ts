@@ -3,6 +3,7 @@
  *
  *   prefix = C-b        # TUI prefix key (default). Also accepts ctrl-b, ^b
  *   host = http://...   # default --host for every command
+ *   park_after = 24h    # server auto-parks idle Claude sessions (off when unset)
  *
  * Written with DEFAULT_RC_TEXT the first time it is read and found missing,
  * so the file is there to discover and edit.
@@ -23,6 +24,8 @@ export interface KeyChord {
 export interface RelayRc {
   prefix: KeyChord;
   host?: string;
+  /** Raw duration string; the server parses it with parseDuration. */
+  park_after?: string;
 }
 
 export const DEFAULT_PREFIX: KeyChord = { byte: 0x02, label: "C-b" };
@@ -41,6 +44,11 @@ prefix = C-b
 # Default server URL for every command's --host. Leave unset to use the
 # sessions on this machine.
 # host = https://laptop.example.com
+
+# Let the server park Claude Code sessions that have had no output and no
+# input for this long (relay park --idle, every 5 minutes). Sessions marked
+# with relay keep are never parked. Off when unset.
+# park_after = 24h
 `;
 
 /**
@@ -82,6 +90,9 @@ export function parseRc(text: string, warn: (msg: string) => void = () => {}): P
       }
       case "host":
         if (value) out.host = value;
+        break;
+      case "park_after":
+        if (value) out.park_after = value;
         break;
       default:
         warn(`relayrc:${i + 1}: unknown key "${key}"`);

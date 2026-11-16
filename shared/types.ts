@@ -36,6 +36,29 @@ export interface Session {
   agentStateChangedAt?: number;
   /** True when the title was set by SET_TITLE and OSC title updates are ignored */
   titlePinned?: boolean;
+  /** Process-group leader pid of the foreground job; absent when the shell is in front */
+  foregroundPid?: number;
+  /** Epoch ms of the last keystroke written to the pty (focus/mouse reports excluded) */
+  lastInputAt?: number;
+  /** Set while an agent in this session is parked (`relay park`); absent otherwise */
+  parked?: ParkedAgent;
+  /** Never auto-park this session (`relay keep`) */
+  keep?: boolean;
+}
+
+/** A Claude Code conversation stopped by `relay park`, enough to resume it. */
+export interface ParkedAgent {
+  agent: "claude";
+  /** Claude Code conversation id, passed back as `claude --resume <sessionId>` */
+  sessionId: string;
+  /** Directory Claude was running in */
+  cwd: string;
+  /** Launch flags minus --resume/--continue/--session-id and the prompt (see shared/claude-flags.ts) */
+  flags: string[];
+  /** Claude's display name for the conversation, when it had one */
+  name?: string;
+  /** Epoch ms when it was parked */
+  parkedAt: number;
 }
 
 export const WS_MSG = {
@@ -83,6 +106,8 @@ export const WS_MSG = {
   SIGNAL: 0x25,
   /** Client→server, first frame only: observe live frames with no replay; not counted as an attached client. */
   OBSERVE: 0x26,
+  /** Client→server: patch client-owned metadata [UTF-8 JSON {parked?: object|null, keep?: bool}]. */
+  SET_META: 0x27,
 } as const;
 
 export interface CreateSessionRequest {

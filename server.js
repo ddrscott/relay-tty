@@ -79,6 +79,10 @@ async function loadModules(load) {
 
   const desktopModule = await load("desktop");
 
+  // Auto-park idle Claude sessions; a no-op until relayrc sets park_after.
+  const parkModule = await load("park");
+  parkModule.startAutoPark(ptyManager);
+
   const wsModule = await load("ws-handler");
   const wsHandler = new wsModule.WsHandler(sessionStore, ptyManager);
 
